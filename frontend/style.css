@@ -47,6 +47,9 @@ body.editing #list li { touch-action: none; }
 .room text { fill: var(--muted); font-size: .32px; pointer-events: none; }
 .room .dim { font-size: .22px; }
 body.editing .room { cursor: move; }
+body.drawing #plan, body.drawing .room { cursor: crosshair; }
+.draw-preview { fill: rgba(79,140,255,.18); stroke: var(--accent); stroke-width: 2; stroke-dasharray: 6 4; vector-effect: non-scaling-stroke; pointer-events: none; }
+.draw-label { fill: var(--text); font-size: .3px; text-anchor: middle; dominant-baseline: middle; pointer-events: none; }
 .handle .hit { fill: transparent; stroke: none; }
 .handle rect:not(.hit) { fill: var(--accent); stroke: #fff; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
 .h-nw, .h-se { cursor: nwse-resize; } .h-ne, .h-sw { cursor: nesw-resize; }

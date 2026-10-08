@@ -48,7 +48,7 @@ It listens on `127.0.0.1:8078` (override with `WEB_PORT`), so point a host Caddy
 
 - **View:** tap a marker or a list row → sheet with toggle / temperature +/− / open-closed.
   Colours: amber = on, grey = off, orange = valve heating, blue = valve at target, red = door open, green = closed.
-- **Edit:** Edit → “+ Room” (name and size), drag rooms and markers (a room carries the devices inside it), select a room and drag its handles to resize,
+- **Edit:** Edit → “+ Room”, then drag a rectangle on the plan and name it (sizes are pre-filled and can be tweaked), drag rooms and markers (a room carries the devices inside it), select a room and drag its handles to resize,
   drag unplaced devices from the side list onto the plan (or tap one, then tap the plan), select + Delete,
   “Edit room” (or double-click) to rename or resize, then Save.
 - Units: m/ft selector. The layout is always stored in metres; the selector changes how sizes are shown and entered.

@@ -70,8 +70,10 @@ function computeViewBox() {
   if (!pts.length) return [-0.5, -0.5, 12, 10];
   let x0 = Math.min(...pts.map((p) => p[0])), y0 = Math.min(...pts.map((p) => p[1]));
   let x1 = Math.max(...pts.map((p) => p[0])), y1 = Math.max(...pts.map((p) => p[1]));
-  const pad = st.editing ? 1.5 : 0.5;
-  return [x0 - pad, y0 - pad, Math.max(x1 - x0, 2) + pad * 2, Math.max(y1 - y0, 2) + pad * 2];
+  if (!st.editing) return [x0 - 0.5, y0 - 0.5, Math.max(x1 - x0, 2) + 1, Math.max(y1 - y0, 2) + 1];
+  // Edit mode: leave room around the plan to draw new rooms (at least the 12 × 10 m default).
+  const pad = 3, w = Math.max(x1 - x0 + pad * 2, 12), h = Math.max(y1 - y0 + pad * 2, 10);
+  return [(x0 + x1) / 2 - w / 2, (y0 + y1) / 2 - h / 2, w, h];
 }
 function svgPoint(clientX, clientY) {
   const p = new DOMPoint(clientX, clientY).matrixTransform(svg.getScreenCTM().inverse());
@@ -113,6 +115,12 @@ function render() {
       const t = el("text", { x: p.x, y: p.y + R + 0.22 }, g); t.textContent = `${d.current_temperature}°`;
     }
     const title = el("title", {}, g); title.textContent = `${d?.name || p.entity_id} — ${deviceValue(d)}`;
+  }
+  if (st.drawRect) {
+    const r = st.drawRect;
+    el("rect", { class: "draw-preview", x: r.x, y: r.y, width: r.w, height: r.h }, markersG);
+    const t = el("text", { class: "draw-label", x: r.x + r.w / 2, y: r.y + r.h / 2 }, markersG);
+    t.textContent = `${fmtLen(r.w)} × ${fmtLen(r.h)}`;
   }
   if (st.editing && st.sel?.type === "room") {
     const r = L.rooms.find((r) => r.id === st.sel.id);
@@ -225,7 +233,8 @@ async function setTemp(eid, t) {
 
 // ---------- edit mode ----------
 function setEditing(on) {
-  st.editing = on; st.sel = null; st.picked = null;
+  st.editing = on; st.sel = null; st.picked = null; st.drawing = false; st.drawRect = null;
+  $("addRoom").classList.remove("primary"); $("addRoom").textContent = "+ Room"; document.body.classList.remove("drawing");
   st.draft = on ? clone(st.layout) : null;
   document.body.classList.toggle("editing", on);
   $("editbar").hidden = !on; $("editToggle").hidden = on;
@@ -237,12 +246,12 @@ function placeDevice(eid, pt) {
   st.picked = null; st.sel = { type: "dev", id: eid }; render();
 }
 
-function roomDialog(room) {
+function roomDialog(room, drawn) {
   const dlg = $("roomDialog"), f = $("roomForm");
   $("roomDialogTitle").textContent = room ? "Edit room" : "Add room";
   dlg.querySelectorAll(".u").forEach((s) => (s.textContent = unit()));
   f.name.value = room?.name || "";
-  f.w.value = toDisp(room?.w ?? 4).toFixed(1); f.h.value = toDisp(room?.h ?? 3).toFixed(1);
+  f.w.value = toDisp(room?.w ?? drawn?.w ?? 4).toFixed(1); f.h.value = toDisp(room?.h ?? drawn?.h ?? 3).toFixed(1);
   dlg.onclose = () => {
     if (dlg.returnValue !== "ok") return;
     const name = f.name.value.trim(), w = fromDisp(+f.w.value), h = fromDisp(+f.h.value);
@@ -250,14 +259,16 @@ function roomDialog(room) {
     if (room) Object.assign(room, { name, w: snap(w) || SNAP, h: snap(h) || SNAP });
     else {
       const L = st.draft;
-      const x = L.rooms.length ? snap(Math.max(...L.rooms.map((r) => r.x + r.w))) : 0;
+      const x = drawn ? drawn.x : L.rooms.length ? snap(Math.max(...L.rooms.map((r) => r.x + r.w))) : 0;
+      const y = drawn ? drawn.y : 0;
       const id = "r" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
-      L.rooms.push({ id, name, x, y: 0, w: snap(w) || SNAP, h: snap(h) || SNAP });
+      L.rooms.push({ id, name, x, y, w: snap(w) || SNAP, h: snap(h) || SNAP });
       st.sel = { type: "room", id };
     }
     render();
   };
   dlg.returnValue = ""; dlg.showModal();
+  f.name.focus();
 }
 
 // pointer handling on the plan
@@ -265,6 +276,14 @@ svg.addEventListener("pointerdown", (e) => {
   const mk = e.target.closest(".marker"), rm = e.target.closest(".room");
   if (!st.editing) return;
   const pt = svgPoint(e.clientX, e.clientY);
+  if (st.drawing) {
+    const p0 = { x: snap(pt.x), y: snap(pt.y) };
+    st.drag = { draw: p0, pid: e.pointerId };
+    st.drawRect = { x: p0.x, y: p0.y, w: 0, h: 0 };
+    svg.setPointerCapture(e.pointerId);
+    render();
+    return;
+  }
   const hd = e.target.closest(".handle");
   if (hd && st.sel?.type === "room") {
     const r = st.draft.rooms.find((r) => r.id === st.sel.id);
@@ -291,6 +310,12 @@ svg.addEventListener("pointerdown", (e) => {
 svg.addEventListener("pointermove", (e) => {
   const d = st.drag; if (!d || e.pointerId !== d.pid) return;
   const pt = svgPoint(e.clientX, e.clientY);
+  if (d.draw) {
+    const x2 = snap(pt.x), y2 = snap(pt.y);
+    st.drawRect = { x: Math.min(d.draw.x, x2), y: Math.min(d.draw.y, y2), w: Math.abs(x2 - d.draw.x), h: Math.abs(y2 - d.draw.y) };
+    render();
+    return;
+  }
   const dx = pt.x - d.start.x, dy = pt.y - d.start.y;
   if (!d.moved && Math.hypot(dx, dy) < 0.08) return;
   d.moved = true;
@@ -307,7 +332,26 @@ function resizeRoom(r, o, dir, dx, dy) {
   if (dir.includes("n")) { const y = Math.min(snap(o.y + dy), o.y + o.h - MIN_ROOM); r.h = o.y + o.h - y; r.y = y; }
   r.w = +r.w.toFixed(3); r.h = +r.h.toFixed(3);
 }
-const endDrag = (e) => { if (st.drag && e.pointerId === st.drag.pid) { st.drag = null; render(); } };
+const endDrag = (e) => {
+  if (!st.drag || e.pointerId !== st.drag.pid) return;
+  const wasDraw = st.drag.draw, rect = st.drawRect;
+  st.drag = null; st.drawRect = null;
+  if (wasDraw) {
+    setDrawing(false);
+    if (e.type === "pointerup" && rect.w >= MIN_ROOM && rect.h >= MIN_ROOM) roomDialog(null, rect);
+    else setStatus("Room too small — drag out a bigger rectangle");
+    return;
+  }
+  render();
+};
+function setDrawing(on) {
+  st.drawing = on;
+  $("addRoom").classList.toggle("primary", on);
+  $("addRoom").textContent = on ? "Drag on the plan…" : "+ Room";
+  document.body.classList.toggle("drawing", on);
+  if (on) { st.sel = null; st.picked = null; }
+  render();
+}
 svg.addEventListener("pointerup", endDrag);
 svg.addEventListener("pointercancel", endDrag);
 svg.addEventListener("dblclick", (e) => {
@@ -355,7 +399,7 @@ $("list").addEventListener("click", (e) => {
 // toolbar
 $("editToggle").onclick = () => setEditing(true);
 $("cancelEdit").onclick = () => setEditing(false);
-$("addRoom").onclick = () => roomDialog(null);
+$("addRoom").onclick = () => setDrawing(!st.drawing);
 $("editRoom").onclick = () => st.sel?.type === "room" && roomDialog(st.draft.rooms.find((r) => r.id === st.sel.id));
 $("deleteSel").onclick = () => {
   if (!st.sel) return;
@@ -388,7 +432,7 @@ $("unit").onchange = async (e) => {
 $("sheetClose").onclick = closeSheet;
 $("sheet").addEventListener("click", (e) => { if (e.target.id === "sheet") closeSheet(); });
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") closeSheet();
+  if (e.key === "Escape") { closeSheet(); if (st.drawing) setDrawing(false); }
   if (st.editing && (e.key === "Delete" || e.key === "Backspace") && st.sel && !$("roomDialog").open) $("deleteSel").click();
 });
 
