@@ -27,7 +27,7 @@ class HAClient:
         try:
             r = await self._client.request(method, path, **kw)
         except httpx.HTTPError as e:
-            raise HAError(f"Home Assistant unreachable: {e}") from e
+            raise HAError(f"Home Assistant unreachable at {self._client.base_url}: {type(e).__name__} {e}".rstrip()) from e
         if r.status_code >= 400:
             raise HAError(f"Home Assistant returned {r.status_code} for {path}")
         return r
