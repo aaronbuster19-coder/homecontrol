@@ -507,11 +507,12 @@ function updateStatus() {
   // Most useful first: the status line is truncated on narrow phones.
   const parts = [];
   if (w != null) parts.push(`⚡ ${fmtW(w)}`);
-  if (st.live) parts.push("● live");
+  if (st.live && st.ws !== false) parts.push("● live");
+  else if (st.live) parts.push("↻ 10 s");
   else if (st.updatedAt) parts.push(st.updatedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
   parts.push(`${st.devices.size} devices`);
   setStatus(parts.join(" · "));
-  $("status").classList.toggle("live", !!st.live);
+  $("status").classList.toggle("live", !!st.live && st.ws !== false);
 }
 function applyDevices() { if (!st.drag) render(); else renderSide(); if (st.sheetFor) renderSheet(); updateStatus(); }
 function startLive() {
@@ -529,6 +530,7 @@ function startLive() {
     if (st.sheetFor === d.entity_id && tempTimer && d.kind === "valve") { render(); updateStatus(); return; }
     applyDevices();
   });
+  es.addEventListener("status", (e) => { st.ws = !!JSON.parse(e.data).ws; updateStatus(); });
   es.onopen = () => { st.live = true; updateStatus(); };
   // EventSource retries by itself; polling covers the gap.
   es.onerror = () => { if (st.live) { st.live = false; updateStatus(); loadDevices(); } };

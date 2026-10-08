@@ -1,7 +1,7 @@
 "use strict";
 // Bump VERSION when the shell changes shape; content updates arrive anyway (network-first).
-const VERSION = "hc-v2";
-const SHELL = ["/", "/index.html", "/app.js", "/floorplan.js", "/style.css", "/login.html", "/login.js", "/manifest.webmanifest",
+const VERSION = "hc-v3";
+const SHELL = ["/", "/index.html", "/app.js", "/floorplan.js", "/alerts.js", "/style.css", "/login.html", "/login.js", "/manifest.webmanifest",
   "/icons/icon-192.png", "/icons/icon-512.png", "/icons/icon-maskable-512.png", "/icons/apple-touch-icon.png"];
 const API_CACHED = ["/api/layout", "/api/devices"];
 
@@ -48,3 +48,22 @@ async function networkFirst(req, key) {
     throw err;
   }
 }
+
+// ---------- push notifications (door alerts) ----------
+self.addEventListener("push", (e) => {
+  let d = {};
+  try { d = e.data ? e.data.json() : {}; } catch { d = { body: e.data && e.data.text() }; }
+  e.waitUntil(self.registration.showNotification(d.title || "homecontrol", {
+    body: d.body || "", tag: d.tag || "homecontrol", renotify: !!d.tag,
+    icon: "/icons/icon-192.png", badge: "/icons/icon-192.png", data: { url: d.url || "/" },
+  }));
+});
+
+self.addEventListener("notificationclick", (e) => {
+  e.notification.close();
+  const url = new URL((e.notification.data && e.notification.data.url) || "/", location.origin).href;
+  e.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((wins) => {
+    const w = wins.find((c) => new URL(c.url).origin === location.origin);
+    return w ? w.focus() : self.clients.openWindow(url);
+  }));
+});

@@ -81,7 +81,7 @@ It listens on `127.0.0.1:8078` (override with `WEB_PORT`), so point a host Caddy
 - **Live:** the server keeps one websocket open to Home Assistant (`HA_URL` with `http`→`ws` / `https`→`wss`,
   path `/api/websocket`, same token) and pushes every change to the browser over Server-Sent Events
   (`GET /api/events`), so changes made from wall switches or the Tapo app show up within about a second.
-  The status line shows “● live” while the stream is connected. If the websocket is unreachable the server
+  The status line shows “● live” while the server's HA websocket is up, and “↻ 10 s” while it is only polling. If the websocket is unreachable the server
   polls `/api/states` every 10 s (reconnecting with 1 s → 60 s backoff), and if the browser's stream drops
   the page polls every 5 s until it reconnects. Behind Cloudflare/Caddy nothing extra is needed
   (keep-alive pings every 20 s; `X-Accel-Buffering: no`).
@@ -93,10 +93,29 @@ It listens on `127.0.0.1:8078` (override with `WEB_PORT`), so point a host Caddy
   (power W, energy kWh with “today” in its id or name, battery %, battery binary sensor) — not by entity-id
   patterns. Use ↻ (refresh) after adding devices in HA.
 
+## Alerts
+
+Push notification on your phone when a door/window sensor stays open (works with the app closed).
+
+- **Enable per device:** tap the bell in the header → *Enable on this device* and allow notifications.
+  *Send test notification* checks it works. Each phone/browser is enabled separately; settings (on/off,
+  minutes 1–120, default 5, “also notify when it closes”) are shared.
+- **iPhone/iPad:** Web Push only works for the app added to the Home Screen (iOS 16.4+): Safari → Share →
+  *Add to Home Screen*, open it from there, then enable alerts. If you once tapped “Don't allow”, re-allow
+  notifications in the browser/iOS settings for the site.
+- One notification per opening, “Front door has been open for 5 min” (checked every 15 s); closing resets it.
+  Unavailable sensors don't count as open. After a restart, an open door's timer starts from HA's `last_changed`.
+- **VAPID keys** are generated on first start and kept next to the database (`vapid_private.pem`, mode 600).
+  Optional env overrides: `VAPID_PRIVATE_KEY` (PEM or base64url raw/DER key), `VAPID_PUBLIC_KEY`,
+  `VAPID_SUBJECT` (contact sent to push services, default `mailto:admin@localhost` — set it to your
+  `mailto:` address). Changing the key means every device must enable alerts again.
+
 ## API
 
-`GET /healthz` · `POST /api/login` `{"username","password"}` · `POST /api/logout` · `GET /api/me` · `GET /api/devices` · `GET /api/events` (SSE: `snapshot`, then `device` events) · `POST /api/devices/refresh` · `POST /api/devices/{entity_id}/toggle` ·
-`POST /api/devices/{entity_id}/temperature` `{"temperature": 21.0}` · `GET /api/layout` · `PUT /api/layout`
+`GET /healthz` · `POST /api/login` `{"username","password"}` · `POST /api/logout` · `GET /api/me` · `GET /api/devices` · `GET /api/events` (SSE: `snapshot`, `status` `{"ws": bool}`, then `device` events) · `POST /api/devices/refresh` · `POST /api/devices/{entity_id}/toggle` ·
+`POST /api/devices/{entity_id}/temperature` `{"temperature": 21.0}` · `GET /api/layout` · `PUT /api/layout` ·
+`GET /api/push/key` · `POST /api/push/subscribe` (PushSubscription JSON) · `POST /api/push/unsubscribe` `{"endpoint"}` ·
+`POST /api/push/test` · `GET`/`PUT /api/alerts/settings` `{"enabled", "door_open_minutes", "notify_on_close"}`
 
 Devices carry `power` (W), `energy_today` (kWh), `battery` (%) and `battery_low` (bool) when HA knows them.
 
