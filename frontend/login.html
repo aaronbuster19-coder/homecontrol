@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#14171c">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Home">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<title>Sign in · homecontrol</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="login-page">
+<form id="loginForm" class="login" autocomplete="on">
+  <img src="/icons/icon-192.png" alt="" width="72" height="72">
+  <h1>homecontrol</h1>
+  <label>Username <input name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required></label>
+  <label>Password <input name="password" type="password" autocomplete="current-password" required></label>
+  <p id="loginError" class="login-err" role="alert"></p>
+  <button class="primary" type="submit">Sign in</button>
+</form>
+<script src="login.js"></script>
+</body>
+</html>

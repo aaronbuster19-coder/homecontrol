@@ -14,6 +14,7 @@ services:
       HA_TOKEN: ${HA_TOKEN}
       APP_USER: ${APP_USER}
       APP_PASSWORD: ${APP_PASSWORD}
+      SESSION_SECRET: ${SESSION_SECRET:-}
       DB_PATH: /data/layout.db
     volumes:
       - homecontrol-data:/data
