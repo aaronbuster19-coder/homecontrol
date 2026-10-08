@@ -37,6 +37,13 @@ docker compose up -d --build
 Login is HTTP Basic auth (`APP_USER` / `APP_PASSWORD`). If either is empty, every request is refused.
 `/healthz` is unauthenticated.
 
+### Dockge
+
+`dockge/compose.yaml` builds the image straight from GitHub. Paste it into a new Dockge stack and set
+`HA_URL` (e.g. `http://host.docker.internal:8123`), `HA_TOKEN`, `APP_USER`, `APP_PASSWORD` in the stack's `.env`.
+It listens on `127.0.0.1:8078` (override with `WEB_PORT`), so point a host Caddy at it:
+`reverse_proxy 127.0.0.1:8078`. To pick up new code: `docker compose build --no-cache && docker compose up -d`.
+
 ## Using it
 
 - **View:** tap a marker or a list row → sheet with toggle / temperature +/− / open-closed.

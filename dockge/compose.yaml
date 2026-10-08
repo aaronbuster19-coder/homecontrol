@@ -1,0 +1,24 @@
+# Dockge stack: builds straight from GitHub, no local clone needed.
+# Set HA_URL, HA_TOKEN, APP_USER, APP_PASSWORD (and optionally WEB_PORT) in the stack's .env.
+services:
+  homecontrol:
+    build:
+      context: https://github.com/aaronbuster19-coder/homecontrol.git#claude/exciting-curie-062f6l
+    image: homecontrol:latest
+    container_name: homecontrol
+    restart: unless-stopped
+    ports:
+      - 127.0.0.1:${WEB_PORT:-8078}:8000
+    environment:
+      HA_URL: ${HA_URL}
+      HA_TOKEN: ${HA_TOKEN}
+      APP_USER: ${APP_USER}
+      APP_PASSWORD: ${APP_PASSWORD}
+      DB_PATH: /data/layout.db
+    volumes:
+      - homecontrol-data:/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  homecontrol-data:
