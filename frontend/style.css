@@ -77,6 +77,8 @@ body.editing .marker { cursor: move; }
 .temp button { width: 60px; height: 54px; font-size: 24px; }
 .temp .target { font-size: 34px; font-weight: 600; }
 .badge { display: inline-block; padding: 6px 14px; border-radius: 99px; font-weight: 600; color: #15181d; }
+.marker .batwarn { fill: var(--open); stroke: var(--bg); stroke-width: 1.5; }
+.sub.warn { color: var(--open); }
 
 dialog { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 14px; width: min(360px, 92vw); }
 dialog::backdrop { background: rgba(0,0,0,.5); }

@@ -47,16 +47,32 @@ function deviceColor(d) {
 function deviceValue(d) {
   if (!d) return "";
   if (d.state === "unavailable" || d.state === "unknown") return d.state;
-  if (d.kind === "valve") return `${d.current_temperature ?? "–"}° → ${d.temperature ?? "–"}°`;
-  if (d.kind === "sensor") return d.state === "on" ? "open" : "closed";
+  const bat = batteryWarn(d) ? (d.battery != null ? ` · 🔋 ${d.battery} %` : " · 🔋 low") : "";
+  if (d.kind === "valve") return `${d.current_temperature ?? "–"}° → ${d.temperature ?? "–"}°${bat}`;
+  if (d.kind === "sensor") return (d.state === "on" ? "open" : "closed") + bat;
+  if (d.kind === "plug" && d.state === "on" && d.power != null) return `on · ${fmtW(d.power)}`;
   return d.state;
+}
+
+// ---------- power / battery ----------
+const fmtW = (w) => `${w >= 100 ? Math.round(w) : Math.round(w * 10) / 10} W`;
+const batteryWarn = (d) => !!d && (d.battery_low === true || (d.battery != null && d.battery < 20));
+function totalPower() {
+  let w = 0, any = false;
+  for (const d of st.devices.values()) if (d.kind === "plug" && d.power != null) { w += d.power; any = true; }
+  return any ? w : null;
+}
+function batteryText(d) {
+  if (d.battery != null) return `Battery ${d.battery} %${batteryWarn(d) ? " — low" : ""}`;
+  if (d.battery_low != null) return d.battery_low ? "Battery low" : "Battery OK";
+  return "";
 }
 
 async function loadDevices() {
   try {
     const list = await api("/api/devices");
     st.devices = new Map(list.map((d) => [d.entity_id, d]));
-    setStatus(`${list.length} devices · ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`);
+    st.updatedAt = new Date(); updateStatus();
   } catch (e) { setStatus(`Home Assistant: ${e.message}`, true); }
   render();
   if (st.sheetFor) renderSheet();
@@ -114,6 +130,10 @@ function render() {
     if (kind === "valve" && d?.current_temperature != null) {
       const t = el("text", { x: p.x, y: p.y + R + 0.22 }, g); t.textContent = `${d.current_temperature}°`;
     }
+    if (kind === "plug" && d?.state === "on" && d.power != null) {
+      const t = el("text", { x: p.x, y: p.y + R + 0.22 }, g); t.textContent = fmtW(d.power);
+    }
+    if (batteryWarn(d)) el("circle", { class: "batwarn", cx: p.x + R * 0.75, cy: p.y - R * 0.75, r: R * 0.3 }, g);
     const title = el("title", {}, g); title.textContent = `${d?.name || p.entity_id} — ${deviceValue(d)}`;
   }
   if (st.drawRect) {
@@ -192,6 +212,12 @@ function renderSheet() {
     b.disabled = unavailable;
     b.onclick = () => toggle(d);
     c.appendChild(b);
+    if (d.kind === "plug" && (d.power != null || d.energy_today != null)) {
+      const pw = document.createElement("div"); pw.className = "sub"; pw.style.marginTop = "12px";
+      pw.textContent = [d.power != null ? `Now ${fmtW(d.power)}` : "", d.energy_today != null ? `Today ${d.energy_today.toFixed(2)} kWh` : ""]
+        .filter(Boolean).join(" · ");
+      c.appendChild(pw);
+    }
   } else if (d.kind === "valve") {
     const cur = document.createElement("div"); cur.className = "sub";
     cur.textContent = `Current ${d.current_temperature ?? "–"}°C · ${d.state}`; c.appendChild(cur);
@@ -206,7 +232,7 @@ function renderSheet() {
       const t = Math.min(hi, Math.max(lo, Math.round(((d.temperature ?? 20) + dir * step) / step) * step));
       d.temperature = t; val.textContent = `${t}°`; render();
       clearTimeout(tempTimer);
-      tempTimer = setTimeout(() => setTemp(d.entity_id, t), 700);
+      tempTimer = setTimeout(() => { tempTimer = null; setTemp(d.entity_id, t); }, 700);
     };
     minus.onclick = () => bump(-1); plus.onclick = () => bump(1);
     minus.disabled = plus.disabled = unavailable;
@@ -216,6 +242,10 @@ function renderSheet() {
     const b = document.createElement("span"); b.className = "badge";
     b.style.background = deviceColor(d); b.textContent = unavailable ? d.state : d.state === "on" ? "Open" : "Closed";
     c.appendChild(b);
+  }
+  if (batteryText(d)) {
+    const bt = document.createElement("div"); bt.className = "sub" + (batteryWarn(d) ? " warn" : ""); bt.style.marginTop = "12px";
+    bt.textContent = `🔋 ${batteryText(d)}`; c.appendChild(bt);
   }
 }
 // Lights and plugs toggle straight away; valves and sensors open their sheet.
@@ -229,12 +259,12 @@ async function toggle(d) {
   d.state = d.state === "on" ? "off" : "on"; render(); if (st.sheetFor) renderSheet();
   try { await api(`/api/devices/${encodeURIComponent(d.entity_id)}/toggle`, { method: "POST" }); }
   catch (e) { d.state = prev; render(); if (st.sheetFor) renderSheet(); setStatus(`Toggle failed: ${e.message}`, true); return; }
-  setTimeout(loadDevices, 800);
+  if (!st.live) setTimeout(loadDevices, 800);
 }
 async function setTemp(eid, t) {
   try { await api(`/api/devices/${encodeURIComponent(eid)}/temperature`, { method: "POST", body: JSON.stringify({ temperature: t }) }); setStatus(`Target set to ${t}°`); }
   catch (e) { setStatus(`Set temperature failed: ${e.message}`, true); }
-  setTimeout(loadDevices, 1000);
+  if (!st.live) setTimeout(loadDevices, 1000);
 }
 
 // ---------- edit mode ----------
@@ -442,11 +472,45 @@ document.addEventListener("keydown", (e) => {
   if (st.editing && (e.key === "Delete" || e.key === "Backspace") && st.sel && !$("roomDialog").open) $("deleteSel").click();
 });
 
+// ---------- live updates (server-sent events) ----------
+function updateStatus() {
+  const w = totalPower();
+  // Most useful first: the status line is truncated on narrow phones.
+  const parts = [];
+  if (w != null) parts.push(`⚡ ${fmtW(w)}`);
+  if (st.live) parts.push("● live");
+  else if (st.updatedAt) parts.push(st.updatedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
+  parts.push(`${st.devices.size} devices`);
+  setStatus(parts.join(" · "));
+  $("status").classList.toggle("live", !!st.live);
+}
+function applyDevices() { if (!st.drag) render(); else renderSide(); if (st.sheetFor) renderSheet(); updateStatus(); }
+function startLive() {
+  if (!window.EventSource) return;
+  const es = new EventSource("/api/events");
+  es.addEventListener("snapshot", (e) => {
+    const list = JSON.parse(e.data);
+    st.devices = new Map(list.map((d) => [d.entity_id, d]));
+    st.live = true; st.updatedAt = new Date(); applyDevices();
+  });
+  es.addEventListener("device", (e) => {
+    const d = JSON.parse(e.data);
+    st.devices.set(d.entity_id, d); st.updatedAt = new Date();
+    // Don't redraw the sheet mid-adjustment of a valve target; the pending set will confirm it.
+    if (st.sheetFor === d.entity_id && tempTimer && d.kind === "valve") { render(); updateStatus(); return; }
+    applyDevices();
+  });
+  es.onopen = () => { st.live = true; updateStatus(); };
+  // EventSource retries by itself; polling covers the gap.
+  es.onerror = () => { if (st.live) { st.live = false; updateStatus(); loadDevices(); } };
+}
+
 // ---------- boot ----------
 (async () => {
   try { st.layout = await api("/api/layout"); } catch (e) { setStatus(`Layout: ${e.message}`, true); }
   $("unit").value = st.layout.unit || "m";
   await loadDevices();
-  setInterval(() => { if (!st.editing && !document.hidden) loadDevices(); }, 5000);
-  document.addEventListener("visibilitychange", () => { if (!document.hidden && !st.editing) loadDevices(); });
+  startLive();
+  setInterval(() => { if (!st.live && !st.editing && !document.hidden) loadDevices(); }, 5000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden && !st.editing && !st.live) loadDevices(); });
 })();
