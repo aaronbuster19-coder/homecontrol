@@ -44,5 +44,13 @@ class HAClient:
     async def states(self) -> list[dict]:
         return (await self._request("GET", "/api/states")).json()
 
+    async def history(self, start, end, entity_ids: list[str], attributes: bool = False) -> list:
+        """GET /api/history/period/<start>. Without attributes: minimal_response + no_attributes (much smaller)."""
+        params = {"filter_entity_id": ",".join(entity_ids), "end_time": end.isoformat(timespec="seconds")}
+        if not attributes:
+            params.update(minimal_response="", no_attributes="")
+        r = await self._request("GET", f"/api/history/period/{start.isoformat(timespec='seconds')}", params=params, timeout=30.0)
+        return r.json()
+
     async def call_service(self, domain: str, service: str, data: dict) -> None:
         await self._request("POST", f"/api/services/{domain}/{service}", json=data)

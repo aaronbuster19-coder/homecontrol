@@ -97,6 +97,14 @@ container isn't healthy within ~2.5 min it puts the previous image (`homecontrol
 - API: `POST /api/devices/{id}/light` (`brightness_pct`, `hs_color`, `rgb_color`, `color_temp_kelvin`),
   `POST /api/bulk` (`action` turn_on/turn_off, `entity_ids` lights/plugs), `POST /api/valves/temperature`
   (`temperature`, optional `entity_ids`).
+- **History:** every device sheet (long-press a light/plug, tap a valve/sensor) has a collapsible *History* section with
+  24h / 7d / 30d: plug power (W) with energy used in the range, valve current temperature (line) and target (dashed),
+  light on/off and door open/closed bars. Tap or hover the chart for the value at that time. Data comes from HA's
+  recorder (`/api/history/period`), downsampled to ≤300 points and cached 60 s (24h) / 10 min (7d, 30d); it's only
+  fetched when the section is open.
+- **Door log:** “Log” on the *Door / window sensors* header in the device list (or “Door log →” in a sensor's sheet):
+  every open/close per door, newest first, with “open for 3 min” durations, opens today, longest open and
+  “open since”; 24h / 7d. Built from HA history, so it covers time the app wasn't open.
 - Units: m/ft selector in the ⋯ menu. The layout is always stored in metres; the selector changes how sizes are shown and entered.
 
 ## More menu (⋯), temperatures, Away/Home, backup
@@ -160,7 +168,9 @@ Push notification on your phone when a door/window sensor stays open (works with
 `GET /healthz` · `POST /api/login` `{"username","password"}` · `POST /api/logout` · `GET /api/me` · `GET /api/devices` · `GET /api/events` (SSE: `snapshot`, `status` `{"ws": bool}`, then `device` events) · `POST /api/devices/refresh` · `POST /api/devices/{entity_id}/toggle` ·
 `POST /api/devices/{entity_id}/temperature` `{"temperature": 21.0}` · `GET /api/layout` · `PUT /api/layout` ·
 `GET /api/push/key` · `POST /api/push/subscribe` (PushSubscription JSON) · `POST /api/push/unsubscribe` `{"endpoint"}` ·
-`POST /api/push/test` · `GET`/`PUT /api/alerts/settings` `{"enabled", "door_open_minutes", "notify_on_close"}`
+`POST /api/push/test` · `GET`/`PUT /api/alerts/settings` `{"enabled", "door_open_minutes", "notify_on_close"}` ·
+`GET /api/history/{entity_id}?range=24h|7d|30d` (`series` `[{name, unit, points: [[t_ms, v|null]]}]`, `timeline` `[{state, start, end}]`, plugs: `energy_kwh`) ·
+`GET /api/doors/log?range=24h|7d&tz=Europe/London` (per door: `events` `[{t, state, open_ms}]` newest first, `summary`)
 
 Devices carry `power` (W), `energy_today` (kWh), `battery` (%) and `battery_low` (bool) when HA knows them.
 

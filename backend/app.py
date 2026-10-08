@@ -13,7 +13,8 @@ from .auth import COOKIE, SESSION_TTL, AuthMiddleware, RateLimiter, Sessions, ch
 from .config import Settings, load_settings
 from .discovery import Device, parse_template_output
 from .ha import DISCOVERY_TEMPLATE, HAClient, HAError
-from .live import Live, ws_url
+from .history import DOOR_RANGES, History, RangeError, check_range
+from .live import Live, build_device, ws_url
 from .modes import ModeError, ModeStore, current_targets, now_iso, public, restore_groups, validate_mode_settings
 from .store import LayoutError, LayoutStore, validate_layout
 
@@ -168,6 +169,24 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
         return dev
 
     alerts = Alerts(alert_store, pusher, live, devices)
+    history = History(ha)
+
+    @app.get("/api/history/{entity_id}")
+    async def get_history(entity_id: str, range: str = "24h"):
+        try:
+            rng = check_range(range)
+        except RangeError as e:
+            raise HTTPException(400, str(e))
+        dev = await require(entity_id, ("light", "plug", "valve", "sensor"))
+        return await history.device(dev, rng, build_device(dev, live.states))
+
+    @app.get("/api/doors/log")
+    async def doors_log(range: str = "24h", tz: str | None = None):
+        try:
+            rng = check_range(range, DOOR_RANGES)
+        except RangeError as e:
+            raise HTTPException(400, str(e))
+        return await history.doors([d for d in (await devices()).values() if d.kind == "sensor"], rng, tz)
 
     async def json_body(request: Request):
         try:

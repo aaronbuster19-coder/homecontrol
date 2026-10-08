@@ -209,7 +209,7 @@ function renderSide() {
   for (const kind of KIND_ORDER) {
     const group = devs.filter((d) => d.kind === kind);
     if (!group.length) continue;
-    const h = document.createElement("li"); h.className = "group"; h.textContent = KIND_LABEL[kind]; list.appendChild(h);
+    const h = document.createElement("li"); h.className = "group"; h.textContent = KIND_LABEL[kind]; list.appendChild(h); if (!st.editing) groupActions(kind, h);
     for (const d of group) {
       const li = document.createElement("li");
       li.dataset.dev = d.entity_id;
@@ -229,6 +229,7 @@ function closeSheet() { st.sheetFor = null; $("sheet").hidden = true; }
 function renderSheet() {
   const d = st.devices.get(st.sheetFor); const c = $("sheetContent"); c.replaceChildren();
   if (st.sheetFor === HEATING) return renderHeating(c);
+  if (st.sheetFor === DOORS) return renderDoors(c);
   if (!d) { c.textContent = "Device not found in Home Assistant."; return; }
   const h = document.createElement("h3"); h.textContent = d.name; c.appendChild(h);
   const sub = document.createElement("div"); sub.className = "sub"; sub.textContent = `${d.model || d.kind} · ${d.entity_id}`; c.appendChild(sub);
@@ -276,6 +277,7 @@ function renderSheet() {
     const bt = document.createElement("div"); bt.className = "sub" + (batteryWarn(d) ? " warn" : ""); bt.style.marginTop = "12px";
     bt.textContent = `🔋 ${batteryText(d)}`; c.appendChild(bt);
   }
+  historySection(d, c);
 }
 // Lights and plugs toggle straight away; valves and sensors open their sheet.
 function tapDevice(eid) {
