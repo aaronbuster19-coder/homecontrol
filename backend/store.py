@@ -57,7 +57,23 @@ def _openings(items, known_entities: set[str]) -> list[dict]:
     return out
 
 
-def validate_layout(data, known_entities: set[str]) -> dict:
+def _settings(data, known_plugs: set[str] | None) -> dict | None:
+    s = data.get("settings")
+    if s is None:
+        return None
+    if not isinstance(s, dict):
+        raise LayoutError("settings must be an object")
+    keep = s.get("keep_on", [])
+    if not isinstance(keep, list) or not all(isinstance(e, str) for e in keep):
+        raise LayoutError("settings.keep_on must be a list of entity ids")
+    if known_plugs is not None:
+        bad = [e for e in keep if e not in known_plugs]
+        if bad:
+            raise LayoutError(f"settings.keep_on: unknown plug {bad[0]!r}")
+    return {"keep_on": sorted(set(keep))}
+
+
+def validate_layout(data, known_entities: set[str], known_plugs: set[str] | None = None) -> dict:
     if not isinstance(data, dict):
         raise LayoutError("layout must be an object")
     unit = data.get("unit", "m")
@@ -99,7 +115,11 @@ def validate_layout(data, known_entities: set[str]) -> dict:
         places.append({"entity_id": eid, "x": _num(p.get("x"), f"placement {i} x"),
                        "y": _num(p.get("y"), f"placement {i} y")})
     openings = _openings(data.get("openings", []), known_entities)
-    return {"unit": unit, "rooms": rooms, "placements": places, "openings": openings}
+    out = {"unit": unit, "rooms": rooms, "placements": places, "openings": openings}
+    settings = _settings(data, known_plugs if known_plugs is not None else known_entities)
+    if settings is not None:
+        out["settings"] = settings
+    return out
 
 
 class LayoutStore:

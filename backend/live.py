@@ -33,7 +33,7 @@ def build_device(d: Device, states: dict[str, dict]) -> dict:
         for k in ("current_temperature", "temperature", "min_temp", "max_temp", "target_temp_step"):
             item[k] = attrs.get(k)
     if d.kind == "light":
-        item["brightness"] = attrs.get("brightness")
+        item.update(light_caps(attrs))
     for role in ("power", "energy_today"):
         v = number(states.get(d.related.get(role, "")))
         if v is not None:
@@ -45,6 +45,24 @@ def build_device(d: Device, states: dict[str, dict]) -> dict:
     if low in ("on", "off"):
         item["battery_low"] = low == "on"
     return item
+
+
+COLOR_MODES = {"hs", "rgb", "rgbw", "rgbww", "xy"}
+DIM_MODES = COLOR_MODES | {"color_temp", "brightness", "white"}
+
+
+def light_caps(attrs: dict) -> dict:
+    """What the light sheet needs: current brightness/colour and what the bulb supports."""
+    modes = [m for m in attrs.get("supported_color_modes") or [] if isinstance(m, str)]
+    out = {k: attrs.get(k) for k in ("brightness", "color_mode", "hs_color", "rgb_color", "color_temp_kelvin")}
+    out["supported_color_modes"] = modes
+    out["supports_brightness"] = bool(DIM_MODES.intersection(modes))
+    out["supports_color"] = bool(COLOR_MODES.intersection(modes))
+    out["supports_color_temp"] = "color_temp" in modes
+    if out["supports_color_temp"]:
+        out["min_color_temp_kelvin"] = attrs.get("min_color_temp_kelvin") or 2500
+        out["max_color_temp_kelvin"] = attrs.get("max_color_temp_kelvin") or 6500
+    return out
 
 
 def sse(event: str, data) -> str:
