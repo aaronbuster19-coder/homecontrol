@@ -1,0 +1,28 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    # Self-hosted runner: never run code from fork PRs on it.
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: self-hosted
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Unit tests (pytest inside the image's test stage)
+        run: docker build --target test -t homecontrol-ci:test-${{ github.run_id }} .
+
+      - name: Build production image
+        run: docker build -t homecontrol-ci:${{ github.run_id }} .
+
+      - name: Clean up CI images
+        if: always()
+        run: docker image rm -f homecontrol-ci:test-${{ github.run_id }} homecontrol-ci:${{ github.run_id }} || true

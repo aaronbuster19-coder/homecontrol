@@ -104,6 +104,10 @@ The layout is a single JSON document in SQLite (`DB_PATH`, default `/data/layout
 
 ## Development
 
+CI: `.github/workflows/test.yml` runs on every push and same-repo PR on a **self-hosted** runner
+(`runs-on: self-hosted`). It needs Docker on the runner (the runner user must be in the `docker` group);
+it runs pytest via `docker build --target test` and then builds the production image. Fork PRs are skipped.
+
 ```sh
 pip install -r requirements-dev.txt
 python -m pytest backend/tests          # HA is mocked; no real devices touched
