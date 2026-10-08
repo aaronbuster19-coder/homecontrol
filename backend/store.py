@@ -17,6 +17,46 @@ def _num(v, what: str) -> float:
     return float(v)
 
 
+CORNERS = ("nw", "ne", "sw", "se")
+OPENING_LEN = (0.2, 5.0)
+
+
+def _cut(c, w: float, h: float, i: int) -> dict:
+    if not isinstance(c, dict) or c.get("corner") not in CORNERS:
+        raise LayoutError(f"room {i} cut needs a corner (nw/ne/sw/se)")
+    cw, ch = _num(c.get("w"), f"room {i} cut w"), _num(c.get("h"), f"room {i} cut h")
+    if not (0 < cw < w and 0 < ch < h):
+        raise LayoutError(f"room {i} cut must be smaller than the room")
+    return {"corner": c["corner"], "w": cw, "h": ch}
+
+
+def _openings(items, known_entities: set[str]) -> list[dict]:
+    if not isinstance(items, list):
+        raise LayoutError("openings must be a list")
+    out, ids = [], set()
+    for i, o in enumerate(items):
+        if not isinstance(o, dict):
+            raise LayoutError(f"opening {i} must be an object")
+        oid = o.get("id")
+        if not isinstance(oid, str) or not oid or oid in ids:
+            raise LayoutError(f"opening {i} needs a unique id")
+        ids.add(oid)
+        if o.get("type") not in ("door", "window") or o.get("orient") not in ("h", "v"):
+            raise LayoutError(f"opening {i} needs type door/window and orient h/v")
+        ln = _num(o.get("len"), f"opening {i} len")
+        if not OPENING_LEN[0] <= ln <= OPENING_LEN[1]:
+            raise LayoutError(f"opening {i} len must be {OPENING_LEN[0]}–{OPENING_LEN[1]} m")
+        item = {"id": oid, "type": o["type"], "x": _num(o.get("x"), f"opening {i} x"),
+                "y": _num(o.get("y"), f"opening {i} y"), "len": ln, "orient": o["orient"]}
+        eid = o.get("entity_id")
+        if eid is not None:
+            if eid not in known_entities:
+                raise LayoutError(f"opening {i}: unknown entity {eid!r}")
+            item["entity_id"] = eid
+        out.append(item)
+    return out
+
+
 def validate_layout(data, known_entities: set[str]) -> dict:
     if not isinstance(data, dict):
         raise LayoutError("layout must be an object")
@@ -41,9 +81,11 @@ def validate_layout(data, known_entities: set[str]) -> dict:
         w, h = _num(r.get("w"), f"room {i} w"), _num(r.get("h"), f"room {i} h")
         if w <= 0 or h <= 0:
             raise LayoutError(f"room {i} must have positive size")
-        rooms.append({"id": rid, "name": name.strip()[:60],
-                      "x": _num(r.get("x"), f"room {i} x"), "y": _num(r.get("y"), f"room {i} y"),
-                      "w": w, "h": h})
+        room = {"id": rid, "name": name.strip()[:60],
+                "x": _num(r.get("x"), f"room {i} x"), "y": _num(r.get("y"), f"room {i} y"), "w": w, "h": h}
+        if r.get("cut") is not None:
+            room["cut"] = _cut(r["cut"], w, h, i)
+        rooms.append(room)
     places, placed = [], set()
     for i, p in enumerate(places_in):
         if not isinstance(p, dict):
@@ -56,7 +98,8 @@ def validate_layout(data, known_entities: set[str]) -> dict:
         placed.add(eid)
         places.append({"entity_id": eid, "x": _num(p.get("x"), f"placement {i} x"),
                        "y": _num(p.get("y"), f"placement {i} y")})
-    return {"unit": unit, "rooms": rooms, "placements": places}
+    openings = _openings(data.get("openings", []), known_entities)
+    return {"unit": unit, "rooms": rooms, "placements": places, "openings": openings}
 
 
 class LayoutStore:
