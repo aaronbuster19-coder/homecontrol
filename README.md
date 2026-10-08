@@ -61,6 +61,18 @@ The last loaded plan and device states are cached, so it opens offline ("Offline
 It listens on `127.0.0.1:8078` (override with `WEB_PORT`), so point a host Caddy at it:
 `reverse_proxy 127.0.0.1:8078`. To pick up new code: `docker compose build --no-cache && docker compose up -d`.
 
+### Auto deploy
+
+When a push to `main` passes the tests, the `deploy` job in `.github/workflows/test.yml` (same self-hosted runner, which must
+run on dockerbox) builds that exact commit, tags it `homecontrol:latest`, and recreates the stack with
+`docker compose up -d --no-build` in `/opt/stacks/homecontrol`. It waits for the container's healthcheck; if the new
+container isn't healthy within ~2.5 min it puts the previous image (`homecontrol:previous`) back and fails the job.
+
+- The runner's user needs Docker access and read access to the stack folder (including its `.env`).
+- Different folder: set the repository variable `DEPLOY_DIR`. Switch auto deploy off: repository variable `AUTO_DEPLOY=false`
+  (GitHub → Settings → Secrets and variables → Actions → Variables).
+- Manual rollback: `docker tag homecontrol:previous homecontrol:latest && docker compose up -d --no-build --force-recreate`.
+
 ## Using it
 
 - **View:** tap a light or plug to switch it on/off straight away. Tap a valve or sensor (marker or list row)
