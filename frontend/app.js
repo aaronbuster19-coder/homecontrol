@@ -218,11 +218,17 @@ function renderSheet() {
     c.appendChild(b);
   }
 }
+// Lights toggle straight away; everything else opens its sheet.
+function tapDevice(eid) {
+  const d = st.devices.get(eid);
+  if (d?.kind === "light" && d.state !== "unavailable" && d.state !== "unknown") toggle(d);
+  else openSheet(eid);
+}
 async function toggle(d) {
   const prev = d.state;
-  d.state = d.state === "on" ? "off" : "on"; render(); renderSheet();
+  d.state = d.state === "on" ? "off" : "on"; render(); if (st.sheetFor) renderSheet();
   try { await api(`/api/devices/${encodeURIComponent(d.entity_id)}/toggle`, { method: "POST" }); }
-  catch (e) { d.state = prev; render(); renderSheet(); setStatus(`Toggle failed: ${e.message}`, true); return; }
+  catch (e) { d.state = prev; render(); if (st.sheetFor) renderSheet(); setStatus(`Toggle failed: ${e.message}`, true); return; }
   setTimeout(loadDevices, 800);
 }
 async function setTemp(eid, t) {
@@ -362,7 +368,7 @@ svg.addEventListener("dblclick", (e) => {
 svg.addEventListener("click", (e) => {
   if (st.editing) return;
   const mk = e.target.closest(".marker");
-  if (mk) openSheet(mk.dataset.dev);
+  if (mk) tapDevice(mk.dataset.dev);
 });
 
 // palette / list
@@ -393,7 +399,7 @@ document.addEventListener("pointerup", (e) => {
 document.addEventListener("pointercancel", () => { if (pal?.ghost) pal.ghost.remove(); pal = null; });
 $("list").addEventListener("click", (e) => {
   const li = e.target.closest("li[data-dev]");
-  if (li && !st.editing) openSheet(li.dataset.dev);
+  if (li && !st.editing) tapDevice(li.dataset.dev);
 });
 
 // toolbar
