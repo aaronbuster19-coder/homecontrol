@@ -42,7 +42,7 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None) -> 
 
     sessions = Sessions(load_secret(settings.db_path), settings.app_password)
     limiter = RateLimiter()
-    app.add_middleware(AuthMiddleware, sessions=sessions, user=settings.app_user, password=settings.app_password)
+    app.add_middleware(AuthMiddleware, sessions=sessions, user=settings.app_user, password=settings.app_password, limiter=limiter)
 
     @app.post("/api/login")
     async def login(body: LoginBody, request: Request):

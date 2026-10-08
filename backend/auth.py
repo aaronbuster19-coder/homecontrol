@@ -11,6 +11,7 @@ from pathlib import Path
 COOKIE = "hc_session"
 SESSION_TTL = 90 * 24 * 3600
 MAX_FAILS = 10
+MAX_FAILS_GLOBAL = 50  # across all clients, since client keys come partly from headers
 FAIL_WINDOW = 600
 PUBLIC_PATHS = {"/healthz", "/login.html", "/login.js", "/style.css", "/manifest.webmanifest", "/sw.js", "/api/login"}
 PUBLIC_PREFIXES = ("/icons/",)
@@ -92,8 +93,10 @@ class Sessions:
 
 
 class RateLimiter:
-    def __init__(self, max_fails: int = MAX_FAILS, window: float = FAIL_WINDOW):
-        self.max_fails, self.window, self.fails = max_fails, window, {}
+    GLOBAL = "*"
+
+    def __init__(self, max_fails: int = MAX_FAILS, window: float = FAIL_WINDOW, max_global: int = MAX_FAILS_GLOBAL):
+        self.max_fails, self.window, self.max_global, self.fails = max_fails, window, max_global, {}
 
     def _recent(self, key: str, now: float) -> list[float]:
         hits = [t for t in self.fails.get(key, []) if now - t < self.window]
@@ -104,13 +107,15 @@ class RateLimiter:
         return hits
 
     def blocked(self, key: str) -> bool:
-        return len(self._recent(key, time.monotonic())) >= self.max_fails
+        now = time.monotonic()
+        return len(self._recent(key, now)) >= self.max_fails or len(self._recent(self.GLOBAL, now)) >= self.max_global
 
     def fail(self, key: str):
         now = time.monotonic()
+        if len(self.fails) > 10000:  # keep memory bounded, but keep the global count
+            self.fails = {self.GLOBAL: self.fails.get(self.GLOBAL, [])}
         self.fails[key] = self._recent(key, now) + [now]
-        if len(self.fails) > 10000:  # keep memory bounded
-            self.fails.clear()
+        self.fails[self.GLOBAL] = self._recent(self.GLOBAL, now) + [now]
 
 
 def client_key(headers, client_host: str | None) -> str:
@@ -140,22 +145,36 @@ def cookie_value(raw: str, name: str = COOKIE) -> str | None:
 class AuthMiddleware:
     """Pure ASGI guard: only short-circuits, so streaming responses (SSE) pass through untouched."""
 
-    def __init__(self, app, sessions: Sessions, user: str, password: str):
+    def __init__(self, app, sessions: Sessions, user: str, password: str, limiter: RateLimiter | None = None):
         self.app, self.sessions, self.user, self.password = app, sessions, user, password
+        self.limiter = limiter or RateLimiter()
 
-    def authed(self, headers: dict) -> str | None:
+    def authed(self, headers: dict, client: str) -> str | None:
         who = self.sessions.verify(cookie_value(headers.get("cookie", "")))
         if who:
             return who
-        if check_basic_auth(headers.get("authorization"), self.user, self.password):
-            return self.user
+        if headers.get("authorization"):
+            # Basic attempts count against the same limit as the login form.
+            if self.limiter.blocked(client):
+                return None
+            if check_basic_auth(headers["authorization"], self.user, self.password):
+                return self.user
+            self.limiter.fail(client)
         return None
 
     async def __call__(self, scope, receive, send):
-        if scope["type"] != "http" or is_public(scope["path"]):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        if ".." in scope["path"].split("/"):
+            # e.g. /icons/../app.js would match a public prefix but be served as app.js
+            await send({"type": "http.response.start", "status": 404, "headers": []})
+            await send({"type": "http.response.body", "body": b""})
+            return
+        if is_public(scope["path"]):
             return await self.app(scope, receive, send)
         headers = {k.decode("latin-1"): v.decode("latin-1") for k, v in scope["headers"]}
-        user = self.authed(headers)
+        client = client_key(headers, (scope.get("client") or (None,))[0])
+        user = self.authed(headers, client)
         if user:
             scope.setdefault("state", {})["user"] = user
             return await self.app(scope, receive, send)

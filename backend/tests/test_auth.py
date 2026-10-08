@@ -169,3 +169,38 @@ def test_streaming_passes_through(tmp_path, fake_ha):
         login(c)
         with c.stream("GET", "/api/stream-test") as r:
             assert r.status_code == 200 and "".join(r.iter_text()) == "data: 0\n\ndata: 1\n\ndata: 2\n\n"
+
+
+def test_basic_header_attempts_are_rate_limited(client):
+    bad = {"Authorization": "Basic " + base64.b64encode(b"aaron:nope").decode(), "CF-Connecting-IP": "203.0.113.9"}
+    for _ in range(10):
+        assert client.get("/api/layout", headers=bad).status_code == 401
+    good = {"Authorization": client.headers["Authorization"], "CF-Connecting-IP": "203.0.113.9"}
+    assert client.get("/api/layout", headers=good).status_code == 401  # blocked even with the right password
+    assert client.get("/api/layout").status_code == 200  # other clients unaffected
+
+
+def test_global_limit_stops_rotating_client_keys():
+    from backend.auth import RateLimiter
+    rl = RateLimiter(max_fails=10, max_global=5)
+    for i in range(5):
+        rl.fail(f"10.0.0.{i}")
+    assert rl.blocked("10.0.0.99")
+
+
+def test_dotdot_paths_rejected():
+    # HTTP clients normalise "..", so drive the ASGI guard with a raw path like a hostile client would send.
+    import asyncio
+    from backend.auth import AuthMiddleware, Sessions
+    reached, sent = [], []
+
+    async def inner(scope, receive, send):
+        reached.append(scope["path"])
+
+    async def send(msg):
+        sent.append(msg)
+
+    mw = AuthMiddleware(inner, Sessions(b"k", "p"), "u", "p")
+    for path in ("/icons/../app.js", "/icons/../index.html"):
+        asyncio.run(mw({"type": "http", "path": path, "headers": [], "client": ("1.2.3.4", 1)}, None, send))
+    assert reached == [] and [m["status"] for m in sent if "status" in m] == [404, 404]
