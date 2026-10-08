@@ -126,3 +126,37 @@ body.drawing .opening { pointer-events: none; }
 .login-err { color: var(--open); font-size: 14px; min-height: 1.2em; margin: 0; }
 #signOut { padding-left: 8px; padding-right: 8px; }
 .status.offline { color: var(--on); }
+
+/* ---------- controls: light sheet, room toggles, all off, heating ---------- */
+.quick { display: flex; gap: 6px; }
+#plan .marker, #list li[data-dev] { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+.light-ctl { margin-top: 14px; display: flex; flex-direction: column; gap: 14px; }
+.ctl { display: block; }
+.ctl-top { display: flex; justify-content: space-between; color: var(--muted); font-size: 13px; margin-bottom: 4px; }
+.ctl input[type=range] { width: 100%; height: 34px; margin: 0; accent-color: var(--on); touch-action: none; }
+.kelvin input[type=range] { accent-color: #ffd9a8; }
+.swatches { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: -8px; }
+.swatch { width: 36px; height: 36px; min-height: 0; padding: 0; border-radius: 50%; border: 2px solid var(--line); }
+.picker { width: 40px; height: 38px; padding: 0; border: 1px solid var(--line); border-radius: 8px; background: none; cursor: pointer; }
+.keep-on { display: flex; align-items: center; gap: 10px; margin-top: 14px; font-size: 14px; cursor: pointer; }
+.keep-on input { width: 20px; height: 20px; accent-color: var(--accent); }
+.room-tap { cursor: pointer; }
+.room-tap rect { fill: transparent; transition: fill .2s; }
+.room-tap:hover rect { fill: rgba(255,255,255,.05); }
+.room-tap.flash rect { fill: rgba(79,140,255,.35); }
+.room-tap.empty { cursor: default; }
+.valves { display: flex; flex-direction: column; gap: 6px; max-height: 50vh; overflow-y: auto; }
+.valve-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.valve-row .sub { margin: 0; }
+.valve-row.all { border-top: 1px solid var(--line); margin: 10px 0 12px; padding-top: 10px; font-weight: 600; }
+.valve-info { min-width: 0; } .valve-info .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.temp.small { gap: 8px; flex: none; }
+.temp.small button { width: 44px; height: 44px; font-size: 20px; }
+.temp.small .target { font-size: 20px; min-width: 52px; text-align: center; }
+@media (max-width: 700px) { .quick .lbl { display: none; } .quick button { padding: 6px 9px; } }
+@media (max-width: 480px) {
+  header { gap: 6px; padding-left: 10px; padding-right: 10px; }
+  header h1 { display: none; }
+  .actions, .quick { gap: 4px; }
+  .actions button, .actions select { padding: 6px 8px; min-width: 36px; }
+}

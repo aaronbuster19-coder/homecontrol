@@ -19,6 +19,10 @@
   <h1>homecontrol</h1>
   <span id="status" class="status"></span>
   <div class="actions">
+    <span class="quick">
+      <button id="heating" title="Heating — all radiators" aria-label="Heating"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="vertical-align:-3px"><use href="#ic-valve"/></svg><span class="lbl"> Heating</span></button>
+      <button id="allOff" title="Turn off all lights and plugs" aria-label="All off"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" style="vertical-align:-3px"><path d="M12 3v8M6.3 6.3a8 8 0 1 0 11.4 0"/></svg><span class="lbl"> All off</span></button>
+    </span>
     <select id="unit" aria-label="Units"><option value="m">m</option><option value="ft">ft</option></select>
     <button id="refresh" title="Re-discover devices">↻</button>
     <button id="editToggle">Edit</button>
@@ -90,6 +94,7 @@
 
 <script src="app.js"></script>
 <script src="floorplan.js"></script>
+<script src="controls.js"></script>
 <script>if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});</script>
 </body>
 </html>
