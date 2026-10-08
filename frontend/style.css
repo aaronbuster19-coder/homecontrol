@@ -19,7 +19,7 @@ header h1 { font-size: 17px; margin: 0; }
 .status { color: var(--muted); font-size: 13px; flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .status.err { color: var(--open); }
 .actions { display: flex; gap: 6px; }
-#editbar { display: flex; gap: 8px; padding: 8px 16px; background: var(--panel); border-bottom: 1px solid var(--line); }
+#editbar { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 16px; background: var(--panel); border-bottom: 1px solid var(--line); }
 #editbar[hidden] { display: none; }
 .spacer { flex: 1; }
 
@@ -42,8 +42,8 @@ body.editing #list li { touch-action: none; }
 #list .group { color: var(--muted); font-size: 12px; text-transform: uppercase; padding: 10px 6px 2px; cursor: default; }
 #list .group:hover { background: none; }
 
-.room rect { fill: var(--room); stroke: #59647a; stroke-width: 2; vector-effect: non-scaling-stroke; }
-.room.sel rect { fill: var(--room-sel); stroke: var(--accent); }
+.room rect, .room polygon { fill: var(--room); stroke: #59647a; stroke-width: 2; vector-effect: non-scaling-stroke; }
+.room.sel rect, .room.sel polygon { fill: var(--room-sel); stroke: var(--accent); }
 .room text { fill: var(--muted); font-size: .32px; pointer-events: none; }
 .room .dim { font-size: .22px; }
 body.editing .room { cursor: move; }
@@ -87,7 +87,24 @@ dialog input { display: block; width: 100%; margin-top: 4px; padding: 8px; backg
 dialog .row { display: flex; gap: 10px; } dialog .row label { flex: 1; }
 dialog menu { display: flex; justify-content: flex-end; gap: 8px; padding: 0; margin: 8px 0 0; }
 
+/* doors and windows */
+.opening line, .opening path { fill: none; vector-effect: non-scaling-stroke; }
+.opening .hit { stroke: transparent; stroke-width: 26; }
+.opening .gap { stroke: var(--bg); stroke-width: 5; }
+.opening .pane { stroke: #8fd3ff; stroke-width: 2; }
+.opening .swing { stroke: var(--muted); stroke-width: 1.2; }
+.opening .swing.linked { stroke-width: 2; }
+.opening.sel .gap { stroke: var(--accent); stroke-opacity: .5; }
+body:not(.editing) .opening { pointer-events: none; }
+body.editing .opening { cursor: move; }
+body.drawing .opening { pointer-events: none; }
+.h-cut rect:not(.hit) { fill: #fff; stroke: var(--accent); }
+.h-cut { cursor: move; } .h-olen { cursor: pointer; }
+#linkDialog select { display: block; width: 100%; margin-top: 4px; }
+
 @media (max-width: 700px) {
+  #editbar { gap: 6px; padding: 6px 10px; }
+  #editbar button { padding: 6px 9px; }
   main, body.editing main { flex-direction: column; height: auto; }
   #planWrap { height: 62vh; padding: 6px; }
   #side { width: auto; border-left: 0; border-top: 1px solid var(--line); }
