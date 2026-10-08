@@ -142,6 +142,7 @@ function render() {
     const t = el("text", { x: lp.x + 0.15, y: lp.y + 0.42 }, g); t.textContent = r.name;
     if (st.editing) { const d = el("text", { x: lp.x + 0.15, y: lp.y + 0.72, class: "dim" }, g); d.textContent = `${fmtLen(r.w)} × ${fmtLen(r.h)}`; }
   }
+  if (typeof renderRoomTemps === "function") renderRoomTemps(roomsG);
   renderRoomLabels(roomsG);
   renderOpenings();
   const R = 0.26;

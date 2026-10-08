@@ -14,6 +14,7 @@ from .config import Settings, load_settings
 from .discovery import Device, parse_template_output
 from .ha import DISCOVERY_TEMPLATE, HAClient, HAError
 from .live import Live, ws_url
+from .modes import ModeError, ModeStore, current_targets, now_iso, public, restore_groups, validate_mode_settings
 from .store import LayoutError, LayoutStore, validate_layout
 
 CACHE_TTL = 300
@@ -73,6 +74,24 @@ def light_data(b: LightBody) -> dict:
     return data
 
 
+def on_off_groups(devs: dict[str, Device], entity_ids) -> dict[str, list[str]]:
+    """Split lights/plugs by HA domain; raises ValueError naming the first id that isn't one."""
+    groups: dict[str, list[str]] = {"light": [], "switch": []}
+    for eid in dict.fromkeys(entity_ids):
+        d = devs.get(eid)
+        if d is None or d.kind not in ("light", "plug"):
+            raise ValueError(eid)
+        groups["light" if d.kind == "light" else "switch"].append(eid)
+    return groups
+
+
+async def call_groups(ha: HAClient, action: str, groups: dict[str, list[str]]) -> int:
+    for domain, ids in groups.items():
+        if ids:
+            await ha.call_service(domain, action, {"entity_id": ids})
+    return sum(map(len, groups.values()))
+
+
 def check_temp(t: float) -> None:
     if not math.isfinite(t) or not 5 <= t <= 35:
         raise HTTPException(400, "temperature must be between 5 and 35")
@@ -87,6 +106,7 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
     live = live or Live(ha, ws_url(settings.ha_url), settings.ha_token)
     vapid = load_vapid(settings.db_path)
     alert_store = AlertStore(settings.db_path)
+    mode_store = ModeStore(settings.db_path)
     pusher = Pusher(alert_store, push_sender or webpush_sender(vapid))
 
     @asynccontextmanager
@@ -245,17 +265,11 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
     async def bulk(body: BulkBody):
         if body.action not in ("turn_on", "turn_off"):
             raise HTTPException(400, "action must be turn_on or turn_off")
-        devs = await devices()
-        groups: dict[str, list[str]] = {"light": [], "switch": []}
-        for eid in dict.fromkeys(body.entity_ids):
-            d = devs.get(eid)
-            if d is None or d.kind not in ("light", "plug"):
-                raise HTTPException(400, f"not a light or plug: {eid}")
-            groups["light" if d.kind == "light" else "switch"].append(eid)
-        for domain, ids in groups.items():
-            if ids:
-                await ha.call_service(domain, body.action, {"entity_id": ids})
-        return {"ok": True, "count": sum(map(len, groups.values()))}
+        try:
+            groups = on_off_groups(await devices(), body.entity_ids)
+        except ValueError as e:
+            raise HTTPException(400, f"not a light or plug: {e}")
+        return {"ok": True, "count": await call_groups(ha, body.action, groups)}
 
     @app.post("/api/valves/temperature")
     async def set_valves(body: ValvesBody):
@@ -268,6 +282,71 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
         if ids:
             await ha.call_service("climate", "set_temperature", {"entity_id": ids, "temperature": body.temperature})
         return {"ok": True, "count": len(ids)}
+
+    # ---- away / home ----
+    async def go_away() -> dict:
+        s = mode_store.get()
+        devs = await devices()
+        if not live.fresh():
+            live.load_states(await ha.states())
+        keep = set(store.get().get("settings", {}).get("keep_on", []))
+        off = sorted(e for e, d in devs.items() if d.kind in ("light", "plug") and e not in keep)
+        kept = sorted(e for e in keep if e in devs)
+        valves = sorted(e for e, d in devs.items() if d.kind == "valve")
+        if s["mode"] != "away":  # pressing Away twice keeps the first remembered targets
+            s["targets"] = current_targets(valves, live.states)
+            s["prev_alerts_enabled"] = alert_store.settings()["enabled"]
+            s["since"] = now_iso()
+        await call_groups(ha, "turn_off", on_off_groups(devs, off))
+        if valves:
+            await ha.call_service("climate", "set_temperature", {"entity_id": valves, "temperature": s["away_temp"]})
+        alert_store.put_settings({**alert_store.settings(), "enabled": True})
+        alerts.wake.set()
+        s["mode"] = "away"
+        mode_store.put(s)
+        return {**public(s), "turned_off": sorted(off), "kept_on": kept,
+                "valves": {e: s["away_temp"] for e in valves}, "alerts_enabled": True}
+
+    async def go_home() -> dict:
+        s = mode_store.get()
+        if s["mode"] != "away":
+            return {**public(s), "valves": {}, "alerts_enabled": alert_store.settings()["enabled"]}
+        valves = {e for e, d in (await devices()).items() if d.kind == "valve"}
+        restored, skipped = {}, sorted(set(s["targets"]) - valves)
+        for t, ids in restore_groups(s["targets"], valves).items():
+            await ha.call_service("climate", "set_temperature", {"entity_id": ids, "temperature": t})
+            restored.update({e: t for e in ids})
+        a = alert_store.settings()
+        if isinstance(s["prev_alerts_enabled"], bool):
+            a = {**a, "enabled": s["prev_alerts_enabled"]}
+            alert_store.put_settings(a)
+            alerts.wake.set()
+        s.update(mode="home", since=now_iso(), targets={}, prev_alerts_enabled=None)
+        mode_store.put(s)
+        return {**public(s), "valves": restored, "skipped": skipped, "alerts_enabled": a["enabled"]}
+
+    @app.get("/api/mode")
+    async def get_mode():
+        return public(mode_store.get())
+
+    @app.post("/api/mode")
+    async def set_mode(request: Request):
+        data = await json_body(request)
+        mode = data.get("mode") if isinstance(data, dict) else None
+        if mode not in ("away", "home"):
+            raise HTTPException(400, "mode must be away or home")
+        return await (go_away() if mode == "away" else go_home())
+
+    @app.put("/api/mode/settings")
+    async def put_mode_settings(request: Request):
+        try:
+            t = validate_mode_settings(await json_body(request))
+        except ModeError as e:
+            raise HTTPException(400, str(e))
+        s = mode_store.get()
+        s["away_temp"] = t
+        mode_store.put(s)
+        return public(s)
 
     @app.get("/api/layout")
     async def get_layout():
