@@ -3,7 +3,7 @@
 services:
   homecontrol:
     build:
-      context: https://github.com/aaronbuster19-coder/homecontrol.git#claude/exciting-curie-062f6l
+      context: https://github.com/aaronbuster19-coder/homecontrol.git#main
     image: homecontrol:latest
     container_name: homecontrol
     restart: unless-stopped
