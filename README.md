@@ -13,10 +13,10 @@ Everything goes through Home Assistant's REST API; the app never talks to Tapo/K
 | Door/window sensors (T110) | `binary_sensor.contact_sensor_door*` (diagnostic ones like `_cloud_connection` skipped) | read-only, open/closed |
 
 Discovery uses `POST /api/template` to read each entity's device model, and caches the result for 5 minutes.
-The ↻ button (or `POST /api/devices/refresh`) re-discovers immediately. State is polled every 5 s.
+*Refresh devices* in the ⋯ menu (or `POST /api/devices/refresh`) re-discovers immediately. State is polled every 5 s.
 
 **Not shown until they're in HA:** the 3 plugs and 1 valve that aren't added to Home Assistant yet.
-Add them in HA, then press ↻.
+Add them in HA, then ⋯ → *Refresh devices*.
 
 ## Deploy on dockerbox
 
@@ -37,7 +37,7 @@ docker compose up -d --build
 ### Login
 
 Sign in on `/login.html` with `APP_USER` / `APP_PASSWORD` (if either is empty, nobody can sign in). You then stay
-signed in for 90 days (an HttpOnly cookie, `Secure` when served over https). Sign out with the exit-arrow button in the header.
+signed in for 90 days (an HttpOnly cookie, `Secure` when served over https). Sign out from the ⋯ menu in the header.
 - `SESSION_SECRET` (optional) signs the cookie. If unset, a random one is generated once and kept in `session_secret`
   next to `DB_PATH` (e.g. `/data/session_secret`), so sessions survive restarts.
 - Changing `APP_PASSWORD` (or `SESSION_SECRET`) signs everyone out.
@@ -97,7 +97,29 @@ container isn't healthy within ~2.5 min it puts the previous image (`homecontrol
 - API: `POST /api/devices/{id}/light` (`brightness_pct`, `hs_color`, `rgb_color`, `color_temp_kelvin`),
   `POST /api/bulk` (`action` turn_on/turn_off, `entity_ids` lights/plugs), `POST /api/valves/temperature`
   (`temperature`, optional `entity_ids`).
-- Units: m/ft selector. The layout is always stored in metres; the selector changes how sizes are shown and entered.
+- Units: m/ft selector in the ⋯ menu. The layout is always stored in metres; the selector changes how sizes are shown and entered.
+
+## More menu (⋯), temperatures, Away/Home, backup
+
+The ⋯ button at the right of the header holds: Away / I'm home, *Show temperatures on plan*, Export layout,
+Import layout, Units (m/ft), Refresh devices and Sign out. It closes on a tap outside or Escape.
+
+- **Temperatures on the plan:** every room with a radiator valve in it (L-shapes respected) is tinted by the
+  valve's current temperature — blue at 16° or less, neutral around 19–20°, orange at 23° or more — with the
+  temperature next to the room name (several valves in a room are averaged). Updates live; hidden in edit mode.
+  The toggle is remembered per device (browser storage), default on.
+- **Away / Home:** *Away…* shows what will happen and lets you set the radiator temperature while away
+  (5–25°, default 16°). Away turns off all lights and plugs except “keep on” plugs, remembers each radiator's
+  target and sets them all to the away temperature, and turns door alerts on. An “AWAY” badge shows in the
+  status line and the menu item becomes *I'm home*, which puts every radiator back to its remembered target
+  (vanished valves skipped, clamped 5–35°) and restores the previous alerts on/off setting; lights stay off.
+  Pressing Away twice keeps the first remembered targets. The state is in SQLite, so it survives restarts.
+  API: `GET /api/mode` → `{"mode","since","away_temp"}`, `POST /api/mode` `{"mode":"away"|"home"}` (returns a
+  summary: `turned_off`, `kept_on`, `valves`, `alerts_enabled`), `PUT /api/mode/settings` `{"away_temp": 5–25}`.
+- **Backup:** *Export layout* downloads the saved plan as `homecontrol-layout-YYYY-MM-DD.json`. *Import layout…*
+  reads such a file, shows rooms / placed devices / doors-windows and any devices not in Home Assistant now, and
+  replaces the plan on confirm. If the server rejects unknown devices you can *Import without unknown devices*
+  (drops their placements, sensor links and keep-on entries).
 
 ## Live updates, power and battery
 
@@ -114,7 +136,7 @@ container isn't healthy within ~2.5 min it puts the previous image (`homecontrol
   the level is below 20 %; the list shows “🔋 low” / “🔋 15 %” and the sheet shows the battery.
 - These values come from the other entities of the same HA device, picked by `device_class`/unit
   (power W, energy kWh with “today” in its id or name, battery %, battery binary sensor) — not by entity-id
-  patterns. Use ↻ (refresh) after adding devices in HA.
+  patterns. Use ⋯ → *Refresh devices* after adding devices in HA.
 
 ## Alerts
 
