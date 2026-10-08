@@ -1,0 +1,6 @@
+# LAN + Tailscale example. Replace the hostname(s) with yours.
+homecontrol.home.lan, dockerbox.tailnet-name.ts.net {
+	# For a .lan name Caddy can't get a public cert; use its internal CA:
+	tls internal
+	reverse_proxy homecontrol:8000
+}

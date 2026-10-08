@@ -1,0 +1,17 @@
+services:
+  homecontrol:
+    build: .
+    container_name: homecontrol
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./data:/data
+    networks:
+      - caddy
+    # HA on the host network? Uncomment and use HA_URL=http://host.docker.internal:8123
+    # extra_hosts:
+    #   - "host.docker.internal:host-gateway"
+
+networks:
+  caddy:
+    external: true   # the network your Caddy container is on; rename to match

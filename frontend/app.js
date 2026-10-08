@@ -1,0 +1,371 @@
+"use strict";
+const FT = 3.28084;
+const KIND_LABEL = { light: "Lights", plug: "Plugs", valve: "Radiator valves", sensor: "Door / window sensors" };
+const KIND_ORDER = ["light", "plug", "valve", "sensor"];
+const SNAP = 0.05;
+const $ = (id) => document.getElementById(id);
+const svg = $("plan");
+const NS = "http://www.w3.org/2000/svg";
+
+const st = {
+  devices: new Map(), layout: { unit: "m", rooms: [], placements: [] }, draft: null,
+  editing: false, sel: null, picked: null, sheetFor: null, drag: null, viewBox: null,
+};
+const cur = () => st.editing ? st.draft : st.layout;
+const clone = (o) => JSON.parse(JSON.stringify(o));
+const unit = () => cur().unit || "m";
+const toDisp = (m) => unit() === "ft" ? m * FT : m;
+const fromDisp = (v) => unit() === "ft" ? v / FT : v;
+const fmtLen = (m) => `${toDisp(m).toFixed(1)}${unit()}`;
+const snap = (v) => Math.round(v / SNAP) * SNAP;
+
+function setStatus(msg, err = false) { const s = $("status"); s.textContent = msg; s.classList.toggle("err", err); }
+
+async function api(path, opts = {}) {
+  const r = await fetch(path, { ...opts, headers: { "Content-Type": "application/json", ...(opts.headers || {}) } });
+  if (!r.ok) {
+    let d = r.statusText;
+    try { d = (await r.json()).detail || d; } catch {}
+    throw new Error(typeof d === "string" ? d : JSON.stringify(d));
+  }
+  return r.json();
+}
+
+// ---------- device state ----------
+function deviceColor(d) {
+  if (!d || d.state === "unavailable" || d.state === "unknown") return "#444b57";
+  switch (d.kind) {
+    case "light": case "plug": return d.state === "on" ? "var(--on)" : "var(--off)";
+    case "sensor": return d.state === "on" ? "var(--open)" : "var(--closed)";
+    case "valve":
+      if (d.state === "off") return "var(--off)";
+      return d.current_temperature != null && d.temperature != null && d.current_temperature < d.temperature
+        ? "var(--heat)" : "var(--idle)";
+  }
+  return "var(--off)";
+}
+function deviceValue(d) {
+  if (!d) return "";
+  if (d.state === "unavailable" || d.state === "unknown") return d.state;
+  if (d.kind === "valve") return `${d.current_temperature ?? "–"}° → ${d.temperature ?? "–"}°`;
+  if (d.kind === "sensor") return d.state === "on" ? "open" : "closed";
+  return d.state;
+}
+
+async function loadDevices() {
+  try {
+    const list = await api("/api/devices");
+    st.devices = new Map(list.map((d) => [d.entity_id, d]));
+    setStatus(`${list.length} devices · ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`);
+  } catch (e) { setStatus(`Home Assistant: ${e.message}`, true); }
+  render();
+  if (st.sheetFor) renderSheet();
+}
+
+// ---------- geometry ----------
+function computeViewBox() {
+  const L = cur(); const pts = [];
+  for (const r of L.rooms) pts.push([r.x, r.y], [r.x + r.w, r.y + r.h]);
+  for (const p of L.placements) pts.push([p.x, p.y]);
+  if (!pts.length) return [-0.5, -0.5, 12, 10];
+  let x0 = Math.min(...pts.map((p) => p[0])), y0 = Math.min(...pts.map((p) => p[1]));
+  let x1 = Math.max(...pts.map((p) => p[0])), y1 = Math.max(...pts.map((p) => p[1]));
+  const pad = st.editing ? 1.5 : 0.5;
+  return [x0 - pad, y0 - pad, Math.max(x1 - x0, 2) + pad * 2, Math.max(y1 - y0, 2) + pad * 2];
+}
+function svgPoint(clientX, clientY) {
+  const p = new DOMPoint(clientX, clientY).matrixTransform(svg.getScreenCTM().inverse());
+  return { x: p.x, y: p.y };
+}
+function overSvg(clientX, clientY) {
+  const r = svg.getBoundingClientRect();
+  return clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom;
+}
+
+// ---------- rendering ----------
+function el(tag, attrs = {}, parent) {
+  const e = document.createElementNS(NS, tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+  if (parent) parent.appendChild(e);
+  return e;
+}
+function render() {
+  if (!st.drag) st.viewBox = computeViewBox();
+  svg.setAttribute("viewBox", st.viewBox.join(" "));
+  const L = cur();
+  const roomsG = $("rooms"), markersG = $("markers");
+  roomsG.replaceChildren(); markersG.replaceChildren();
+
+  for (const r of L.rooms) {
+    const g = el("g", { class: "room" + (st.sel?.type === "room" && st.sel.id === r.id ? " sel" : ""), "data-room": r.id }, roomsG);
+    el("rect", { x: r.x, y: r.y, width: r.w, height: r.h, rx: 0.05 }, g);
+    const t = el("text", { x: r.x + 0.15, y: r.y + 0.42 }, g); t.textContent = r.name;
+    if (st.editing) { const d = el("text", { x: r.x + 0.15, y: r.y + 0.72, class: "dim" }, g); d.textContent = `${fmtLen(r.w)} × ${fmtLen(r.h)}`; }
+  }
+  const R = 0.26;
+  for (const p of L.placements) {
+    const d = st.devices.get(p.entity_id);
+    const kind = d?.kind || "light";
+    const g = el("g", { class: "marker" + (st.sel?.type === "dev" && st.sel.id === p.entity_id ? " sel" : ""), "data-dev": p.entity_id }, markersG);
+    el("circle", { cx: p.x, cy: p.y, r: R, fill: deviceColor(d) }, g);
+    el("use", { href: `#ic-${kind}`, x: p.x - R * 0.65, y: p.y - R * 0.65, width: R * 1.3, height: R * 1.3 }, g);
+    if (kind === "valve" && d?.current_temperature != null) {
+      const t = el("text", { x: p.x, y: p.y + R + 0.22 }, g); t.textContent = `${d.current_temperature}°`;
+    }
+    const title = el("title", {}, g); title.textContent = `${d?.name || p.entity_id} — ${deviceValue(d)}`;
+  }
+  renderSide();
+  $("deleteSel").disabled = !st.sel;
+  $("editRoom").disabled = st.sel?.type !== "room";
+}
+
+function icon(kind, color) {
+  const s = document.createElementNS(NS, "svg"); s.setAttribute("viewBox", "0 0 24 24");
+  el("use", { href: `#ic-${kind}`, fill: color }, s);
+  return s;
+}
+function renderSide() {
+  const list = $("list"); list.replaceChildren();
+  const placed = new Set(cur().placements.map((p) => p.entity_id));
+  let devs = [...st.devices.values()];
+  if (st.editing) {
+    devs = devs.filter((d) => !placed.has(d.entity_id));
+    $("sideTitle").textContent = "Unplaced devices";
+    $("sideHint").textContent = devs.length ? "Drag onto the plan, or tap one then tap the plan." : "Everything is placed.";
+  } else {
+    $("sideTitle").textContent = "Devices";
+    $("sideHint").textContent = st.devices.size ? "" : "No devices yet.";
+  }
+  for (const kind of KIND_ORDER) {
+    const group = devs.filter((d) => d.kind === kind);
+    if (!group.length) continue;
+    const h = document.createElement("li"); h.className = "group"; h.textContent = KIND_LABEL[kind]; list.appendChild(h);
+    for (const d of group) {
+      const li = document.createElement("li");
+      li.dataset.dev = d.entity_id;
+      if (st.picked === d.entity_id) li.classList.add("picked");
+      li.appendChild(icon(kind, deviceColor(d)));
+      const n = document.createElement("span"); n.className = "name"; n.textContent = d.name; li.appendChild(n);
+      const v = document.createElement("span"); v.className = "val"; v.textContent = deviceValue(d); li.appendChild(v);
+      list.appendChild(li);
+    }
+  }
+}
+
+// ---------- sheet ----------
+let tempTimer = null;
+function openSheet(eid) { st.sheetFor = eid; $("sheet").hidden = false; renderSheet(); }
+function closeSheet() { st.sheetFor = null; $("sheet").hidden = true; }
+function renderSheet() {
+  const d = st.devices.get(st.sheetFor); const c = $("sheetContent"); c.replaceChildren();
+  if (!d) { c.textContent = "Device not found in Home Assistant."; return; }
+  const h = document.createElement("h3"); h.textContent = d.name; c.appendChild(h);
+  const sub = document.createElement("div"); sub.className = "sub"; sub.textContent = `${d.model || d.kind} · ${d.entity_id}`; c.appendChild(sub);
+  const unavailable = d.state === "unavailable" || d.state === "unknown";
+
+  if (d.kind === "light" || d.kind === "plug") {
+    const b = document.createElement("button"); b.className = "big" + (d.state === "on" ? " on" : "");
+    b.textContent = unavailable ? d.state : d.state === "on" ? "On — tap to turn off" : "Off — tap to turn on";
+    b.disabled = unavailable;
+    b.onclick = () => toggle(d);
+    c.appendChild(b);
+  } else if (d.kind === "valve") {
+    const cur = document.createElement("div"); cur.className = "sub";
+    cur.textContent = `Current ${d.current_temperature ?? "–"}°C · ${d.state}`; c.appendChild(cur);
+    const row = document.createElement("div"); row.className = "temp";
+    const minus = document.createElement("button"); minus.textContent = "−";
+    const plus = document.createElement("button"); plus.textContent = "+";
+    const val = document.createElement("div"); val.className = "target";
+    const step = d.target_temp_step || 0.5;
+    const lo = d.min_temp ?? 5, hi = d.max_temp ?? 30;
+    val.textContent = `${d.temperature ?? "–"}°`;
+    const bump = (dir) => {
+      const t = Math.min(hi, Math.max(lo, Math.round(((d.temperature ?? 20) + dir * step) / step) * step));
+      d.temperature = t; val.textContent = `${t}°`; render();
+      clearTimeout(tempTimer);
+      tempTimer = setTimeout(() => setTemp(d.entity_id, t), 700);
+    };
+    minus.onclick = () => bump(-1); plus.onclick = () => bump(1);
+    minus.disabled = plus.disabled = unavailable;
+    row.append(minus, val, plus); c.appendChild(row);
+    const note = document.createElement("div"); note.className = "sub"; note.style.marginTop = "12px"; note.textContent = "Target temperature"; c.appendChild(note);
+  } else if (d.kind === "sensor") {
+    const b = document.createElement("span"); b.className = "badge";
+    b.style.background = deviceColor(d); b.textContent = unavailable ? d.state : d.state === "on" ? "Open" : "Closed";
+    c.appendChild(b);
+  }
+}
+async function toggle(d) {
+  const prev = d.state;
+  d.state = d.state === "on" ? "off" : "on"; render(); renderSheet();
+  try { await api(`/api/devices/${encodeURIComponent(d.entity_id)}/toggle`, { method: "POST" }); }
+  catch (e) { d.state = prev; render(); renderSheet(); setStatus(`Toggle failed: ${e.message}`, true); return; }
+  setTimeout(loadDevices, 800);
+}
+async function setTemp(eid, t) {
+  try { await api(`/api/devices/${encodeURIComponent(eid)}/temperature`, { method: "POST", body: JSON.stringify({ temperature: t }) }); setStatus(`Target set to ${t}°`); }
+  catch (e) { setStatus(`Set temperature failed: ${e.message}`, true); }
+  setTimeout(loadDevices, 1000);
+}
+
+// ---------- edit mode ----------
+function setEditing(on) {
+  st.editing = on; st.sel = null; st.picked = null;
+  st.draft = on ? clone(st.layout) : null;
+  document.body.classList.toggle("editing", on);
+  $("editbar").hidden = !on; $("editToggle").hidden = on;
+  closeSheet(); render();
+}
+function placeDevice(eid, pt) {
+  st.draft.placements = st.draft.placements.filter((p) => p.entity_id !== eid);
+  st.draft.placements.push({ entity_id: eid, x: snap(pt.x), y: snap(pt.y) });
+  st.picked = null; st.sel = { type: "dev", id: eid }; render();
+}
+
+function roomDialog(room) {
+  const dlg = $("roomDialog"), f = $("roomForm");
+  $("roomDialogTitle").textContent = room ? "Edit room" : "Add room";
+  dlg.querySelectorAll(".u").forEach((s) => (s.textContent = unit()));
+  f.name.value = room?.name || "";
+  f.w.value = toDisp(room?.w ?? 4).toFixed(1); f.h.value = toDisp(room?.h ?? 3).toFixed(1);
+  dlg.onclose = () => {
+    if (dlg.returnValue !== "ok") return;
+    const name = f.name.value.trim(), w = fromDisp(+f.w.value), h = fromDisp(+f.h.value);
+    if (!name || !(w > 0) || !(h > 0)) return;
+    if (room) Object.assign(room, { name, w: snap(w) || SNAP, h: snap(h) || SNAP });
+    else {
+      const L = st.draft;
+      const x = L.rooms.length ? snap(Math.max(...L.rooms.map((r) => r.x + r.w))) : 0;
+      const id = "r" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+      L.rooms.push({ id, name, x, y: 0, w: snap(w) || SNAP, h: snap(h) || SNAP });
+      st.sel = { type: "room", id };
+    }
+    render();
+  };
+  dlg.returnValue = ""; dlg.showModal();
+}
+
+// pointer handling on the plan
+svg.addEventListener("pointerdown", (e) => {
+  const mk = e.target.closest(".marker"), rm = e.target.closest(".room");
+  if (!st.editing) return;
+  const pt = svgPoint(e.clientX, e.clientY);
+  if (st.picked && !mk) { placeDevice(st.picked, pt); return; }
+  let target = null;
+  if (mk) { const p = st.draft.placements.find((p) => p.entity_id === mk.dataset.dev); target = { type: "dev", id: p.entity_id, obj: p }; }
+  else if (rm) { const r = st.draft.rooms.find((r) => r.id === rm.dataset.room); target = { type: "room", id: r.id, obj: r }; }
+  if (!target) { st.sel = null; render(); return; }
+  st.sel = { type: target.type, id: target.id };
+  st.drag = { obj: target.obj, start: pt, ox: target.obj.x, oy: target.obj.y, moved: false, pid: e.pointerId };
+  // Moving a room moves the devices inside it.
+  if (target.type === "room") {
+    const r = target.obj;
+    st.drag.carried = st.draft.placements.filter((p) => p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h)
+      .map((p) => ({ p, ox: p.x, oy: p.y }));
+  }
+  svg.setPointerCapture(e.pointerId);
+  render();
+});
+svg.addEventListener("pointermove", (e) => {
+  const d = st.drag; if (!d || e.pointerId !== d.pid) return;
+  const pt = svgPoint(e.clientX, e.clientY);
+  const dx = pt.x - d.start.x, dy = pt.y - d.start.y;
+  if (!d.moved && Math.hypot(dx, dy) < 0.08) return;
+  d.moved = true;
+  d.obj.x = snap(d.ox + dx); d.obj.y = snap(d.oy + dy);
+  for (const c of d.carried || []) { c.p.x = snap(c.ox + dx); c.p.y = snap(c.oy + dy); }
+  render();
+});
+const endDrag = (e) => { if (st.drag && e.pointerId === st.drag.pid) { st.drag = null; render(); } };
+svg.addEventListener("pointerup", endDrag);
+svg.addEventListener("pointercancel", endDrag);
+svg.addEventListener("dblclick", (e) => {
+  if (!st.editing) return;
+  const rm = e.target.closest(".room");
+  if (rm) roomDialog(st.draft.rooms.find((r) => r.id === rm.dataset.room));
+});
+svg.addEventListener("click", (e) => {
+  if (st.editing) return;
+  const mk = e.target.closest(".marker");
+  if (mk) openSheet(mk.dataset.dev);
+});
+
+// palette / list
+let pal = null;
+$("list").addEventListener("pointerdown", (e) => {
+  const li = e.target.closest("li[data-dev]"); if (!li) return;
+  if (!st.editing) return;
+  e.preventDefault();
+  pal = { eid: li.dataset.dev, x: e.clientX, y: e.clientY, ghost: null };
+});
+document.addEventListener("pointermove", (e) => {
+  if (!pal) return;
+  if (!pal.ghost && Math.hypot(e.clientX - pal.x, e.clientY - pal.y) > 6) {
+    pal.ghost = document.createElement("div"); pal.ghost.className = "ghost"; document.body.appendChild(pal.ghost);
+  }
+  if (pal.ghost) { pal.ghost.style.left = e.clientX + "px"; pal.ghost.style.top = e.clientY + "px"; }
+});
+document.addEventListener("pointerup", (e) => {
+  if (!pal) return;
+  const p = pal; pal = null;
+  if (p.ghost) {
+    p.ghost.remove();
+    if (overSvg(e.clientX, e.clientY)) placeDevice(p.eid, svgPoint(e.clientX, e.clientY));
+  } else {
+    st.picked = st.picked === p.eid ? null : p.eid; render();
+  }
+});
+document.addEventListener("pointercancel", () => { if (pal?.ghost) pal.ghost.remove(); pal = null; });
+$("list").addEventListener("click", (e) => {
+  const li = e.target.closest("li[data-dev]");
+  if (li && !st.editing) openSheet(li.dataset.dev);
+});
+
+// toolbar
+$("editToggle").onclick = () => setEditing(true);
+$("cancelEdit").onclick = () => setEditing(false);
+$("addRoom").onclick = () => roomDialog(null);
+$("editRoom").onclick = () => st.sel?.type === "room" && roomDialog(st.draft.rooms.find((r) => r.id === st.sel.id));
+$("deleteSel").onclick = () => {
+  if (!st.sel) return;
+  if (st.sel.type === "room") {
+    const r = st.draft.rooms.find((r) => r.id === st.sel.id);
+    if (!confirm(`Delete room "${r.name}"? Devices inside stay where they are.`)) return;
+    st.draft.rooms = st.draft.rooms.filter((x) => x.id !== st.sel.id);
+  } else {
+    st.draft.placements = st.draft.placements.filter((p) => p.entity_id !== st.sel.id);
+  }
+  st.sel = null; render();
+};
+$("save").onclick = async () => {
+  $("save").disabled = true;
+  try { st.layout = await api("/api/layout", { method: "PUT", body: JSON.stringify(st.draft) }); setEditing(false); setStatus("Saved"); }
+  catch (e) { setStatus(`Save failed: ${e.message}`, true); }
+  finally { $("save").disabled = false; }
+};
+$("refresh").onclick = async () => {
+  try { await api("/api/devices/refresh", { method: "POST" }); } catch (e) { setStatus(e.message, true); }
+  loadDevices();
+};
+$("unit").onchange = async (e) => {
+  cur().unit = e.target.value;
+  if (!st.editing) { // persist the preference straight away
+    try { st.layout = await api("/api/layout", { method: "PUT", body: JSON.stringify(st.layout) }); } catch (err) { setStatus(err.message, true); }
+  }
+  render();
+};
+$("sheetClose").onclick = closeSheet;
+$("sheet").addEventListener("click", (e) => { if (e.target.id === "sheet") closeSheet(); });
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") closeSheet();
+  if (st.editing && (e.key === "Delete" || e.key === "Backspace") && st.sel && !$("roomDialog").open) $("deleteSel").click();
+});
+
+// ---------- boot ----------
+(async () => {
+  try { st.layout = await api("/api/layout"); } catch (e) { setStatus(`Layout: ${e.message}`, true); }
+  $("unit").value = st.layout.unit || "m";
+  await loadDevices();
+  setInterval(() => { if (!st.editing && !document.hidden) loadDevices(); }, 5000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden && !st.editing) loadDevices(); });
+})();

@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#14171c">
+<title>homecontrol</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>homecontrol</h1>
+  <span id="status" class="status"></span>
+  <div class="actions">
+    <select id="unit" aria-label="Units"><option value="m">m</option><option value="ft">ft</option></select>
+    <button id="refresh" title="Re-discover devices">↻</button>
+    <button id="editToggle">Edit</button>
+  </div>
+</header>
+
+<div id="editbar" hidden>
+  <button id="addRoom">+ Room</button>
+  <button id="editRoom" disabled>Edit room</button>
+  <button id="deleteSel" disabled>Delete</button>
+  <span class="spacer"></span>
+  <button id="cancelEdit">Cancel</button>
+  <button id="save" class="primary">Save</button>
+</div>
+
+<main>
+  <div id="planWrap">
+    <svg id="plan" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <symbol id="ic-light" viewBox="0 0 24 24"><path d="M9 21h6v-1H9zm3-19a7 7 0 0 0-4 12.7V18h8v-3.3A7 7 0 0 0 12 2z"/></symbol>
+        <symbol id="ic-plug" viewBox="0 0 24 24"><path d="M8 2v6H6v4a6 6 0 0 0 5 5.9V22h2v-4.1A6 6 0 0 0 18 12V8h-2V2h-2v6h-4V2z"/></symbol>
+        <symbol id="ic-valve" viewBox="0 0 24 24"><path d="M14 14.8V5a2 2 0 0 0-4 0v9.8a4 4 0 1 0 4 0zM12 3a2 2 0 0 1 2 2v1h-4V5a2 2 0 0 1 2-2z"/></symbol>
+        <symbol id="ic-sensor" viewBox="0 0 24 24"><path d="M5 2h11v20H5zm9 9a1 1 0 1 0 0 2 1 1 0 0 0 0-2zM17 4h2v16h-2z"/></symbol>
+      </defs>
+      <g id="rooms"></g>
+      <g id="markers"></g>
+    </svg>
+  </div>
+  <aside id="side">
+    <h2 id="sideTitle">Devices</h2>
+    <p id="sideHint" class="hint"></p>
+    <ul id="list"></ul>
+  </aside>
+</main>
+
+<div id="sheet" class="sheet" hidden>
+  <div class="sheet-body">
+    <button class="close" id="sheetClose" aria-label="Close">×</button>
+    <div id="sheetContent"></div>
+  </div>
+</div>
+
+<dialog id="roomDialog">
+  <form method="dialog" id="roomForm">
+    <h3 id="roomDialogTitle">Room</h3>
+    <label>Name <input name="name" required maxlength="60" autocomplete="off"></label>
+    <div class="row">
+      <label>Width (<span class="u"></span>) <input name="w" type="number" step="0.1" min="0.1" required></label>
+      <label>Depth (<span class="u"></span>) <input name="h" type="number" step="0.1" min="0.1" required></label>
+    </div>
+    <menu><button value="cancel" formnovalidate>Cancel</button><button value="ok" class="primary">OK</button></menu>
+  </form>
+</dialog>
+
+<script src="app.js"></script>
+</body>
+</html>
