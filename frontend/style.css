@@ -47,6 +47,10 @@ body.editing #list li { touch-action: none; }
 .room text { fill: var(--muted); font-size: .32px; pointer-events: none; }
 .room .dim { font-size: .22px; }
 body.editing .room { cursor: move; }
+.handle .hit { fill: transparent; stroke: none; }
+.handle rect:not(.hit) { fill: var(--accent); stroke: #fff; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.h-nw, .h-se { cursor: nwse-resize; } .h-ne, .h-sw { cursor: nesw-resize; }
+.h-n, .h-s { cursor: ns-resize; } .h-e, .h-w { cursor: ew-resize; }
 .marker { cursor: pointer; }
 .marker circle { stroke: var(--bg); stroke-width: 2; vector-effect: non-scaling-stroke; }
 .marker.sel circle { stroke: #fff; stroke-width: 3; }

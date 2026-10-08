@@ -114,6 +114,21 @@ function render() {
     }
     const title = el("title", {}, g); title.textContent = `${d?.name || p.entity_id} — ${deviceValue(d)}`;
   }
+  if (st.editing && st.sel?.type === "room") {
+    const r = L.rooms.find((r) => r.id === st.sel.id);
+    if (r) {
+      const mpp = st.viewBox[2] / (svg.clientWidth || 800); // metres per screen pixel
+      const hs = 6 * mpp, hit = 18 * mpp; // 12px handle, 36px touch target
+      const hg = el("g", { class: "handles" }, markersG);
+      for (const dir of ["nw", "n", "ne", "e", "se", "s", "sw", "w"]) {
+        const hx = r.x + (dir.includes("w") ? 0 : dir.includes("e") ? r.w : r.w / 2);
+        const hy = r.y + (dir.includes("n") ? 0 : dir.includes("s") ? r.h : r.h / 2);
+        const g = el("g", { class: `handle h-${dir}`, "data-h": dir }, hg);
+        el("rect", { class: "hit", x: hx - hit, y: hy - hit, width: hit * 2, height: hit * 2 }, g);
+        el("rect", { x: hx - hs, y: hy - hs, width: hs * 2, height: hs * 2 }, g);
+      }
+    }
+  }
   renderSide();
   $("deleteSel").disabled = !st.sel;
   $("editRoom").disabled = st.sel?.type !== "room";
@@ -250,6 +265,13 @@ svg.addEventListener("pointerdown", (e) => {
   const mk = e.target.closest(".marker"), rm = e.target.closest(".room");
   if (!st.editing) return;
   const pt = svgPoint(e.clientX, e.clientY);
+  const hd = e.target.closest(".handle");
+  if (hd && st.sel?.type === "room") {
+    const r = st.draft.rooms.find((r) => r.id === st.sel.id);
+    st.drag = { resize: hd.dataset.h, obj: r, start: pt, orig: { ...r }, moved: false, pid: e.pointerId };
+    svg.setPointerCapture(e.pointerId);
+    return;
+  }
   if (st.picked && !mk) { placeDevice(st.picked, pt); return; }
   let target = null;
   if (mk) { const p = st.draft.placements.find((p) => p.entity_id === mk.dataset.dev); target = { type: "dev", id: p.entity_id, obj: p }; }
@@ -272,10 +294,19 @@ svg.addEventListener("pointermove", (e) => {
   const dx = pt.x - d.start.x, dy = pt.y - d.start.y;
   if (!d.moved && Math.hypot(dx, dy) < 0.08) return;
   d.moved = true;
+  if (d.resize) { resizeRoom(d.obj, d.orig, d.resize, dx, dy); render(); return; }
   d.obj.x = snap(d.ox + dx); d.obj.y = snap(d.oy + dy);
   for (const c of d.carried || []) { c.p.x = snap(c.ox + dx); c.p.y = snap(c.oy + dy); }
   render();
 });
+const MIN_ROOM = 0.3;
+function resizeRoom(r, o, dir, dx, dy) {
+  if (dir.includes("e")) r.w = Math.max(MIN_ROOM, snap(o.w + dx));
+  if (dir.includes("s")) r.h = Math.max(MIN_ROOM, snap(o.h + dy));
+  if (dir.includes("w")) { const x = Math.min(snap(o.x + dx), o.x + o.w - MIN_ROOM); r.w = o.x + o.w - x; r.x = x; }
+  if (dir.includes("n")) { const y = Math.min(snap(o.y + dy), o.y + o.h - MIN_ROOM); r.h = o.y + o.h - y; r.y = y; }
+  r.w = +r.w.toFixed(3); r.h = +r.h.toFixed(3);
+}
 const endDrag = (e) => { if (st.drag && e.pointerId === st.drag.pid) { st.drag = null; render(); } };
 svg.addEventListener("pointerup", endDrag);
 svg.addEventListener("pointercancel", endDrag);
