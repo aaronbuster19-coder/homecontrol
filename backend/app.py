@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -12,6 +12,7 @@ from .auth import COOKIE, SESSION_TTL, AuthMiddleware, RateLimiter, Sessions, ch
 from .config import Settings, load_settings
 from .discovery import Device, parse_template_output
 from .ha import DISCOVERY_TEMPLATE, HAClient, HAError
+from .live import Live, ws_url
 from .store import LayoutError, LayoutStore, validate_layout
 
 CACHE_TTL = 300
@@ -27,15 +28,18 @@ class TemperatureBody(BaseModel):
     temperature: float
 
 
-def create_app(settings: Settings | None = None, ha: HAClient | None = None) -> FastAPI:
+def create_app(settings: Settings | None = None, ha: HAClient | None = None, live: Live | None = None) -> FastAPI:
     settings = settings or load_settings()
     ha = ha or HAClient(settings.ha_url, settings.ha_token)
     store = LayoutStore(settings.db_path)
     cache: dict = {"at": 0.0, "devices": None}
+    live = live or Live(ha, ws_url(settings.ha_url), settings.ha_token)
 
     @asynccontextmanager
     async def lifespan(app):
+        live.start()
         yield
+        await live.stop()
         await ha.close()
 
     app = FastAPI(title="homecontrol", lifespan=lifespan)
@@ -76,6 +80,7 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None) -> 
             text = await ha.render_template(DISCOVERY_TEMPLATE)
             cache["devices"] = {d.entity_id: d for d in parse_template_output(text)}
             cache["at"] = time.monotonic()
+            live.set_devices(cache["devices"])
         return cache["devices"]
 
     async def require(entity_id: str, kinds: tuple[str, ...]) -> Device:
@@ -92,22 +97,19 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None) -> 
 
     @app.get("/api/devices")
     async def list_devices():
-        devs = await devices()
-        states = {s["entity_id"]: s for s in await ha.states() if s.get("entity_id") in devs}
-        out = []
-        for d in devs.values():
-            s = states.get(d.entity_id, {})
-            attrs = s.get("attributes", {})
-            item = d.to_dict()
-            item["state"] = s.get("state", "unavailable")
-            if d.kind == "valve":
-                for k in ("current_temperature", "temperature", "min_temp", "max_temp", "target_temp_step"):
-                    item[k] = attrs.get(k)
-            if d.kind == "light":
-                item["brightness"] = attrs.get("brightness")
-            out.append(item)
-        out.sort(key=lambda x: (x["kind"], x["name"].lower()))
-        return out
+        await devices()
+        if not live.fresh():
+            live.load_states(await ha.states())
+        return live.device_list()
+
+    @app.get("/api/events")
+    async def events():
+        await devices()
+        if not live.fresh():
+            live.load_states(await ha.states())
+        client = live.subscribe()
+        return StreamingResponse(live.stream(client, live.device_list()), media_type="text/event-stream",
+                                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
     @app.post("/api/devices/refresh")
     async def refresh():

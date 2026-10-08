@@ -71,10 +71,29 @@ It listens on `127.0.0.1:8078` (override with `WEB_PORT`), so point a host Caddy
   “Edit room” (or double-click) to rename or resize, then Save.
 - Units: m/ft selector. The layout is always stored in metres; the selector changes how sizes are shown and entered.
 
+## Live updates, power and battery
+
+- **Live:** the server keeps one websocket open to Home Assistant (`HA_URL` with `http`→`ws` / `https`→`wss`,
+  path `/api/websocket`, same token) and pushes every change to the browser over Server-Sent Events
+  (`GET /api/events`), so changes made from wall switches or the Tapo app show up within about a second.
+  The status line shows “● live” while the stream is connected. If the websocket is unreachable the server
+  polls `/api/states` every 10 s (reconnecting with 1 s → 60 s backoff), and if the browser's stream drops
+  the page polls every 5 s until it reconnects. Behind Cloudflare/Caddy nothing extra is needed
+  (keep-alive pings every 20 s; `X-Accel-Buffering: no`).
+- **Power:** P110/TP11 plugs show current watts under the marker and in the list (“on · 12 W”), the sheet shows
+  today's kWh, and the header shows the total of all plugs (“⚡ 143 W”).
+- **Battery:** T110 sensors and KE100 valves get a red dot on the marker when HA reports battery low or
+  the level is below 20 %; the list shows “🔋 low” / “🔋 15 %” and the sheet shows the battery.
+- These values come from the other entities of the same HA device, picked by `device_class`/unit
+  (power W, energy kWh with “today” in its id or name, battery %, battery binary sensor) — not by entity-id
+  patterns. Use ↻ (refresh) after adding devices in HA.
+
 ## API
 
-`GET /healthz` · `POST /api/login` `{"username","password"}` · `POST /api/logout` · `GET /api/me` · `GET /api/devices` · `POST /api/devices/refresh` · `POST /api/devices/{entity_id}/toggle` ·
+`GET /healthz` · `POST /api/login` `{"username","password"}` · `POST /api/logout` · `GET /api/me` · `GET /api/devices` · `GET /api/events` (SSE: `snapshot`, then `device` events) · `POST /api/devices/refresh` · `POST /api/devices/{entity_id}/toggle` ·
 `POST /api/devices/{entity_id}/temperature` `{"temperature": 21.0}` · `GET /api/layout` · `PUT /api/layout`
+
+Devices carry `power` (W), `energy_today` (kWh), `battery` (%) and `battery_low` (bool) when HA knows them.
 
 The layout is a single JSON document in SQLite (`DB_PATH`, default `/data/layout.db`).
 

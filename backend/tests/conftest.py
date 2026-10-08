@@ -8,18 +8,29 @@ from fastapi.testclient import TestClient
 from backend.app import create_app
 from backend.config import Settings
 from backend.ha import HAClient
+from backend.live import Live
 
 TEMPLATE_OUTPUT = """light|light.kitchen_1|Kitchen 1|TP-Link|L530
 light|light.strip|Strip|TP-Link|L430C
 switch|switch.fan|Fan|TP-Link|P110
+rel|switch.fan|sensor.fan_current_consumption|power|W|measurement|Fan Current consumption
+rel|switch.fan|sensor.fan_today_s_consumption|energy|kWh|total_increasing|Fan Today's consumption
+rel|switch.fan|sensor.fan_total_consumption|energy|kWh|total_increasing|Fan Total consumption
+rel|switch.fan|sensor.fan_signal_level|signal_strength|dBm|measurement|Fan Signal level
+rel|switch.fan|binary_sensor.fan_overheated|problem|||Fan Overheated
 switch|switch.fan_auto_off_enabled_2|Fan|TP-Link|P110
 switch|switch.fan_led|Fan|TP-Link|P110
 switch|switch.kettle|Kettle|TP-Link|TP11
+rel|switch.kettle|sensor.kettle_current_consumption|power|W|measurement|Kettle Current consumption
 switch|switch.hub_led|Hub|TP-Link|KH100
 switch|switch.valve_child_lock|Valve|TP-Link|KE100
 switch|switch.radarr|||
 climate|climate.lounge_valve|Lounge valve|TP-Link|KE100
+rel|climate.lounge_valve|sensor.lounge_valve_battery|battery|%|measurement|Lounge valve Battery
+rel|climate.lounge_valve|binary_sensor.lounge_valve_battery_low|battery|||Lounge valve Battery low
 binary|binary_sensor.contact_sensor_door|Front door|TP-Link|T110
+rel|binary_sensor.contact_sensor_door|binary_sensor.contact_sensor_door_battery_low|battery|||Front door Battery low
+rel|binary_sensor.contact_sensor_door|binary_sensor.contact_sensor_door_cloud_connection|connectivity|||Front door Cloud
 binary|binary_sensor.contact_sensor_door_cloud_connection|Front door|TP-Link|T110
 binary|binary_sensor.dehumidifier_tank|Dehum|Tuya|X
 """
@@ -33,6 +44,13 @@ STATES = [
      "attributes": {"current_temperature": 19.5, "temperature": 21, "min_temp": 5, "max_temp": 30}},
     {"entity_id": "binary_sensor.contact_sensor_door", "state": "on", "attributes": {}},
     {"entity_id": "sensor.other", "state": "1", "attributes": {}},
+    {"entity_id": "sensor.fan_current_consumption", "state": "12.4", "attributes": {"unit_of_measurement": "W"}},
+    {"entity_id": "sensor.fan_today_s_consumption", "state": "0.153", "attributes": {"unit_of_measurement": "kWh"}},
+    {"entity_id": "sensor.fan_total_consumption", "state": "88.2", "attributes": {"unit_of_measurement": "kWh"}},
+    {"entity_id": "sensor.kettle_current_consumption", "state": "unavailable", "attributes": {"unit_of_measurement": "W"}},
+    {"entity_id": "sensor.lounge_valve_battery", "state": "15", "attributes": {"unit_of_measurement": "%"}},
+    {"entity_id": "binary_sensor.lounge_valve_battery_low", "state": "off", "attributes": {}},
+    {"entity_id": "binary_sensor.contact_sensor_door_battery_low", "state": "on", "attributes": {}},
 ]
 
 
@@ -67,6 +85,7 @@ def fake_ha():
 def client(tmp_path, fake_ha):
     settings = Settings("http://ha.test", "test-token", "aaron", "s3cret", str(tmp_path / "layout.db"))
     ha = HAClient(settings.ha_url, settings.ha_token, transport=httpx.MockTransport(fake_ha.handler))
-    with TestClient(create_app(settings, ha)) as c:
+    live = Live(ha, "ws://ha.test/api/websocket", settings.ha_token, use_ws=False)
+    with TestClient(create_app(settings, ha, live)) as c:
         c.headers["Authorization"] = "Basic " + base64.b64encode(b"aaron:s3cret").decode()
         yield c
