@@ -122,6 +122,7 @@ def test_stream_snapshot_update_ping():
         c = live.subscribe()
         gen = live.stream(c, live.device_list(), ping_every=0.01)
         assert (await gen.__anext__()).startswith("event: snapshot\n")
+        assert await gen.__anext__() == sse("status", {"ws": False})
         assert await gen.__anext__() == ": ping\n\n"
         live.handle(event("switch.fan", "on"))
         assert (await gen.__anext__()).startswith("event: device\n")
@@ -152,7 +153,8 @@ def test_events_endpoint(tmp_path, fake_ha):
         assert r.headers["cache-control"] == "no-cache" and r.headers["x-accel-buffering"] == "no"
         blocks = r.text.strip().split("\n\n")
         assert blocks[0].startswith("event: snapshot\n") and '"power":12.4' in blocks[0]
-        assert blocks[1] == 'event: device\ndata: {"entity_id":"switch.fan","state":"on"}'
+        assert blocks[1] == 'event: status\ndata: {"ws":false}'
+        assert blocks[2] == 'event: device\ndata: {"entity_id":"switch.fan","state":"on"}'
         assert live.clients == set()
         # /api/devices is now served from the fresh state map without another HA round trip
         n = sum(1 for c in fake_ha.calls if c[1] == "/api/states")

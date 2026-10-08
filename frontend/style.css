@@ -160,3 +160,11 @@ body.drawing .opening { pointer-events: none; }
   .actions, .quick { gap: 4px; }
   .actions button, .actions select { padding: 6px 8px; min-width: 36px; }
 }
+/* ---------- alerts sheet ---------- */
+#alertSheet label { display: block; margin: 12px 0; font-size: 14px; }
+#alertSheet label.check { display: flex; align-items: center; gap: 8px; }
+#alertSheet input[type=number] { width: 64px; padding: 6px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; }
+#alertSheet .alert-dev { display: flex; gap: 8px; flex-wrap: wrap; }
+#alertSheet .alert-dev button, #alertTest { padding: 10px 12px; }
+#alertMsg:empty { display: none; }
+#alertMsg.warn { color: var(--on); }

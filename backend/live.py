@@ -82,6 +82,7 @@ class Live:
         self.index: dict[str, set[str]] = {}  # entity id -> primary ids it feeds
         self.clients: set[Client] = set()
         self.ws_up = False
+        self.observers: list = []  # fn(device_item, raw_primary_state) on every published device change
         self.polled_at = 0.0
         self._task: asyncio.Task | None = None
 
@@ -131,22 +132,39 @@ class Live:
     def unsubscribe(self, c: Client) -> None:
         self.clients.discard(c)
 
+    def add_observer(self, fn) -> None:
+        self.observers.append(fn)
+
+    def set_ws(self, up: bool) -> None:
+        if up != self.ws_up:
+            self.ws_up = up
+            self._broadcast(sse("status", {"ws": up}))
+
     def _publish(self, entity_ids) -> None:
         primaries = set().union(*(self.index.get(e, ()) for e in entity_ids)) if entity_ids else set()
         for pid in sorted(primaries):
-            msg = sse("device", build_device(self.devices[pid], self.states))
-            for c in list(self.clients):
+            item = build_device(self.devices[pid], self.states)
+            for fn in self.observers:
                 try:
-                    c.queue.put_nowait(msg)
-                except asyncio.QueueFull:  # slow client: drop it, it will reconnect and get a fresh snapshot
-                    self.clients.discard(c)
-                    while not c.queue.empty():
-                        c.queue.get_nowait()
-                    c.queue.put_nowait(None)
+                    fn(item, self.states.get(pid))
+                except Exception as e:
+                    log.warning("observer failed: %s", e)
+            self._broadcast(sse("device", item))
+
+    def _broadcast(self, msg: str) -> None:
+        for c in list(self.clients):
+            try:
+                c.queue.put_nowait(msg)
+            except asyncio.QueueFull:  # slow client: drop it, it will reconnect and get a fresh snapshot
+                self.clients.discard(c)
+                while not c.queue.empty():
+                    c.queue.get_nowait()
+                c.queue.put_nowait(None)
 
     async def stream(self, c: Client, snapshot: list[dict], ping_every: float = PING_EVERY):
         try:
             yield sse("snapshot", snapshot)
+            yield sse("status", {"ws": self.ws_up})
             while True:
                 try:
                     item = await asyncio.wait_for(c.queue.get(), ping_every)
@@ -199,7 +217,7 @@ class Live:
                 except Exception as e:
                     log.warning("HA websocket down (%s: %s), retry in %ss", type(e).__name__, e, delay)
                 finally:
-                    self.ws_up = False
+                    self.set_ws(False)
             await self._poll_for(delay if self.use_ws else POLL_INTERVAL)
             delay = min(delay * 2, MAX_BACKOFF)
 
@@ -213,7 +231,7 @@ class Live:
                     raise RuntimeError(f"auth failed: {reply.get('message') or reply.get('type')}")
             await ws.send(json.dumps({"id": 1, "type": "subscribe_events", "event_type": "state_changed"}))
             self.load_states(await self.ha.states())
-            self.ws_up = True
+            self.set_ws(True)
             log.info("HA websocket connected")
             async for raw in ws:
                 self.handle(json.loads(raw))

@@ -8,6 +8,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response, StreamingRes
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from .alerts import Alerts, AlertStore, Pusher, SettingsError, load_vapid, validate_settings, validate_subscription, webpush_sender
 from .auth import COOKIE, SESSION_TTL, AuthMiddleware, RateLimiter, Sessions, check_basic_auth, check_credentials, client_key, is_https, load_secret  # noqa: F401
 from .config import Settings, load_settings
 from .discovery import Device, parse_template_output
@@ -77,17 +78,23 @@ def check_temp(t: float) -> None:
         raise HTTPException(400, "temperature must be between 5 and 35")
 
 
-def create_app(settings: Settings | None = None, ha: HAClient | None = None, live: Live | None = None) -> FastAPI:
+def create_app(settings: Settings | None = None, ha: HAClient | None = None, live: Live | None = None,
+               push_sender=None) -> FastAPI:
     settings = settings or load_settings()
     ha = ha or HAClient(settings.ha_url, settings.ha_token)
     store = LayoutStore(settings.db_path)
     cache: dict = {"at": 0.0, "devices": None}
     live = live or Live(ha, ws_url(settings.ha_url), settings.ha_token)
+    vapid = load_vapid(settings.db_path)
+    alert_store = AlertStore(settings.db_path)
+    pusher = Pusher(alert_store, push_sender or webpush_sender(vapid))
 
     @asynccontextmanager
     async def lifespan(app):
         live.start()
+        alerts.start()
         yield
+        await alerts.stop()
         await live.stop()
         await ha.close()
 
@@ -139,6 +146,54 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
         if dev.kind not in kinds:
             raise HTTPException(400, f"not supported for {dev.kind}")
         return dev
+
+    alerts = Alerts(alert_store, pusher, live, devices)
+
+    async def json_body(request: Request):
+        try:
+            return await request.json()
+        except ValueError:
+            raise HTTPException(400, "invalid JSON")
+
+    @app.get("/api/push/key")
+    async def push_key():
+        return {"publicKey": vapid.public_key}
+
+    @app.post("/api/push/subscribe")
+    async def push_subscribe(request: Request):
+        try:
+            sub = validate_subscription(await json_body(request))
+        except SettingsError as e:
+            raise HTTPException(400, str(e))
+        alert_store.add(sub)
+        return {"ok": True}
+
+    @app.post("/api/push/unsubscribe")
+    async def push_unsubscribe(request: Request):
+        data = await json_body(request)
+        ep = data.get("endpoint") if isinstance(data, dict) else None
+        if not isinstance(ep, str):
+            raise HTTPException(400, "endpoint required")
+        return {"removed": alert_store.remove(ep)}
+
+    @app.post("/api/push/test")
+    async def push_test():
+        return await pusher.notify({"title": "homecontrol", "body": "Test notification — alerts work on this device.",
+                                    "tag": "test", "url": "/"})
+
+    @app.get("/api/alerts/settings")
+    async def get_alert_settings():
+        return alert_store.settings()
+
+    @app.put("/api/alerts/settings")
+    async def put_alert_settings(request: Request):
+        try:
+            s = validate_settings(await json_body(request), alert_store.settings())
+        except SettingsError as e:
+            raise HTTPException(400, str(e))
+        alert_store.put_settings(s)
+        alerts.wake.set()
+        return s
 
     @app.get("/healthz")
     async def healthz():
