@@ -74,6 +74,17 @@ It listens on `127.0.0.1:8078` (override with `WEB_PORT`), so point a host Caddy
 - **Doors and windows:** “+ Door” / “+ Window”, then tap near a wall (inner L walls too). Drag one to slide it along
   its wall, drag its end handles to change its length, select + Delete to remove it. With a door selected,
   “Link sensor” ties it to a door sensor so the door turns red (open) / green (closed) in view mode.
+- **Brightness and colour:** long-press (about half a second) a light — marker or list row — for its sheet: on/off,
+  brightness, white temperature (if the bulb has it) and colour swatches plus a colour picker (colour bulbs only).
+  A lit colour bulb's marker shows its current colour.
+- **Rooms:** in view mode tap a room's name to switch all lights inside it: any on → all off, otherwise all on.
+- **All off** (power button in the header): turns off every light and plug after a confirmation, except plugs marked
+  “Keep on” (long-press a plug to open its sheet and tick it; stored in the layout as `settings.keep_on`).
+- **Heating** (thermometer button in the header): all radiator valves with current/target temperature, +/− per valve,
+  and an “All radiators” target with Apply to set every valve at once.
+- API: `POST /api/devices/{id}/light` (`brightness_pct`, `hs_color`, `rgb_color`, `color_temp_kelvin`),
+  `POST /api/bulk` (`action` turn_on/turn_off, `entity_ids` lights/plugs), `POST /api/valves/temperature`
+  (`temperature`, optional `entity_ids`).
 - Units: m/ft selector. The layout is always stored in metres; the selector changes how sizes are shown and entered.
 
 ## Live updates, power and battery

@@ -53,7 +53,7 @@ document.getElementById("signOut").addEventListener("click", signOut);
 function deviceColor(d) {
   if (!d || d.state === "unavailable" || d.state === "unknown") return "#444b57";
   switch (d.kind) {
-    case "light": case "plug": return d.state === "on" ? "var(--on)" : "var(--off)";
+    case "light": case "plug": return d.state === "on" ? lightColor(d) || "var(--on)" : "var(--off)";
     case "sensor": return d.state === "on" ? "var(--open)" : "var(--closed)";
     case "valve":
       if (d.state === "off") return "var(--off)";
@@ -142,6 +142,7 @@ function render() {
     const t = el("text", { x: lp.x + 0.15, y: lp.y + 0.42 }, g); t.textContent = r.name;
     if (st.editing) { const d = el("text", { x: lp.x + 0.15, y: lp.y + 0.72, class: "dim" }, g); d.textContent = `${fmtLen(r.w)} × ${fmtLen(r.h)}`; }
   }
+  renderRoomLabels(roomsG);
   renderOpenings();
   const R = 0.26;
   for (const p of L.placements) {
@@ -149,7 +150,8 @@ function render() {
     const kind = d?.kind || "light";
     const g = el("g", { class: "marker" + (st.sel?.type === "dev" && st.sel.id === p.entity_id ? " sel" : ""), "data-dev": p.entity_id }, markersG);
     el("circle", { cx: p.x, cy: p.y, r: R, fill: deviceColor(d) }, g);
-    el("use", { href: `#ic-${kind}`, x: p.x - R * 0.65, y: p.y - R * 0.65, width: R * 1.3, height: R * 1.3 }, g);
+    const u = el("use", { href: `#ic-${kind}`, x: p.x - R * 0.65, y: p.y - R * 0.65, width: R * 1.3, height: R * 1.3 }, g);
+    if (iconFill(d)) u.style.fill = iconFill(d);
     if (kind === "valve" && d?.current_temperature != null) {
       const t = el("text", { x: p.x, y: p.y + R + 0.22 }, g); t.textContent = `${d.current_temperature}°`;
     }
@@ -225,6 +227,7 @@ function openSheet(eid) { st.sheetFor = eid; $("sheet").hidden = false; renderSh
 function closeSheet() { st.sheetFor = null; $("sheet").hidden = true; }
 function renderSheet() {
   const d = st.devices.get(st.sheetFor); const c = $("sheetContent"); c.replaceChildren();
+  if (st.sheetFor === HEATING) return renderHeating(c);
   if (!d) { c.textContent = "Device not found in Home Assistant."; return; }
   const h = document.createElement("h3"); h.textContent = d.name; c.appendChild(h);
   const sub = document.createElement("div"); sub.className = "sub"; sub.textContent = `${d.model || d.kind} · ${d.entity_id}`; c.appendChild(sub);
@@ -236,6 +239,7 @@ function renderSheet() {
     b.disabled = unavailable;
     b.onclick = () => toggle(d);
     c.appendChild(b);
+    extraSheet(d, c, unavailable);
     if (d.kind === "plug" && (d.power != null || d.energy_today != null)) {
       const pw = document.createElement("div"); pw.className = "sub"; pw.style.marginTop = "12px";
       pw.textContent = [d.power != null ? `Now ${fmtW(d.power)}` : "", d.energy_today != null ? `Today ${d.energy_today.toFixed(2)} kWh` : ""]
@@ -526,7 +530,7 @@ function startLive() {
     const d = JSON.parse(e.data);
     st.devices.set(d.entity_id, d); st.updatedAt = new Date();
     // Don't redraw the sheet mid-adjustment of a valve target; the pending set will confirm it.
-    if (st.sheetFor === d.entity_id && tempTimer && d.kind === "valve") { render(); updateStatus(); return; }
+    if ((st.sheetFor === d.entity_id || st.sheetFor === HEATING) && (st.holdSheet || (tempTimer && d.kind === "valve"))) { render(); updateStatus(); return; }
     applyDevices();
   });
   es.onopen = () => { st.live = true; updateStatus(); };
