@@ -69,6 +69,11 @@ It listens on `127.0.0.1:8078` (override with `WEB_PORT`), so point a host Caddy
 - **Edit:** Edit → “+ Room”, then drag a rectangle on the plan and name it (sizes are pre-filled and can be tweaked), drag rooms and markers (a room carries the devices inside it), select a room and drag its handles to resize,
   drag unplaced devices from the side list onto the plan (or tap one, then tap the plan), select + Delete,
   “Edit room” (or double-click) to rename or resize, then Save.
+- **L-shaped rooms:** select a room and press “L-shape” to cut out a corner; press again to move the cut to the
+  next corner (NE → SE → SW → NW → off). Drag the white handle at the inner corner to size the cut.
+- **Doors and windows:** “+ Door” / “+ Window”, then tap near a wall (inner L walls too). Drag one to slide it along
+  its wall, drag its end handles to change its length, select + Delete to remove it. With a door selected,
+  “Link sensor” ties it to a door sensor so the door turns red (open) / green (closed) in view mode.
 - Units: m/ft selector. The layout is always stored in metres; the selector changes how sizes are shown and entered.
 
 ## Live updates, power and battery

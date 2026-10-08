@@ -143,7 +143,9 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
         except ValueError:
             raise HTTPException(400, "invalid JSON")
         # Entities already placed stay valid even if HA is briefly missing them.
-        known = {p["entity_id"] for p in store.get().get("placements", [])}
+        old = store.get()
+        known = {p["entity_id"] for p in old.get("placements", [])}
+        known |= {o["entity_id"] for o in old.get("openings", []) if o.get("entity_id")}
         try:
             known |= set(await devices())
         except HAError:

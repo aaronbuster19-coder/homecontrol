@@ -28,7 +28,11 @@
 
 <div id="editbar" hidden>
   <button id="addRoom">+ Room</button>
+  <button id="addDoor" class="add-open" data-type="door">+ Door</button>
+  <button id="addWindow" class="add-open" data-type="window">+ Window</button>
   <button id="editRoom" disabled>Edit room</button>
+  <button id="lShape" hidden title="Cut a corner out of the room (tap again to move the corner)">L-shape</button>
+  <button id="linkSensor" hidden>Link sensor</button>
   <button id="deleteSel" disabled>Delete</button>
   <span class="spacer"></span>
   <button id="cancelEdit">Cancel</button>
@@ -45,6 +49,7 @@
         <symbol id="ic-sensor" viewBox="0 0 24 24"><path d="M5 2h11v20H5zm9 9a1 1 0 1 0 0 2 1 1 0 0 0 0-2zM17 4h2v16h-2z"/></symbol>
       </defs>
       <g id="rooms"></g>
+      <g id="openings"></g>
       <g id="markers"></g>
     </svg>
   </div>
@@ -74,7 +79,17 @@
   </form>
 </dialog>
 
+<dialog id="linkDialog">
+  <form method="dialog" id="linkForm">
+    <h3>Link door sensor</h3>
+    <label>Sensor <select name="entity" id="linkSelect"></select></label>
+    <p class="hint">In view mode the door turns red when open, green when closed.</p>
+    <menu><button value="cancel" formnovalidate>Cancel</button><button value="ok" class="primary">OK</button></menu>
+  </form>
+</dialog>
+
 <script src="app.js"></script>
+<script src="floorplan.js"></script>
 <script>if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});</script>
 </body>
 </html>

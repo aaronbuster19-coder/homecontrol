@@ -136,10 +136,13 @@ function render() {
 
   for (const r of L.rooms) {
     const g = el("g", { class: "room" + (st.sel?.type === "room" && st.sel.id === r.id ? " sel" : ""), "data-room": r.id }, roomsG);
-    el("rect", { x: r.x, y: r.y, width: r.w, height: r.h, rx: 0.05 }, g);
-    const t = el("text", { x: r.x + 0.15, y: r.y + 0.42 }, g); t.textContent = r.name;
-    if (st.editing) { const d = el("text", { x: r.x + 0.15, y: r.y + 0.72, class: "dim" }, g); d.textContent = `${fmtLen(r.w)} × ${fmtLen(r.h)}`; }
+    if (r.cut) el("polygon", { points: roomPoly(r).map((p) => p.join(",")).join(" ") }, g);
+    else el("rect", { x: r.x, y: r.y, width: r.w, height: r.h, rx: 0.05 }, g);
+    const lp = labelPos(r);
+    const t = el("text", { x: lp.x + 0.15, y: lp.y + 0.42 }, g); t.textContent = r.name;
+    if (st.editing) { const d = el("text", { x: lp.x + 0.15, y: lp.y + 0.72, class: "dim" }, g); d.textContent = `${fmtLen(r.w)} × ${fmtLen(r.h)}`; }
   }
+  renderOpenings();
   const R = 0.26;
   for (const p of L.placements) {
     const d = st.devices.get(p.entity_id);
@@ -177,6 +180,7 @@ function render() {
       }
     }
   }
+  renderFloorplanHandles(markersG);
   renderSide();
   $("deleteSel").disabled = !st.sel;
   $("editRoom").disabled = st.sel?.type !== "room";
@@ -289,7 +293,7 @@ async function setTemp(eid, t) {
 
 // ---------- edit mode ----------
 function setEditing(on) {
-  st.editing = on; st.sel = null; st.picked = null; st.drawing = false; st.drawRect = null;
+  st.editing = on; st.sel = null; st.picked = null; st.drawing = false; st.drawRect = null; st.adding = null;
   $("addRoom").classList.remove("primary"); $("addRoom").textContent = "+ Room"; document.body.classList.remove("drawing");
   st.draft = on ? clone(st.layout) : null;
   document.body.classList.toggle("editing", on);
@@ -332,6 +336,7 @@ svg.addEventListener("pointerdown", (e) => {
   const mk = e.target.closest(".marker"), rm = e.target.closest(".room");
   if (!st.editing) return;
   const pt = svgPoint(e.clientX, e.clientY);
+  if (floorplanPointerDown(e, pt)) return;
   if (st.drawing) {
     const p0 = { x: snap(pt.x), y: snap(pt.y) };
     st.drag = { draw: p0, pid: e.pointerId };
@@ -357,8 +362,9 @@ svg.addEventListener("pointerdown", (e) => {
   // Moving a room moves the devices inside it.
   if (target.type === "room") {
     const r = target.obj;
-    st.drag.carried = st.draft.placements.filter((p) => p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h)
+    st.drag.carried = st.draft.placements.filter((p) => inRoom(r, p))
       .map((p) => ({ p, ox: p.x, oy: p.y }));
+    st.drag.carried.push(...openingsOnRoom(r).map((p) => ({ p, ox: p.x, oy: p.y })));
   }
   svg.setPointerCapture(e.pointerId);
   render();
@@ -375,7 +381,8 @@ svg.addEventListener("pointermove", (e) => {
   const dx = pt.x - d.start.x, dy = pt.y - d.start.y;
   if (!d.moved && Math.hypot(dx, dy) < 0.08) return;
   d.moved = true;
-  if (d.resize) { resizeRoom(d.obj, d.orig, d.resize, dx, dy); render(); return; }
+  if (floorplanPointerMove(d, pt, dx, dy)) { render(); return; }
+  if (d.resize) { resizeRoom(d.obj, d.orig, d.resize, dx, dy); clampCut(d.obj); render(); return; }
   d.obj.x = snap(d.ox + dx); d.obj.y = snap(d.oy + dy);
   for (const c of d.carried || []) { c.p.x = snap(c.ox + dx); c.p.y = snap(c.oy + dy); }
   render();
@@ -405,7 +412,7 @@ function setDrawing(on) {
   $("addRoom").classList.toggle("primary", on);
   $("addRoom").textContent = on ? "Drag on the plan…" : "+ Room";
   document.body.classList.toggle("drawing", on);
-  if (on) { st.sel = null; st.picked = null; }
+  if (on) { st.sel = null; st.picked = null; setAdding(null); }
   render();
 }
 svg.addEventListener("pointerup", endDrag);
@@ -463,6 +470,8 @@ $("deleteSel").onclick = () => {
     const r = st.draft.rooms.find((r) => r.id === st.sel.id);
     if (!confirm(`Delete room "${r.name}"? Devices inside stay where they are.`)) return;
     st.draft.rooms = st.draft.rooms.filter((x) => x.id !== st.sel.id);
+  } else if (st.sel.type === "open") {
+    st.draft.openings = (st.draft.openings || []).filter((o) => o.id !== st.sel.id);
   } else {
     st.draft.placements = st.draft.placements.filter((p) => p.entity_id !== st.sel.id);
   }
@@ -488,8 +497,8 @@ $("unit").onchange = async (e) => {
 $("sheetClose").onclick = closeSheet;
 $("sheet").addEventListener("click", (e) => { if (e.target.id === "sheet") closeSheet(); });
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") { closeSheet(); if (st.drawing) setDrawing(false); }
-  if (st.editing && (e.key === "Delete" || e.key === "Backspace") && st.sel && !$("roomDialog").open) $("deleteSel").click();
+  if (e.key === "Escape") { closeSheet(); if (st.drawing) setDrawing(false); if (st.adding) setAdding(null); }
+  if (st.editing && (e.key === "Delete" || e.key === "Backspace") && st.sel && !document.querySelector("dialog[open]")) $("deleteSel").click();
 });
 
 // ---------- live updates (server-sent events) ----------

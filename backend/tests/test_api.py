@@ -74,6 +74,20 @@ def test_layout_roundtrip(client):
     assert client.put("/api/layout", json=layout).status_code == 400
 
 
+def test_layout_openings_and_cut(client):
+    door = {"id": "o1", "type": "door", "x": 0, "y": 1, "len": 0.9, "orient": "v",
+            "entity_id": "binary_sensor.contact_sensor_door"}
+    layout = {"unit": "m", "rooms": [{"id": "r1", "name": "Hall", "x": 0, "y": 0, "w": 4, "h": 3,
+                                      "cut": {"corner": "se", "w": 1, "h": 1}}],
+              "placements": [], "openings": [door]}
+    r = client.put("/api/layout", json=layout)
+    assert r.status_code == 200, r.text
+    got = client.get("/api/layout").json()
+    assert got["openings"][0]["entity_id"] == door["entity_id"] and got["rooms"][0]["cut"]["corner"] == "se"
+    layout["openings"][0]["entity_id"] = "binary_sensor.ghost"
+    assert client.put("/api/layout", json=layout).status_code == 400
+
+
 def test_frontend_served(client):
     r = client.get("/")
     assert r.status_code == 200 and "homecontrol" in r.text.lower()
