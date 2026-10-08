@@ -58,11 +58,16 @@ class FakeHA:
     def __init__(self):
         self.calls: list[tuple[str, str, dict | None]] = []
         self.template_calls = 0
+        self.history: list = []  # response for /api/history/period
+        self.requests: list[httpx.Request] = []
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         assert request.headers["authorization"] == "Bearer test-token"
         body = json.loads(request.content) if request.content else None
         self.calls.append((request.method, request.url.path, body))
+        self.requests.append(request)
+        if request.url.path.startswith("/api/history/period/"):
+            return httpx.Response(200, json=self.history) if self.history is not None else httpx.Response(500)
         if request.url.path == "/api/template":
             self.template_calls += 1
             return httpx.Response(200, text=TEMPLATE_OUTPUT)
