@@ -218,10 +218,10 @@ function renderSheet() {
     c.appendChild(b);
   }
 }
-// Lights toggle straight away; everything else opens its sheet.
+// Lights and plugs toggle straight away; valves and sensors open their sheet.
 function tapDevice(eid) {
   const d = st.devices.get(eid);
-  if (d?.kind === "light" && d.state !== "unavailable" && d.state !== "unknown") toggle(d);
+  if ((d?.kind === "light" || d?.kind === "plug") && d.state !== "unavailable" && d.state !== "unknown") toggle(d);
   else openSheet(eid);
 }
 async function toggle(d) {

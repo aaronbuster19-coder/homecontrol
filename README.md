@@ -46,7 +46,7 @@ It listens on `127.0.0.1:8078` (override with `WEB_PORT`), so point a host Caddy
 
 ## Using it
 
-- **View:** tap a light to switch it on/off straight away. Tap a plug, valve or sensor (marker or list row)
+- **View:** tap a light or plug to switch it on/off straight away. Tap a valve or sensor (marker or list row)
   for its sheet: toggle / temperature +/− / open-closed.
   Colours: amber = on, grey = off, orange = valve heating, blue = valve at target, red = door open, green = closed.
 - **Edit:** Edit → “+ Room”, then drag a rectangle on the plan and name it (sizes are pre-filled and can be tweaked), drag rooms and markers (a room carries the devices inside it), select a room and drag its handles to resize,
