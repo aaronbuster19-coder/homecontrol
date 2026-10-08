@@ -34,8 +34,25 @@ docker compose up -d --build
 - `docker-compose.yml` joins an external network called `caddy`. Rename it to whatever network your Caddy container uses.
 - Add `Caddyfile.snippet` to your Caddyfile with your hostname(s) and reload Caddy. Choose LAN-only or LAN + Tailscale there.
 
-Login is HTTP Basic auth (`APP_USER` / `APP_PASSWORD`). If either is empty, every request is refused.
-`/healthz` is unauthenticated.
+### Login
+
+Sign in on `/login.html` with `APP_USER` / `APP_PASSWORD` (if either is empty, nobody can sign in). You then stay
+signed in for 90 days (an HttpOnly cookie, `Secure` when served over https). Sign out with the exit-arrow button in the header.
+- `SESSION_SECRET` (optional) signs the cookie. If unset, a random one is generated once and kept in `session_secret`
+  next to `DB_PATH` (e.g. `/data/session_secret`), so sessions survive restarts.
+- Changing `APP_PASSWORD` (or `SESSION_SECRET`) signs everyone out.
+- 10 wrong passwords from one client within 10 minutes → locked out for the rest of that window (HTTP 429).
+- `curl -u user:pass` (HTTP Basic) still works for the API; the browser never gets a Basic popup.
+- Public without login: `/healthz`, the login page, manifest, icons, service worker.
+
+### Install the app
+
+It's a PWA, so it installs like an app and opens full-screen:
+- **Chrome desktop:** the install icon at the right of the address bar (or ⋮ → Cast, save and share → Install).
+- **Android (Chrome):** ⋮ → *Install app* / *Add to Home screen*.
+- **iPhone (Safari):** Share → *Add to Home Screen*.
+
+The last loaded plan and device states are cached, so it opens offline ("Offline — showing last known state").
 
 ### Dockge
 
@@ -56,7 +73,7 @@ It listens on `127.0.0.1:8078` (override with `WEB_PORT`), so point a host Caddy
 
 ## API
 
-`GET /healthz` · `GET /api/devices` · `POST /api/devices/refresh` · `POST /api/devices/{entity_id}/toggle` ·
+`GET /healthz` · `POST /api/login` `{"username","password"}` · `POST /api/logout` · `GET /api/me` · `GET /api/devices` · `POST /api/devices/refresh` · `POST /api/devices/{entity_id}/toggle` ·
 `POST /api/devices/{entity_id}/temperature` `{"temperature": 21.0}` · `GET /api/layout` · `PUT /api/layout`
 
 The layout is a single JSON document in SQLite (`DB_PATH`, default `/data/layout.db`).

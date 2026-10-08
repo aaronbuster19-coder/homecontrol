@@ -22,8 +22,9 @@ def test_basic_auth_check():
 def test_auth_required(client):
     assert client.get("/healthz", headers={"Authorization": ""}).status_code == 200
     r = client.get("/api/devices", headers={"Authorization": hdr("aaron:bad")})
-    assert r.status_code == 401 and "Basic" in r.headers["www-authenticate"]
-    assert client.get("/", headers={"Authorization": ""}).status_code == 401
+    assert r.status_code == 401 and "www-authenticate" not in r.headers
+    r = client.get("/", headers={"Authorization": ""}, follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/login.html"
 
 
 def test_devices(client):

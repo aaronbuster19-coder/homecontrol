@@ -22,7 +22,12 @@ const snap = (v) => Math.round(v / SNAP) * SNAP;
 function setStatus(msg, err = false) { const s = $("status"); s.textContent = msg; s.classList.toggle("err", err); }
 
 async function api(path, opts = {}) {
-  const r = await fetch(path, { ...opts, headers: { "Content-Type": "application/json", ...(opts.headers || {}) } });
+  let r;
+  try {
+    r = await fetch(path, { ...opts, headers: { "Content-Type": "application/json", ...(opts.headers || {}) } });
+  } catch (e) { markOffline(true); throw new Error("offline"); }
+  if (r.status === 401) { location.replace("/login.html"); throw new Error("signed out"); }
+  markOffline(r.headers.get("X-From-SW-Cache") === "1");
   if (!r.ok) {
     let d = r.statusText;
     try { d = (await r.json()).detail || d; } catch {}
@@ -30,6 +35,19 @@ async function api(path, opts = {}) {
   }
   return r.json();
 }
+
+// ---------- session / offline ----------
+let offline = false;
+function markOffline(on) { offline = on || !navigator.onLine; }
+function offlineStatus() { if (offline) { setStatus("Offline — showing last known state"); $("status").classList.add("offline"); } }
+window.addEventListener("offline", () => { offline = true; offlineStatus(); });
+window.addEventListener("online", () => { offline = false; $("status").classList.remove("offline"); loadDevices(); });
+async function signOut() {
+  if (!confirm("Sign out?")) return;
+  try { await fetch("/api/logout", { method: "POST" }); } catch {}
+  location.replace("/login.html");
+}
+document.getElementById("signOut").addEventListener("click", signOut);
 
 // ---------- device state ----------
 function deviceColor(d) {
@@ -56,8 +74,10 @@ async function loadDevices() {
   try {
     const list = await api("/api/devices");
     st.devices = new Map(list.map((d) => [d.entity_id, d]));
+    $("status").classList.remove("offline");
     setStatus(`${list.length} devices · ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`);
-  } catch (e) { setStatus(`Home Assistant: ${e.message}`, true); }
+    offlineStatus();
+  } catch (e) { if (offline) offlineStatus(); else setStatus(`Home Assistant: ${e.message}`, true); }
   render();
   if (st.sheetFor) renderSheet();
 }

@@ -1,15 +1,14 @@
-import base64
 import math
-import secrets
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from .auth import COOKIE, SESSION_TTL, AuthMiddleware, RateLimiter, Sessions, check_basic_auth, check_credentials, client_key, is_https, load_secret  # noqa: F401
 from .config import Settings, load_settings
 from .discovery import Device, parse_template_output
 from .ha import DISCOVERY_TEMPLATE, HAClient, HAError
@@ -19,22 +18,9 @@ CACHE_TTL = 300
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
 
 
-def check_basic_auth(header: str | None, user: str, password: str) -> bool:
-    if not header or not user or not password:
-        return False
-    scheme, _, encoded = header.partition(" ")
-    if scheme.lower() != "basic":
-        return False
-    try:
-        given_user, sep, given_pw = base64.b64decode(encoded, validate=True).decode("utf-8").partition(":")
-    except (ValueError, UnicodeDecodeError):
-        return False
-    if not sep:
-        return False
-    # Evaluate both comparisons so timing doesn't reveal which one failed.
-    ok_user = secrets.compare_digest(given_user.encode(), user.encode())
-    ok_pw = secrets.compare_digest(given_pw.encode(), password.encode())
-    return ok_user and ok_pw
+class LoginBody(BaseModel):
+    username: str = ""
+    password: str = ""
 
 
 class TemperatureBody(BaseModel):
@@ -54,13 +40,32 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None) -> 
 
     app = FastAPI(title="homecontrol", lifespan=lifespan)
 
-    @app.middleware("http")
-    async def auth(request: Request, call_next):
-        if request.url.path == "/healthz":
-            return await call_next(request)
-        if not check_basic_auth(request.headers.get("authorization"), settings.app_user, settings.app_password):
-            return Response(status_code=401, headers={"WWW-Authenticate": 'Basic realm="homecontrol"'})
-        return await call_next(request)
+    sessions = Sessions(load_secret(settings.db_path), settings.app_password)
+    limiter = RateLimiter()
+    app.add_middleware(AuthMiddleware, sessions=sessions, user=settings.app_user, password=settings.app_password)
+
+    @app.post("/api/login")
+    async def login(body: LoginBody, request: Request):
+        key = client_key(request.headers, request.client.host if request.client else None)
+        if limiter.blocked(key):
+            raise HTTPException(429, "too many attempts, try again later")
+        if not check_credentials(body.username, body.password, settings.app_user, settings.app_password):
+            limiter.fail(key)
+            raise HTTPException(401, "wrong username or password")
+        resp = JSONResponse({"user": settings.app_user})
+        resp.set_cookie(COOKIE, sessions.issue(settings.app_user), max_age=SESSION_TTL, path="/",
+                        httponly=True, samesite="lax", secure=is_https(request))
+        return resp
+
+    @app.post("/api/logout")
+    async def logout(request: Request):
+        resp = JSONResponse({"ok": True})
+        resp.delete_cookie(COOKIE, path="/", httponly=True, samesite="lax", secure=is_https(request))
+        return resp
+
+    @app.get("/api/me")
+    async def me(request: Request):
+        return {"user": request.state.user}
 
     @app.exception_handler(HAError)
     async def ha_error(request, exc: HAError):
@@ -147,6 +152,14 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None) -> 
             raise HTTPException(400, str(e))
         store.put(layout)
         return layout
+
+    @app.get("/sw.js", include_in_schema=False)
+    async def service_worker():
+        return FileResponse(FRONTEND_DIR / "sw.js", media_type="text/javascript", headers={"Cache-Control": "no-cache"})
+
+    @app.get("/manifest.webmanifest", include_in_schema=False)
+    async def manifest():
+        return FileResponse(FRONTEND_DIR / "manifest.webmanifest", media_type="application/manifest+json")
 
     if FRONTEND_DIR.is_dir():
         app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")

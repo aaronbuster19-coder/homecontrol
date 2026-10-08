@@ -93,3 +93,17 @@ dialog menu { display: flex; justify-content: flex-end; gap: 8px; padding: 0; ma
   #side { width: auto; border-left: 0; border-top: 1px solid var(--line); }
   header h1 { font-size: 15px; }
 }
+
+/* ---------- login + sign-out ---------- */
+.login-page { display: flex; align-items: center; justify-content: center; min-height: 100%; padding: 16px; box-sizing: border-box; }
+.login { width: 100%; max-width: 340px; display: flex; flex-direction: column; gap: 12px; text-align: center; }
+.login img { align-self: center; border-radius: 16px; }
+.login h1 { font-size: 20px; margin: 0 0 8px; }
+.login label { display: block; text-align: left; font-size: 13px; color: var(--muted); }
+.login input { display: block; width: 100%; box-sizing: border-box; margin-top: 4px; padding: 12px; font-size: 16px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+.login input:focus { outline: none; border-color: var(--accent); }
+.login button { padding: 12px; font-size: 16px; }
+.login-err { color: var(--open); font-size: 14px; min-height: 1.2em; margin: 0; }
+#signOut { padding-left: 8px; padding-right: 8px; }
+.status.offline { color: var(--on); }
