@@ -78,16 +78,21 @@ function renderOpenings() {
     const og = el("g", { class: `opening ${o.type}` + (st.sel?.type === "open" && st.sel.id === o.id ? " sel" : ""), "data-open": o.id }, g);
     el("line", { class: "hit", x1: o.x, y1: o.y, x2: ex, y2: ey }, og);
     el("line", { class: "gap", x1: o.x, y1: o.y, x2: ex, y2: ey }, og);
+    const d = o.entity_id && st.devices.get(o.entity_id);
+    const linked = d && !st.editing;
     if (o.type === "window") {
       const off = 2.5 * k;
-      for (const s of [-1, 1]) el("line", { class: "pane", x1: o.x + (h ? 0 : s * off), y1: o.y + (h ? s * off : 0), x2: ex + (h ? 0 : s * off), y2: ey + (h ? s * off : 0) }, og);
+      for (const s of [-1, 1]) {
+        const ln = el("line", { class: "pane", x1: o.x + (h ? 0 : s * off), y1: o.y + (h ? s * off : 0), x2: ex + (h ? 0 : s * off), y2: ey + (h ? s * off : 0) }, og);
+        if (linked) { ln.style.stroke = deviceColor(d); ln.classList.add("linked"); }
+      }
+      const t = el("title", {}, og); t.textContent = d ? `${d.name} — ${deviceValue(d)}` : "Window";
     } else {
       const s = doorSwingSign(o), L = o.len;
       const tip = h ? [o.x, o.y + s * L] : [o.x + s * L, o.y];
       const sweep = h ? (s > 0 ? 0 : 1) : (s > 0 ? 1 : 0);
       const p = el("path", { class: "swing", d: `M${o.x},${o.y} L${tip[0]},${tip[1]} A${L},${L} 0 0 ${sweep} ${ex},${ey}` }, og);
-      const d = o.entity_id && st.devices.get(o.entity_id);
-      if (d && !st.editing) { p.style.stroke = deviceColor(d); p.classList.add("linked"); }
+      if (linked) { p.style.stroke = deviceColor(d); p.classList.add("linked"); }
       const t = el("title", {}, og); t.textContent = d ? `${d.name} — ${deviceValue(d)}` : "Door";
     }
   }
@@ -112,7 +117,7 @@ function renderFloorplanHandles(parent) {
   const ls = $("lShape");
   ls.hidden = !room;
   if (room) ls.textContent = room.cut ? `L: ${room.cut.corner.toUpperCase()} ↻` : "L-shape";
-  $("linkSensor").hidden = op?.type !== "door";
+  $("linkSensor").hidden = !op;
   for (const b of document.querySelectorAll(".add-open")) b.classList.toggle("primary", st.adding === b.dataset.type);
 }
 

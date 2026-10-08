@@ -544,11 +544,12 @@ function startLive() {
 }
 
 // ---------- boot ----------
-(async () => {
+// Wait for the later scripts (floorplan, controls, alerts, modes, history): render() calls into them.
+document.addEventListener("DOMContentLoaded", async () => {
   try { st.layout = await api("/api/layout"); } catch (e) { setStatus(`Layout: ${e.message}`, true); }
   $("unit").value = st.layout.unit || "m";
   await loadDevices();
   startLive();
   setInterval(() => { if (!st.live && !st.editing && !document.hidden) loadDevices(); }, 5000);
   document.addEventListener("visibilitychange", () => { if (!document.hidden && !st.editing && !st.live) loadDevices(); });
-})();
+});

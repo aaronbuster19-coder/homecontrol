@@ -85,7 +85,7 @@ container isn't healthy within ~2.5 min it puts the previous image (`homecontrol
   next corner (NE → SE → SW → NW → off). Drag the white handle at the inner corner to size the cut.
 - **Doors and windows:** “+ Door” / “+ Window”, then tap near a wall (inner L walls too). Drag one to slide it along
   its wall, drag its end handles to change its length, select + Delete to remove it. With a door selected,
-  “Link sensor” ties it to a door sensor so the door turns red (open) / green (closed) in view mode.
+  “Link sensor” ties a door or window to a door/window sensor so it turns red (open) / green (closed) in view mode.
 - **Brightness and colour:** long-press (about half a second) a light — marker or list row — for its sheet: on/off,
   brightness, white temperature (if the bulb has it) and colour swatches plus a colour picker (colour bulbs only).
   A lit colour bulb's marker shows its current colour.
