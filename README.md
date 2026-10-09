@@ -11,6 +11,7 @@ Everything goes through Home Assistant's REST API; the app never talks to Tapo/K
 | Plugs (P110, TP11, …) | `switch.<name>`, TP-Link, plug model; settings switches (`_led`, `_auto_off_enabled`, …) skipped | on/off |
 | Radiator valves (KE100) | `climate.*` | target temp, shows current |
 | Door/window sensors (T110) | `binary_sensor.contact_sensor_door*` (diagnostic ones like `_cloud_connection` skipped) | read-only, open/closed |
+| Dehumidifier (Tuya) | `humidifier.*`, or a `switch.*` that says “dehumid” — see [Dehumidifier](#dehumidifier) | on/off, target humidity, mode |
 
 Discovery uses `POST /api/template` to read each entity's device model, and caches the result for 5 minutes.
 *Refresh devices* in the ⋯ menu (or `POST /api/devices/refresh`) re-discovers immediately. State is polled every 5 s.
@@ -116,9 +117,53 @@ container isn't healthy within ~2.5 min it puts the previous image (`homecontrol
   “open since”; 24h / 7d. Built from HA history, so it covers time the app wasn't open.
 - Units: m/ft selector in the ⋯ menu. The layout is always stored in metres; the selector changes how sizes are shown and entered.
 
+## Dehumidifier
+
+Shows up as its own group (*Dehumidifier*) with a droplet marker you place like any other device. Tapping it opens its
+sheet — it never switches on a tap, so it can't be turned off by accident.
+
+- **Marker colour:** teal = drying, blue = on but idle (target reached), grey = off, **red = tank full**. The current
+  humidity is shown under the marker and in the list (“on · 62 % → 50 %”).
+- **Sheet:** on/off button, target humidity −/+ in 5 % steps (within the device's min/max), a *Mode* select when HA
+  lists modes, current humidity and temperature, and a red “Tank full — empty it” banner while the tank sensor is on.
+  History (24h/7d/30d): current humidity (line) and target (dashed) plus a running bar with the total time on.
+- **On the plan:** a room with a dehumidifier in it shows the humidity next to its temperature (“18° 62 %”); the wall
+  tablet's top bar shows the indoor humidity (💧). Both follow ⋯ → *Show temperature & humidity on plan*.
+- **All off:** leaves the dehumidifier running by default (it usually runs unattended). Tick *Include in “All off”*
+  in its sheet to change that (stored in the layout as `settings.all_off_include`). Away mode never switches it.
+- **Push:** “Dehumidifier: tank full” once when the tank fills; it can only come again after the tank has read
+  not-full (emptied). Bell sheet → *Dehumidifier* → “Tank full” (default on). Survives restarts.
+
+**Which HA shapes are recognised** (anything else stays hidden, as before):
+
+1. A `humidifier.*` entity (official Tuya integration, newer Local Tuya) when its `device_class` is `dehumidifier`, its
+   device's manufacturer contains “Tuya”, or its device name / model / entity id contains “dehumid”. Uses its state
+   (on/off), `humidity` (target), `current_humidity`, `min_humidity`/`max_humidity` (HA's 0/100 if missing), `mode` /
+   `available_modes` and `action` (drying/idle/off).
+2. Only a `switch.*` (e.g. Local Tuya without a humidifier platform), from any manufacturer except TP-Link (TP-Link
+   switches stay plugs), when the device name / model / entity id contains “dehumid”. On/off only. Feature switches
+   (`_child_lock`, `_ionizer`/`_anion`, `_sleep`, `_led`/`_light`, `_sound`/`_buzzer`, `_swing`, `_uv`, `_defrost`,
+   `_filter…`, `_timer…`, `_auto_off…`) are skipped; if several remain, `…_power`/`…_switch` wins, else the shortest id.
+3. Either way, one HA device gives one dehumidifier (a humidifier entity beats its switches), and its other entities on
+   the same HA device are used: `sensor` with device class `humidity` (%) → current humidity (if the humidifier entity
+   has no `current_humidity`), `sensor` temperature (°C/°F) → temperature, and a `binary_sensor` whose id or name
+   contains tank / full / water / bucket (else one with device class `problem` or `moisture`; defrost/filter/battery
+   never) → tank full. Selects, fans and numbers are ignored.
+
+**Check it:** HA → Developer tools → States, filter `humidifier.` and `dehumid`; the entity's attributes should show
+`device_class: dehumidifier` (or check the device page's manufacturer). After ⋯ → *Refresh devices*, `GET /api/devices`
+lists it with `"kind": "dehumidifier"` and `control` (`humidifier`/`switch`), `current_humidity`,
+`current_temperature`, `target_humidity`, `min_humidity`, `max_humidity`, `mode`, `available_modes`, `action` and
+`tank_full` (missing if no tank sensor was found). If the tank sensor or humidity is missing, that entity isn't on the
+same HA device or has a different device class.
+
+API: `POST /api/devices/{id}/toggle` (`humidifier.toggle` or `switch.toggle`), `POST /api/devices/{id}/humidity`
+`{"humidity": 55}` → `humidifier.set_humidity` (whole number within min/max; 400 for switch-only ones),
+`POST /api/devices/{id}/mode` `{"mode": "sleep"}` → `humidifier.set_mode` (must be one of `available_modes`).
+
 ## More menu (⋯), temperatures, Away/Home, backup
 
-The ⋯ button at the right of the header holds: Away / I'm home, *Show temperatures on plan*, Export layout,
+The ⋯ button at the right of the header holds: Away / I'm home, *Show temperature & humidity on plan*, Export layout,
 Import layout, Units (m/ft), Refresh devices and Sign out. It closes on a tap outside or Escape.
 
 - **Temperatures on the plan:** every room with a radiator valve in it (L-shapes respected) is tinted by the
@@ -225,17 +270,18 @@ Each one has its own switch in the bell sheet, and settings are shared by all de
   never twice for the same week. *Preview* in the bell sheet builds one for the last 7 days without sending it;
   *Last summary* shows the last one sent.
 
-To turn everything off: untick the four switches in the bell sheet (radiators down, low battery, offline,
-weekly summary). Disabling alerts on a phone only stops pushes to that phone; the radiator automation still runs.
+To turn everything off: untick the switches in the bell sheet (radiators down, low battery, offline,
+weekly summary, dehumidifier tank full). Disabling alerts on a phone only stops pushes to that phone; the radiator automation still runs.
 
 ## API
 
 `GET /healthz` · `POST /api/login` `{"username","password"}` · `POST /api/logout` · `GET /api/me` · `GET /api/devices` · `GET /api/events` (SSE: `snapshot`, `status` `{"ws": bool}`, then `device` events) · `POST /api/devices/refresh` · `POST /api/devices/{entity_id}/toggle` ·
-`POST /api/devices/{entity_id}/temperature` `{"temperature": 21.0}` · `GET /api/layout` · `PUT /api/layout` ·
+`POST /api/devices/{entity_id}/temperature` `{"temperature": 21.0}` · `POST /api/devices/{entity_id}/humidity` `{"humidity": 55}` ·
+`POST /api/devices/{entity_id}/mode` `{"mode": "auto"}` · `GET /api/layout` · `PUT /api/layout` ·
 `GET /api/push/key` · `POST /api/push/subscribe` (PushSubscription JSON) · `POST /api/push/unsubscribe` `{"endpoint"}` ·
 `POST /api/push/test` · `GET`/`PUT /api/alerts/settings` `{"enabled", "door_open_minutes", "notify_on_close",
 "window_heating_enabled", "window_open_minutes", "window_off_temp", "window_notify", "health_battery", "health_unavailable",
-"health_unavailable_minutes", "weekly_summary"}` (partial updates) · `GET /api/automations/status` (`windows_linked`, `held`) ·
+"health_unavailable_minutes", "weekly_summary", "dehumidifier_tank"}` (partial updates) · `GET /api/automations/status` (`windows_linked`, `held`) ·
 `GET /api/summary/latest` (404 until the first one) · `POST /api/summary/preview` ·
 `GET /api/history/{entity_id}?range=24h|7d|30d` (`series` `[{name, unit, points: [[t_ms, v|null]]}]`, `timeline` `[{state, start, end}]`, plugs: `energy_kwh`) ·
 `GET /api/doors/log?range=24h|7d&tz=Europe/London` (per door: `events` `[{t, state, open_ms}]` newest first, `summary`)
@@ -253,7 +299,7 @@ it runs pytest via `docker build --target test` and then builds the production i
 ```sh
 pip install -r requirements-dev.txt
 python -m pytest backend/tests          # HA is mocked; no real devices touched
-pip install playwright && python -m pytest e2e   # browser tests (wall mode) against e2e/fake_ha.py
+pip install playwright && python -m pytest e2e   # browser tests (wall mode, dehumidifier) against e2e/fake_ha.py
 docker build --target test .            # same, inside the image
 node --test tests/*.test.js            # snapping / wall maths (frontend/snap.js), plain Node, no npm
 HA_URL=… HA_TOKEN=… APP_USER=u APP_PASSWORD=p DB_PATH=./data/layout.db \

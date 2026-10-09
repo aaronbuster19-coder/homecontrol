@@ -33,7 +33,7 @@
 <div id="moreMenu" class="more-menu" role="menu" hidden>
   <button id="awayBtn" role="menuitem">Away…</button>
   <button id="wallBtn" role="menuitem">Wall mode</button>
-  <label class="more-row" role="menuitem"><input type="checkbox" id="tempToggle"> Show temperatures on plan</label>
+  <label class="more-row" role="menuitem"><input type="checkbox" id="tempToggle"> Show temperature &amp; humidity on plan</label>
   <hr>
   <button id="exportLayout" role="menuitem">Export layout</button>
   <button id="importLayout" role="menuitem">Import layout…</button>
@@ -66,6 +66,7 @@
         <symbol id="ic-light" viewBox="0 0 24 24"><path d="M9 21h6v-1H9zm3-19a7 7 0 0 0-4 12.7V18h8v-3.3A7 7 0 0 0 12 2z"/></symbol>
         <symbol id="ic-plug" viewBox="0 0 24 24"><path d="M8 2v6H6v4a6 6 0 0 0 5 5.9V22h2v-4.1A6 6 0 0 0 18 12V8h-2V2h-2v6h-4V2z"/></symbol>
         <symbol id="ic-valve" viewBox="0 0 24 24"><path d="M14 14.8V5a2 2 0 0 0-4 0v9.8a4 4 0 1 0 4 0zM12 3a2 2 0 0 1 2 2v1h-4V5a2 2 0 0 1 2-2z"/></symbol>
+        <symbol id="ic-dehumidifier" viewBox="0 0 24 24"><path d="M12 2.5S5.5 9.7 5.5 14.3a6.5 6.5 0 0 0 13 0C18.5 9.7 12 2.5 12 2.5zm-3 12a.9.9 0 0 1 1.8 0 2.2 2.2 0 0 0 2.2 2.2.9.9 0 0 1 0 1.8 4 4 0 0 1-4-4z"/></symbol>
         <symbol id="ic-sensor" viewBox="0 0 24 24"><path d="M5 2h11v20H5zm9 9a1 1 0 1 0 0 2 1 1 0 0 0 0-2zM17 4h2v16h-2z"/></symbol>
       </defs>
       <g id="rooms"></g>
@@ -110,6 +111,10 @@
       <h4>Device health</h4>
       <label class="check"><input type="checkbox" id="healthBattery"> Low battery (below 15 %, at most weekly)</label>
       <label class="check"><input type="checkbox" id="healthUnavail"> Offline for <input type="number" id="healthMins" min="10" max="240" step="5" inputmode="numeric"> min, and back online</label>
+    </section>
+    <section class="auto-sec" id="dehumSec" hidden>
+      <h4>Dehumidifier</h4>
+      <label class="check"><input type="checkbox" id="dehumTank"> Tank full (one push, again after it's emptied)</label>
     </section>
     <section class="auto-sec">
       <h4>Weekly summary</h4>
@@ -175,6 +180,7 @@
 <script src="alerts.js"></script>
 <script src="modes.js"></script>
 <script src="history.js"></script>
+<script src="dehumidifier.js"></script>
 <script src="automations.js"></script>
 <script src="wall.js"></script>
 <script>if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});</script>

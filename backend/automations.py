@@ -13,6 +13,7 @@ import threading
 import time
 
 from .alerts import parse_time
+from .dehumidifier import TankAlert
 from .geometry import opening_rooms, placed_in
 from .live import build_device
 from .summary import WeeklySummary
@@ -288,6 +289,7 @@ class Automations:
         self.lock = asyncio.Lock()  # Away/Home take it too, so they never interleave with a window tick
         self.window = WindowHeating(store, settings, self._set_temp, self._notify, mode, clock)
         self.health = Health(store, settings, self._notify, clock)
+        self.tank = TankAlert(store, settings, self._notify)
         self.summary = WeeklySummary(store, settings, ha, lambda: self.live.devices, layout_store.get, self._notify, clock, tz)
         self.wake = asyncio.Event()
         self._task: asyncio.Task | None = None
@@ -300,7 +302,7 @@ class Automations:
         await self.pusher.notify(payload)
 
     def on_device(self, item: dict, raw: dict | None) -> None:
-        if item.get("kind") == "sensor":
+        if item.get("kind") == "sensor" or self.tank.observe(item):
             self.wake.set()
 
     async def tick(self) -> None:
@@ -312,7 +314,9 @@ class Automations:
         devices, states = self.live.devices, self.live.states
         if devices and states:  # nothing is decided before HA's states are known
             for name, step in (("window heating", lambda: self._window(devices, states)),
-                               ("device health", lambda: self.health.tick(devices, states))):
+                               ("device health", lambda: self.health.tick(devices, states)),
+                               ("dehumidifier tank", lambda: self.tank.tick(
+                                   [build_device(d, states) for d in devices.values() if d.kind == "dehumidifier"]))):
                 try:
                     await step()
                 except Exception as e:

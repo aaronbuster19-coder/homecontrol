@@ -4,6 +4,7 @@ import json
 import logging
 import time
 
+from . import dehumidifier
 from .discovery import Device, number
 from .ha import HAClient
 
@@ -34,6 +35,8 @@ def build_device(d: Device, states: dict[str, dict]) -> dict:
             item[k] = attrs.get(k)
     if d.kind == "light":
         item.update(light_caps(attrs))
+    if d.kind == "dehumidifier":
+        item.update(dehumidifier.fields(d, attrs, states))
     for role in ("power", "energy_today"):
         v = number(states.get(d.related.get(role, "")))
         if v is not None:

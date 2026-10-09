@@ -1,11 +1,13 @@
 """A tiny fake Home Assistant for browser tests: REST states/template/services + websocket state_changed events.
 
-Run: python e2e/fake_ha.py PORT   (token: test-token). GET /_calls lists service calls, POST /_reset clears them.
+Run: python e2e/fake_ha.py PORT   (token: test-token). GET /_calls lists service calls, POST /_reset clears them,
+POST /_state {"entity_id", "state", "attributes"?} changes one entity (merging attributes) and pushes it.
 """
 import asyncio
 import json
 import sys
 import time
+from datetime import datetime, timezone
 
 import uvicorn
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
@@ -23,6 +25,12 @@ rel|switch.tv|sensor.tv_power|power|W|measurement|TV Current consumption
 climate|climate.lounge_valve|Lounge radiator|TP-Link|KE100
 climate|climate.bedroom_valve|Bedroom radiator|TP-Link|KE100
 binary|binary_sensor.contact_sensor_door|Front door|TP-Link|T110
+humidifier|humidifier.dehumidifier|Dehumidifier|Tuya|CS-20L
+dc|humidifier.dehumidifier|dehumidifier
+rel|humidifier.dehumidifier|sensor.dehumidifier_humidity|humidity|%|measurement|Dehumidifier Humidity
+rel|humidifier.dehumidifier|sensor.dehumidifier_temperature|temperature|°C|measurement|Dehumidifier Temperature
+rel|humidifier.dehumidifier|binary_sensor.dehumidifier_tank_full|problem|||Dehumidifier Tank full
+switch|switch.dehumidifier_child_lock|Dehumidifier|Tuya|CS-20L
 """
 
 
@@ -40,6 +48,12 @@ def initial_states():
         s("climate.lounge_valve", "heat", current_temperature=20.5, temperature=21, min_temp=5, max_temp=30),
         s("climate.bedroom_valve", "heat", current_temperature=18.0, temperature=19, min_temp=5, max_temp=30),
         s("binary_sensor.contact_sensor_door", "off"),
+        s("humidifier.dehumidifier", "on", device_class="dehumidifier", humidity=50, current_humidity=62, min_humidity=30,
+          max_humidity=80, mode="auto", available_modes=["auto", "continuous", "sleep"], action="drying"),
+        s("sensor.dehumidifier_humidity", "62", unit_of_measurement="%"),
+        s("sensor.dehumidifier_temperature", "21.5", unit_of_measurement="°C"),
+        s("binary_sensor.dehumidifier_tank_full", "off"),
+        s("switch.dehumidifier_child_lock", "off"),
     ]}
 
 
@@ -76,8 +90,16 @@ async def template(request: Request):
 
 
 @app.get("/api/history/period/{start}")
-async def history(start: str):
-    return []
+async def history(start: str, request: Request):
+    if "humidifier.dehumidifier" not in request.query_params.get("filter_entity_id", ""):
+        return []
+    now = time.time()  # dehumidifier: drying for 6 h, idle-off for 2 h, back on for the last 4 h
+
+    def at(h_ago, state, cur, target):
+        t = datetime.fromtimestamp(now - h_ago * 3600, timezone.utc).isoformat()
+        return {"entity_id": "humidifier.dehumidifier", "state": state, "last_changed": t, "last_updated": t,
+                "attributes": {"humidity": target, "current_humidity": cur}}
+    return [[at(24, "on", 68, 50), at(18, "on", 58, 50), at(12, "off", 52, 50), at(10, "on", 60, 45), at(4, "on", 62, 50)]]
 
 
 @app.post("/api/services/{domain}/{service}")
@@ -94,6 +116,10 @@ async def service(domain: str, service: str, request: Request):
             s["state"] = "on" if on else "off"
         elif service == "set_temperature":
             s["attributes"]["temperature"] = body.get("temperature")
+        elif service == "set_humidity":
+            s["attributes"]["humidity"] = body.get("humidity")
+        elif service == "set_mode":
+            s["attributes"]["mode"] = body.get("mode")
         await broadcast(eid)
     return []
 
@@ -101,6 +127,16 @@ async def service(domain: str, service: str, request: Request):
 @app.get("/_calls")
 async def calls():
     return app.state.calls
+
+
+@app.post("/_state")
+async def set_state(request: Request):
+    body = await request.json()
+    s = app.state.states[body["entity_id"]]
+    s["state"] = body.get("state", s["state"])
+    s["attributes"].update(body.get("attributes") or {})
+    await broadcast(body["entity_id"])
+    return s
 
 
 @app.post("/_reset")

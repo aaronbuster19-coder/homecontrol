@@ -6,15 +6,21 @@ PLUG_MODELS = {"P100", "P105", "P110", "P115", "TP11"}
 SETTINGS_SUFFIX = re.compile(r"_(auto_off_enabled|auto_update_enabled|led|child_lock)(_\d+)?$")
 SENSOR_PREFIX = "binary_sensor.contact_sensor_door"
 DIAGNOSTIC_SUFFIX = re.compile(r"_(cloud_connection|battery_low|low_battery|battery|overheated|overloaded|tamper|update)(_\d+)?$")
+# Dehumidifiers that only show up as switches: the device's extra feature switches are not the power switch.
+DEHUM_FEATURE_SWITCH = re.compile(
+    r"_(child_lock|lock|ionizer|anion|sleep|light|led|sound|buzzer|beep|swing|uv|defrost|filter\w*|auto_off\w*|timer\w*)(_\d+)?$")
+TANK_WORDS = re.compile(r"tank|full|water|bucket")
+NOT_TANK = re.compile(r"defrost|filter|battery")
 
 
 @dataclass
 class Device:
     entity_id: str
-    kind: str  # light | plug | valve | sensor
+    kind: str  # light | plug | valve | sensor | dehumidifier
     name: str
     model: str
-    related: dict[str, str] = field(default_factory=dict)  # role (power|energy_today|battery|battery_low) -> entity_id
+    # role (power|energy_today|battery|battery_low; dehumidifiers also humidity|temperature|tank) -> entity_id
+    related: dict[str, str] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         d = asdict(self)
@@ -27,12 +33,20 @@ def _is_tplink(manufacturer: str) -> bool:
     return m.startswith("tplink")
 
 
+def _is_tuya(manufacturer: str) -> bool:
+    return "tuya" in manufacturer.lower()
+
+
+def _says_dehum(*texts: str) -> bool:
+    return any("dehumid" in (t or "").lower() for t in texts)
+
+
 def _model_matches(model: str, wanted: str) -> bool:
     # HA sometimes reports e.g. "P110(UK)" or "KE100 EU"
     return model.upper().startswith(wanted)
 
 
-def classify(domain: str, entity_id: str, manufacturer: str, model: str) -> str | None:
+def classify(domain: str, entity_id: str, manufacturer: str, model: str, name: str = "", device_class: str = "") -> str | None:
     if domain == "light" and _is_tplink(manufacturer):
         return "light"
     if domain == "switch" and _is_tplink(manufacturer):
@@ -46,6 +60,13 @@ def classify(domain: str, entity_id: str, manufacturer: str, model: str) -> str 
     if domain == "binary" and _model_matches(model, "T110") and entity_id.startswith(SENSOR_PREFIX) \
             and not DIAGNOSTIC_SUFFIX.search(entity_id):
         return "sensor"
+    if domain == "humidifier":
+        # HA's own device_class, or any Tuya humidifier entity (the flat's only one is the dehumidifier), or the name says so
+        if device_class.lower() == "dehumidifier" or _is_tuya(manufacturer) or _says_dehum(entity_id, name, model):
+            return "dehumidifier"
+        return None
+    if domain == "switch" and _says_dehum(entity_id, name, model) and not DEHUM_FEATURE_SWITCH.search(entity_id):
+        return "dehumidifier"  # switch-only dehumidifier (TP-Link switches never get here)
     return None
 
 
@@ -75,6 +96,24 @@ def pick_related(rows: list[Related]) -> dict[str, str]:
     return out
 
 
+def pick_dehum_related(rows: list[Related]) -> dict[str, str]:
+    """A dehumidifier's humidity / temperature sensors and its tank-full binary sensor."""
+    out: dict[str, str] = {}
+    for r in rows:
+        dc = r.device_class.lower()
+        if r.entity_id.startswith("sensor.") and dc == "humidity" and r.unit == "%":
+            out.setdefault("humidity", r.entity_id)
+        elif r.entity_id.startswith("sensor.") and dc == "temperature" and r.unit in ("°C", "°F"):
+            out.setdefault("temperature", r.entity_id)
+    binaries = [r for r in rows if r.entity_id.startswith("binary_sensor.") and r.device_class.lower() not in ("battery", "connectivity")
+                and not NOT_TANK.search(f"{r.entity_id} {r.name}".lower())]
+    tank = [r for r in binaries if TANK_WORDS.search(f"{r.entity_id} {r.name}".lower())] or \
+        [r for r in binaries if r.device_class.lower() in ("problem", "moisture")]
+    if tank:
+        out["tank"] = tank[0].entity_id
+    return out
+
+
 def number(state: dict | None) -> float | None:
     """Numeric value of an HA state, scaled to W / kWh; None if unavailable or non-numeric."""
     if not state:
@@ -89,22 +128,44 @@ def number(state: dict | None) -> float | None:
     return v * 1000 if unit == "kW" else v / 1000 if unit == "Wh" else v
 
 
+def _one_dehumidifier_per_device(devices: list[Device], keys: dict[str, tuple]) -> list[Device]:
+    """One HA device = one dehumidifier: its humidifier entity wins over switches; else its main power switch."""
+    groups: dict[tuple, list[Device]] = {}
+    for d in devices:
+        if d.kind == "dehumidifier":
+            groups.setdefault(keys[d.entity_id], []).append(d)
+    drop = set()
+    for ds in groups.values():
+        rank = lambda d: (not d.entity_id.startswith("humidifier."),
+                          not re.search(r"_(power|switch)(_\d+)?$", d.entity_id), len(d.entity_id), d.entity_id)
+        drop |= {d.entity_id for d in sorted(ds, key=rank)[1:]}
+    return [d for d in devices if d.entity_id not in drop]
+
+
 def parse_template_output(text: str) -> list[Device]:
     devices: list[Device] = []
     seen: set[str] = set()
     rel: dict[str, list[Related]] = {}
+    classes: dict[str, str] = {}
+    primaries = []
     for line in text.splitlines():
         parts = [p.strip() for p in line.strip().split("|")]
         if len(parts) == 7 and parts[0] == "rel":
             rel.setdefault(parts[1], []).append(Related(*parts[2:]))
-            continue
-        if len(parts) != 5:
-            continue
-        domain, entity_id, name, manufacturer, model = parts
-        kind = classify(domain, entity_id, manufacturer, model)
+        elif len(parts) == 3 and parts[0] == "dc":
+            classes[parts[1]] = parts[2]
+        elif len(parts) == 5:
+            primaries.append(parts)
+    keys = {}
+    for domain, entity_id, name, manufacturer, model in primaries:
+        kind = classify(domain, entity_id, manufacturer, model, name, classes.get(entity_id, ""))
         if kind and entity_id not in seen:
             seen.add(entity_id)
             devices.append(Device(entity_id, kind, name or entity_id, model))
+            keys[entity_id] = (name, manufacturer, model) if name else (entity_id,)
+    devices = _one_dehumidifier_per_device(devices, keys)
     for d in devices:
         d.related = pick_related(rel.get(d.entity_id, []))
+        if d.kind == "dehumidifier":
+            d.related.update(pick_dehum_related(rel.get(d.entity_id, [])))
     return devices

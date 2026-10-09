@@ -18,9 +18,9 @@ DEFAULT_SETTINGS = {"enabled": True, "door_open_minutes": 5, "notify_on_close": 
                     # automations (backend/automations.py)
                     "window_heating_enabled": True, "window_open_minutes": 2, "window_off_temp": 7.0, "window_notify": True,
                     "health_battery": True, "health_unavailable": True, "health_unavailable_minutes": 30,
-                    "weekly_summary": True}
+                    "weekly_summary": True, "dehumidifier_tank": True}
 BOOL_SETTINGS = ("enabled", "notify_on_close", "window_heating_enabled", "window_notify", "health_battery",
-                 "health_unavailable", "weekly_summary")
+                 "health_unavailable", "weekly_summary", "dehumidifier_tank")
 INT_SETTINGS = {"door_open_minutes": (1, 120), "window_open_minutes": (1, 30), "health_unavailable_minutes": (10, 240)}
 WINDOW_OFF_TEMP = (5, 15)
 GONE = (404, 410)

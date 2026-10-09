@@ -3,9 +3,13 @@ import httpx
 # One line per record, pipe-separated. Primary lines: domain|entity_id|device name|manufacturer|model.
 # Related lines: rel|primary entity_id|entity_id|device_class|unit|state_class|friendly_name, one for every
 # sensor/binary_sensor on the same HA device (power, energy, battery are picked in discovery.py).
+# Humidifier entities also get dc|entity_id|device_class (HA's dehumidifier/humidifier class).
 DISCOVERY_TEMPLATE = """{% macro clean(v) %}{{ (v or '')|string|replace('|','/')|replace('\\n',' ') }}{% endmacro %}
-{%- for domain, key in [('light','light'),('switch','switch'),('climate','climate'),('binary_sensor','binary')] %}{% for s in states[domain] %}{% set d = device_id(s.entity_id) %}
+{%- for domain, key in [('light','light'),('switch','switch'),('climate','climate'),('binary_sensor','binary'),('humidifier','humidifier')] %}{% for s in states[domain] %}{% set d = device_id(s.entity_id) %}
 {{ key }}|{{ s.entity_id }}|{{ clean(device_attr(d,'name') if d else '') }}|{{ clean(device_attr(d,'manufacturer') if d else '') }}|{{ clean(device_attr(d,'model') if d else '') }}
+{%- if key == 'humidifier' %}
+dc|{{ s.entity_id }}|{{ clean(state_attr(s.entity_id,'device_class')) }}
+{%- endif %}
 {%- if d %}{% for e in device_entities(d) if e != s.entity_id and (e.startswith('sensor.') or e.startswith('binary_sensor.')) %}
 rel|{{ s.entity_id }}|{{ e }}|{{ clean(state_attr(e,'device_class')) }}|{{ clean(state_attr(e,'unit_of_measurement')) }}|{{ clean(state_attr(e,'state_class')) }}|{{ clean(state_attr(e,'friendly_name')) }}
 {%- endfor %}{% endif %}{% endfor %}{% endfor %}

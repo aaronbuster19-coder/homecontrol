@@ -57,7 +57,7 @@ def _openings(items, known_entities: set[str]) -> list[dict]:
     return out
 
 
-def _settings(data, known_plugs: set[str] | None) -> dict | None:
+def _settings(data, known_plugs: set[str] | None, known_dehums: set[str] | None = None) -> dict | None:
     s = data.get("settings")
     if s is None:
         return None
@@ -70,10 +70,20 @@ def _settings(data, known_plugs: set[str] | None) -> dict | None:
         bad = [e for e in keep if e not in known_plugs]
         if bad:
             raise LayoutError(f"settings.keep_on: unknown plug {bad[0]!r}")
-    return {"keep_on": sorted(set(keep))}
+    out = {"keep_on": sorted(set(keep))}
+    if "all_off_include" in s:  # dehumidifiers that "All off" also switches off (default: none)
+        inc = s["all_off_include"]
+        if not isinstance(inc, list) or not all(isinstance(e, str) for e in inc):
+            raise LayoutError("settings.all_off_include must be a list of entity ids")
+        bad = [e for e in inc if known_dehums is not None and e not in known_dehums]
+        if bad:
+            raise LayoutError(f"settings.all_off_include: unknown dehumidifier {bad[0]!r}")
+        out["all_off_include"] = sorted(set(inc))
+    return out
 
 
-def validate_layout(data, known_entities: set[str], known_plugs: set[str] | None = None) -> dict:
+def validate_layout(data, known_entities: set[str], known_plugs: set[str] | None = None,
+                    known_dehums: set[str] | None = None) -> dict:
     if not isinstance(data, dict):
         raise LayoutError("layout must be an object")
     unit = data.get("unit", "m")
@@ -116,7 +126,8 @@ def validate_layout(data, known_entities: set[str], known_plugs: set[str] | None
                        "y": _num(p.get("y"), f"placement {i} y")})
     openings = _openings(data.get("openings", []), known_entities)
     out = {"unit": unit, "rooms": rooms, "placements": places, "openings": openings}
-    settings = _settings(data, known_plugs if known_plugs is not None else known_entities)
+    settings = _settings(data, known_plugs if known_plugs is not None else known_entities,
+                         known_dehums if known_dehums is not None else known_entities)
     if settings is not None:
         out["settings"] = settings
     return out

@@ -32,12 +32,14 @@ const WALL = (() => {
   const h = (html) => { const t = document.createElement("template"); t.innerHTML = html.trim(); return t.content.firstChild; };
   const BOLT = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 9-12h-7z" fill="currentColor"/></svg>`;
   const THERMO = `<svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><use href="#ic-valve"/></svg>`;
+  const DROP = `<svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><use href="#ic-dehumidifier"/></svg>`;
   const bar = h(`<div id="wallBar" class="wall-bar" hidden>
     <button id="wallClock" class="wall-clock" type="button" aria-label="Clock (hold to exit wall mode)">
       <span class="t" id="wallTime">--:--</span><span class="d" id="wallDate"></span></button>
     <div class="wall-stats">
       <span class="wall-stat power" id="wallPower" title="Total power now">${BOLT}<b>–</b></span>
       <span class="wall-stat temp" id="wallTemp" title="Average indoor temperature (radiator valves)">${THERMO}<b>–</b></span>
+      <span class="wall-stat hum" id="wallHum" title="Indoor humidity (dehumidifier)" hidden>${DROP}<b>–</b></span>
       <span class="wall-conn" id="wallConn" hidden></span>
     </div>
     <div class="wall-acts">
@@ -91,6 +93,9 @@ const WALL = (() => {
     $("wallPower").hidden = pw == null;
     $("wallTemp").querySelector("b").textContent = tp == null ? "–" : `${(Math.round(tp * 10) / 10).toFixed(1)}°`;
     $("wallTemp").hidden = tp == null;
+    const hu = typeof indoorHumidity === "function" ? indoorHumidity() : null;
+    $("wallHum").querySelector("b").textContent = hu == null ? "–" : `${Math.round(hu)} %`;
+    $("wallHum").hidden = hu == null;
     const cn = $("wallConn"); cn.hidden = !c; if (c) { cn.textContent = c[1]; cn.className = `wall-conn ${c[0]}`; }
     const away = modeSt.mode === "away", mb = $("wallAway");
     mb.classList.toggle("away", away);
@@ -104,6 +109,7 @@ const WALL = (() => {
       const part = (icon, text) => { const p = document.createElement("span"); p.innerHTML = icon; p.append(text); info.append(p); };
       if (pw != null) part(BOLT, fmtW(pw));
       if (tp != null) part(THERMO, `${tp.toFixed(1)}°`);
+      if (hu != null) part(DROP, `${Math.round(hu)} %`);
       if (away) part("", "Away");
       $("wallDimConn").textContent = [open.length ? `${open.join(", ")} open` : "", c ? c[1] : ""].filter(Boolean).join(" · ");
       if (now.getMinutes() !== w.minute) { w.minute = now.getMinutes(); shift(); }

@@ -1,7 +1,7 @@
 "use strict";
 // Bump VERSION when the shell changes shape; content updates arrive anyway (network-first).
-const VERSION = "hc-v8";
-const SHELL = ["/", "/index.html", "/app.js", "/floorplan.js", "/controls.js", "/alerts.js", "/modes.js", "/history.js", "/automations.js", "/style.css", "/login.html", "/login.js", "/manifest.webmanifest", "/wall.js", "/snap.js",
+const VERSION = "hc-v9";
+const SHELL = ["/", "/index.html", "/app.js", "/floorplan.js", "/controls.js", "/alerts.js", "/modes.js", "/history.js", "/dehumidifier.js", "/automations.js", "/style.css", "/login.html", "/login.js", "/manifest.webmanifest", "/wall.js", "/snap.js",
   "/icons/icon-192.png", "/icons/icon-512.png", "/icons/icon-maskable-512.png", "/icons/apple-touch-icon.png"];
 const API_CACHED = ["/api/layout", "/api/devices"];
 
