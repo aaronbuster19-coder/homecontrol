@@ -439,6 +439,11 @@ class Activity:
             k, t = x["kind"], x["t"] * 1000
             if k == "login":
                 add(t, "security", "login", f"{x.get('user') or 'Someone'} signed in", detail=x.get("ip") and f"from {x['ip']}")
+            elif k == "users":  # backend/users.py: accounts added / changed / removed, passwords reset
+                what = {"user_added": "added", "user_changed": "changed", "user_removed": "removed",
+                        "user_password_reset": "reset the password of", "password_changed": "changed the password of"}
+                add(t, "security", "login", f"{x.get('by') or 'Someone'} {what.get(x.get('action'), 'changed')} "
+                    f"user {x.get('username') or '?'}")
             elif k == "push":
                 sent = x.get("sent")
                 add(t, "alerts", "push", f"Notification: {x['title']}", detail=x.get("body") or None,

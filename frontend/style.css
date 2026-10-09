@@ -231,6 +231,9 @@ body.drawing .opening { pointer-events: none; }
   display: flex; flex-direction: column; }
 .more-menu[hidden] { display: none; }
 #moreMenu { max-height: calc(100vh - 76px); max-height: calc(100dvh - 76px); overflow-y: auto; overscroll-behavior: contain; } /* scrolls when taller than the screen */
+/* A long menu (an admin's) scrolls inside a short phone screen instead of running off it. */
+.more-menu { max-height: calc(100dvh - 72px); overflow-y: auto; overscroll-behavior: contain; }
+.more-menu > * { flex-shrink: 0; }
 .more-menu > button, .more-row { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
   background: none; border: 0; border-radius: 8px; padding: 9px 10px; min-height: 42px; font-size: 15px; cursor: pointer; }
 .more-menu > button:hover, .more-row:hover { background: rgba(var(--hl), .06); }
@@ -813,3 +816,41 @@ body.wall .appl-tag text { font-weight: 700; }
   .wall-stat.wx .wx-more { display: none; }
   .wall-stat.wx .wx-cold-tag { flex-basis: 100%; }
 }
+
+/* ---------- roles (users.js sets <html data-role>; the server enforces every route, this only tidies the UI) ---------- */
+:root[data-role=member] :is(#editToggle, #importLayout, #hiddenBtn, #weatherBtn, #schedulesBtn, #autoAwayBtn, .more-row:has(#unit),
+  #awayTempRow, #awayTvRow, #climateBtn, #sheet .dev-meta, #sheet label.keep-on, #sheet .sb-row, #sheet .appl-remind, #sheet .appl-remind-box),
+:root[data-role=guest] :is(#editToggle, #importLayout, #hiddenBtn, #weatherBtn, #schedulesBtn, #autoAwayBtn, .more-row:has(#unit),
+  #briefBtn, #climateBtn,
+  #heating, #allOff, #alertsBtn, #awayBtn, #activityBtn, #energyBtn, #exportLayout, #importFile + hr, #refresh,
+  #sheet .dev-meta, #sheet label.keep-on, #sheet details.hist, #list .group-act) { display: none !important; }
+:root[data-role=member] #alertSheet .auto-sec :is(label, input) { pointer-events: none; opacity: .55; }
+:root:not([data-role=member]) #alertSheet .role-note { display: none; }
+/* Guests switch lights only: other devices show their state but don't react. */
+:root[data-role=guest] :is(#plan .marker:not([data-dev^="light."]), #plan .appl, #list li[data-dev]:not([data-dev^="light."])) {
+  pointer-events: none; opacity: .55; }
+
+/* ---------- ⋯ → Users… / Account… (users.js) ---------- */
+#usersSheet .sheet-body { max-height: 92vh; overflow-y: auto; overscroll-behavior: contain; }
+#usersSheet .users-me { margin-bottom: 8px; }
+.users-msg { min-height: 1em; overflow-wrap: anywhere; }
+.users-msg.warn { color: var(--open-ink); }
+.users-list { list-style: none; margin: 0; padding: 0; }
+.user-row { padding: 10px 0; border-top: 1px solid var(--line); }
+.user-row.expired .user-name { color: var(--muted); text-decoration: line-through; }
+.user-top { display: flex; align-items: center; gap: 10px; }
+.user-name { flex: 1; min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
+.user-tag { margin-left: 8px; padding: 1px 6px; border-radius: 6px; font-size: 11px; font-weight: 500;
+  background: rgba(var(--hl), .08); color: var(--muted); }
+.user-role, .user-expiry { min-height: 34px; padding: 4px 8px; }
+.user-role:disabled { opacity: .5; }
+#usersSheet .user-info { margin: 2px 0 0; }
+.user-btns { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.user-btns button { min-height: 34px; padding: 4px 10px; }
+.users-field { display: block; margin: 10px 0; font-size: 14px; }
+.users-field[hidden] { display: none; }
+.users-field > span { display: block; margin-bottom: 4px; color: var(--muted); font-size: 13px; }
+.users-field input, .users-field select { display: block; width: 100%; padding: 8px; min-height: 40px; background: var(--bg);
+  border: 1px solid var(--line); border-radius: 8px; }
+.users-field input:focus { outline: none; border-color: var(--accent); }
+#usersSheet form button[type=submit] { margin-top: 4px; }
