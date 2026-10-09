@@ -145,7 +145,7 @@ function render() {
   if (typeof renderRoomTemps === "function") renderRoomTemps(roomsG);
   renderRoomLabels(roomsG);
   renderOpenings();
-  const R = 0.26;
+  const R = 0.26 * (st.markerScale || 1); // wall mode draws bigger markers
   for (const p of L.placements) {
     const d = st.devices.get(p.entity_id);
     const kind = d?.kind || "light";
