@@ -256,8 +256,10 @@ def test_layout_all_off_include(dclient):
     assert dclient.get("/api/layout").json()["settings"]["all_off_include"] == [DH]
     for bad in (["switch.fan"], ["light.ghost"], DH, [1]):
         assert dclient.put("/api/layout", json={**base, "settings": {"all_off_include": bad}}).status_code == 400
-    # without the key nothing is added (old layouts unchanged)
-    assert dclient.put("/api/layout", json={**base, "settings": {"keep_on": []}}).json()["settings"] == {"keep_on": []}
+    # leaving the key out keeps the stored value (an older cached app can't wipe it); [] clears it
+    assert dclient.put("/api/layout", json={**base, "settings": {"keep_on": []}}).json()["settings"]["all_off_include"] == [DH]
+    cleared = dclient.put("/api/layout", json={**base, "settings": {"keep_on": [], "all_off_include": []}}).json()
+    assert cleared["settings"].get("all_off_include", []) == []
 
 
 # ---------------- tank-full push ----------------
