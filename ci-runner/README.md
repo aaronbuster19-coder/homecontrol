@@ -15,7 +15,7 @@ deploys wait forever.
 |---|---|---|
 | Switch `LunaCI` (Internal), NAT `LunaCI-NAT` on 192.168.250.0/24, PC = .1 | Luna's stack | **reads only**, stops if missing |
 | Firewall rule `LunaCI-Block-VM-To-Host` (all inbound to the PC from the switch) | Luna's stack | **reads only**, stops if missing or disabled |
-| VMs `homecontrol-ci`, `-2`, `-3` at **.30, .31, .32** (`IP_FIRST`, `RUNNER_COUNT`) | this stack | creates |
+| VMs `homecontrol-ci`, `-2`, `-3` at **.30, .31, .32** (VM N = .(29+N), up to 10: .30–.39) | this stack | creates |
 | Per-VM Hyper-V port ACLs + fail-closed guard | this stack | creates (identical to Luna's) |
 | State `terraform.tfstate`, encrypted with its own `STATE_PASSPHRASE` | this stack | `C:\Hyper-V\HomecontrolCI` |
 
@@ -23,8 +23,16 @@ Windows allows **one NetNat per PC** and Luna owns it, so this stack never creat
 `terraform_data.preflight` checks them on every apply (read-only `Get-*` cmdlets) before anything is downloaded or
 built.
 
-Addresses on the switch: .1 this PC, .10–.13 Luna, .20 the modelm runner, .30+ this project. `local.taken` in
-`main.tf` lists the used ones and apply refuses an overlap; add any new VM there.
+Addresses on the shared 192.168.250.0/24:
+
+| Address | Used by |
+|---|---|
+| .1 | this PC (the gateway) |
+| .10–.13 | Luna's runners `luna-ci` … `luna-ci-4` |
+| .20 | the modelm runner VM (MAC 00-15-5D-4D-4D-01) |
+| **.30–.39** | **this project: `RUNNER_COUNT` 1–10** (`local.ip_base = 29` in `main.tf`: moving the block is that one line) |
+
+The 192.168.0.0/16 deny means these VMs can't reach Luna's runners or the .20 VM either, by design.
 
 Each VM: Gen 2, Secure Boot (`MicrosoftUEFICertificateAuthority`), 2 vCPU, **1024 MB** static RAM (`MEMORY_MB`) plus
 a 4 GB swap file, 80 GB disk, static IP, public DNS. Port ACLs deny 0.0.0.0/8, 10/8, 172.16/12 (the LAN, dockerbox
@@ -34,8 +42,8 @@ the gateway 192.168.250.1/32. The VM is created off; the guard starts it only af
 ## Never
 
 - **Never run `tofu destroy` in Luna's `ci-runner/`** for this project. Luna's destroy removes the shared `LunaCI`
-  switch, `LunaCI-NAT` and firewall rule: these VMs (and modelm's) lose the internet. Destroy Luna's stack only
-  when every VM on the switch is gone or moving.
+  switch, `LunaCI-NAT` and firewall rule: this project's runners (and modelm's) go offline. Destroy Luna's stack
+  only when every VM on the switch is gone or moving. Run every `tofu` command for this project in this folder.
 - Never `tofu import` anything named `luna-ci*` / `LunaCI*` here, and never point `VM_DIR` at Luna's folder
   (apply refuses `...\LunaCI`). Two states, two passphrases.
 - Never enable ephemeral mode or give the runner a PAT (`EPHEMERAL`, `ACCESS_TOKEN`). The one-hour registration
@@ -43,9 +51,15 @@ the gateway 192.168.250.1/32. The VM is created off; the guard starts it only af
 
 ## First run (PowerShell **"Run as administrator"**)
 
-Hyper-V, OpenTofu, qemu-img and WinRM on 127.0.0.1:5986 are Luna's and already done. This project has its own local
-admin for the provider, `homecontrol-tofu`, which must also be in **Hyper-V Administrators** (without it the provider
-fails with "Hyper-V was unable to find a virtual machine" right after creating one):
+### Prerequisites (this project only)
+
+Hyper-V, OpenTofu, qemu-img and WinRM on 127.0.0.1:5986 are already installed for Luna. On a PC that has none of them,
+follow prerequisites 1–5 in the header of Luna's
+[`ci-runner/main.tf`](https://github.com/aaronbuster19-coder/Loyalty-Rewards/blob/main/ci-runner/main.tf) first.
+
+The one thing specific to this project is its own local admin for the provider, `homecontrol-tofu` (`HYPERV_USER`).
+It also goes in **Hyper-V Administrators**: without it the provider fails with "Hyper-V was unable to find a virtual
+machine" right after creating one (seen on the first apply here).
 
 ```powershell
 $pw = Read-Host -AsSecureString 'Password for homecontrol-tofu'
@@ -54,7 +68,9 @@ Add-LocalGroupMember -Group Administrators -Member homecontrol-tofu
 Add-LocalGroupMember -Group 'Hyper-V Administrators' -Member homecontrol-tofu
 ```
 
-Check Luna's network first:
+### Apply
+
+Check Luna's network first (apply also checks, and stops with "apply Luna's stack first" if any is missing):
 
 ```powershell
 Get-VMSwitch LunaCI; Get-NetNat LunaCI-NAT; Get-NetFirewallRule -Name LunaCI-Block-VM-To-Host
@@ -82,16 +98,18 @@ Afterwards check Settings → Actions → Runners: only `homecontrol-ci-hyperv`,
    `Could not resolve host: github.com`. On the host:
    ```powershell
    Resolve-DnsName github.com -Server 1.1.1.1 -DnsOnly
-   Get-NetNatSession | ? InternalSourceAddress -like '192.168.250.*' | group InternalSourceAddress, ExternalDestinationPort
+   Get-NetNatSession | ? InternalSourceAddress -like '192.168.250.3*' | group InternalSourceAddress, ExternalDestinationPort
    ```
-   Healthy VMs show port 443, not only 53. (This project's VMs are the .30+ addresses.)
+   Healthy VMs show ports 443 and 80, not only 53.
 5. **Keep the runner image current.** GitHub stops sending jobs to a runner more than 30 days behind the latest
    release, and auto-update is deliberately off. At least monthly: bump the tag and digest in `docker-compose.yml`
    (Docker Hub `myoung34/github-runner`, tag `<version>-ubuntu-noble`, pinned by the index digest), then do a
    token + apply reset.
-6. **No login, by design**: no password, no SSH key, Guest Services and KVP off. Diagnose from the host:
-   `Get-VM homecontrol-ci*` (Heartbeat), the NAT sessions above, `vmconnect localhost homecontrol-ci` (console:
-   boot and cloud-init messages), and the GitHub Runners page.
+6. **No login, by design**: no password, no SSH key, Guest Services and KVP off, so
+   `Get-VM homecontrol-ci* | Get-VMNetworkAdapter` shows no IP addresses. Diagnose from the host:
+   `Get-VM homecontrol-ci*` (Heartbeat), `Get-NetNeighbor -InterfaceAlias 'vEthernet (LunaCI)'` (is .30… seen on the
+   switch?), the NAT sessions above, `vmconnect localhost homecontrol-ci` (console: boot and cloud-init messages),
+   and the GitHub Runners page.
 7. **Never ephemeral mode or a PAT** in the runner (above).
 
 ## Docker settings inside the VMs (unchanged from Luna; each came from a real failure)
@@ -106,12 +124,14 @@ Afterwards check Settings → Actions → Runners: only `homecontrol-ci-hyperv`,
 
 | Luna | here |
 |---|---|
-| VMs `luna-ci`, `luna-ci-N` (.10–.13) | `homecontrol-ci`, `homecontrol-ci-N` (`IP_FIRST`…) |
-| MACs `00:15:5D:4C:43:xx` | `00:15:5D:48:43:xx` |
+| VMs `luna-ci`, `luna-ci-N` (.10–.13) | `homecontrol-ci`, `homecontrol-ci-N` (.30–.39) |
+| MACs `00:15:5D:4C:43:xx` ("LC") | `00:15:5D:48:43:xx` ("HC"; .20 is `4D:4D:01`) |
 | `VM_DIR` `C:\Hyper-V\LunaCI` | `C:\Hyper-V\HomecontrolCI` (disks `disk\homecontrol-ci*-os.vhdx`, seeds `cidata\`) |
 | runner `luna-ci-hyperv`, label `luna-ci` | `homecontrol-ci-hyperv`, label `homecontrol-ci` |
 | `/opt/luna-ci-runner`, `luna-ci-compose.service` | `/opt/homecontrol-ci-runner`, `homecontrol-ci-compose.service` |
 | `/etc/cron.daily/luna-ci-prune`, `resolved.conf.d/luna-ci-docker.conf` | `homecontrol-ci-prune`, `homecontrol-ci-docker.conf` |
+| tofu user `luna-tofu` | `homecontrol-tofu` |
+| guard/provisioner env vars `LUNA_*` | `HC_*` |
 
 ## Retiring
 

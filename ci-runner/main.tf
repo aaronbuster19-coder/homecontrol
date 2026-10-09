@@ -19,9 +19,9 @@
 #   - A NoCloud seed ISO (CIDATA) whose cloud-init installs Docker CE (signing key pinned below), writes
 #     docker-compose.yml and a runner-only .env into /opt/homecontrol-ci-runner and starts the runner (label
 #     homecontrol-ci) through a systemd unit that retries every minute until `docker compose up` succeeds, on every boot.
-#   - One VM per runner (RUNNER_COUNT in .env, 1 to 4): "homecontrol-ci" (192.168.250.30), then "homecontrol-ci-2"
-#     (.31), "homecontrol-ci-3" (.32)... (IP_FIRST in .env moves the block). Each has its own disk, seed ISO and guard.
-#     Addresses already in use on the switch (Luna's .10-.13, the modelm runner's .20: local.taken below) are refused.
+#   - One VM per runner (RUNNER_COUNT in .env, 1 to 10): "homecontrol-ci" (192.168.250.30), then "homecontrol-ci-2"
+#     (.31), "homecontrol-ci-3" (.32)... up to .39: this project's block on the shared switch (.1 this PC, .10-.13
+#     Luna, .20 the modelm runner). local.ip_base moves the block. Each VM has its own disk, seed ISO and guard.
 #     The deny list stops the VMs reaching each other, Luna's VMs and the modelm VM too.
 #   - Each VM ("homecontrol-ci" below): Generation 2, Secure Boot (MicrosoftUEFICertificateAuthority), 2 vCPU, 4 GB
 #     static RAM, no checkpoints, starts with Windows. Guest Service Interface, Key-Value Pair Exchange and VSS are off;
@@ -60,8 +60,7 @@
 #   6. Luna's stack applied and healthy: the switch, NAT and firewall rule must exist. Check:
 #        Get-VMSwitch LunaCI; Get-NetNat LunaCI-NAT; Get-NetFirewallRule -Name LunaCI-Block-VM-To-Host
 #      Apply stops with a clear message if any is missing (terraform_data.preflight). It never creates them.
-#   7. Free addresses: no other VM on the LunaCI switch may use IP_FIRST .. IP_FIRST+RUNNER_COUNT-1. local.taken
-#      lists the known ones; add any new VM there.
+#   7. Free addresses: no other VM on the LunaCI switch may use .30-.39 (local.ip_base below).
 #
 # USE (PowerShell "Run as administrator": the guard's Hyper-V cmdlets and port ACLs need admin; from a normal
 # PowerShell the guard refuses and leaves the VMs off).
@@ -210,16 +209,14 @@ locals {
   }
   token    = local.runner_env["RUNNER_TOKEN"]
   token_ok = local.token != "" && !startswith(local.token, "paste-")
-  # One VM per runner (RUNNER_COUNT in .env, 1 to 4). Runner 1 has the plain names (homecontrol-ci, IP_FIRST, disk
+  # One VM per runner (RUNNER_COUNT in .env, 1 to 10). Runner 1 has the plain names (homecontrol-ci, .30, disk
   # homecontrol-ci-os.vhdx, cidata\cidata.*), so adding runners never renames it (though the fresh RUNNER_TOKEN they
-  # need rebuilds it); runner N is homecontrol-ci-N on 192.168.250.(IP_FIRST+N-1), RUNNER_NAME-N in GitHub. All carry
+  # need rebuilds it); runner N is homecontrol-ci-N on 192.168.250.(ip_base+N), RUNNER_NAME-N in GitHub. All carry
   # the label homecontrol-ci; GitHub gives each job to a free one.
-  runner_count = try(tonumber(lookup(local.env, "RUNNER_COUNT", "3")), 0) # checked in preflight: a whole number, 1 to 4
-  # This project's block on Luna's /24 (IP_FIRST in .env, default .30, so .30-.33 at most). Luna's own main.tf
-  # hard-codes .10-.13, and the modelm runner is at .20: every address in local.taken is refused (preflight).
-  ip_first = try(tonumber(lookup(local.env, "IP_FIRST", "30")), 0)
-  taken    = [1, 10, 11, 12, 13, 20] # .1 this PC, .10-.13 Luna (RUNNER_COUNT up to 4), .20 modelm. Add any new VM here.
-  ip_last  = local.ip_first + local.runner_count - 1
+  runner_count = try(tonumber(lookup(local.env, "RUNNER_COUNT", "3")), 0) # checked in preflight: a whole number, 1 to 10
+  # This project's block on Luna's /24: VM N is 192.168.250.(29 + N), so .30-.39 for the 10 runners at most. The rest
+  # of the switch: .1 this PC, .10-.13 Luna's runners, .20 the modelm runner. Moving the block is this one line.
+  ip_base = 29
   # Memory per VM in MB (MEMORY_MB in .env, default 1024). Luna gives 4096; this project's jobs (pytest inside a
   # docker build, one Playwright browser) are lighter, and 1024 keeps three VMs at 3 GB next to Luna's. The 4 GB swap
   # file takes the peaks. Raise it if jobs get OOM-killed (exit 137) or crawl.
@@ -228,7 +225,7 @@ locals {
   runners = {
     for i in range(1, local.runner_count + 1) : tostring(i) => {
       vm_name     = i == 1 ? "homecontrol-ci" : "homecontrol-ci-${i}"
-      vm_ip       = "192.168.250.${local.ip_first + i - 1}"
+      vm_ip       = "192.168.250.${local.ip_base + i}"
       mac         = format("00155D4843%02X", i) # Hyper-V's 00:15:5D range, 48:43 "HC" (Luna's are 4C:43), so no MAC is ever shared on the one switch; 12 uppercase hex digits, as the provider reads it back
       runner_name = i == 1 ? local.runner_env["RUNNER_NAME"] : "${local.runner_env["RUNNER_NAME"]}-${i}"
       suffix      = i == 1 ? "" : "-${i}"
@@ -502,17 +499,13 @@ resource "terraform_data" "preflight" {
       error_message = "RUNNER_NAME in .env: letters, digits, '.', '_' or '-' only, and not Luna's (luna-*)."
     }
     precondition {
-      condition     = local.runner_count >= 1 && local.runner_count <= 4 && floor(local.runner_count) == local.runner_count
-      error_message = "RUNNER_COUNT in .env must be 1, 2, 3 or 4."
+      # At most 10: the .30-.39 block (local.ip_base). Each VM also holds 2 vCPU and MEMORY_MB all the time.
+      condition     = local.runner_count >= 1 && local.runner_count <= 10 && floor(local.runner_count) == local.runner_count
+      error_message = "RUNNER_COUNT in .env must be a whole number from 1 to 10 (192.168.250.30-.39)."
     }
     precondition {
       condition     = local.memory_mb >= 1024 && local.memory_mb <= 8192 && local.memory_mb % 2 == 0
       error_message = "MEMORY_MB in .env must be an even number of MB from 1024 to 8192."
-    }
-    precondition {
-      # Own block of addresses: inside .2-.254 and clear of every address already on the switch (local.taken).
-      condition     = floor(local.ip_first) == local.ip_first && local.ip_first >= 2 && local.ip_last <= 254 && length(setintersection(toset(range(local.ip_first, local.ip_last + 1)), toset(local.taken))) == 0
-      error_message = "IP_FIRST in .env: the VMs would use 192.168.250.${local.ip_first}-.${local.ip_last}, which overlaps an address in use on the LunaCI switch (${join(", ", [for t in local.taken : ".${t}"])}) or leaves .2-.254."
     }
     precondition {
       condition     = local.token_ok
