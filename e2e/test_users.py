@@ -137,7 +137,7 @@ def test_guest_lights_only(stack, ha, open_page, size, theme):
     expect(page.locator("#moreBtn")).to_be_visible()
     menu(page)
     visible = [b for b in page.locator("#moreMenu > button").all() if b.is_visible()]
-    assert [b.inner_text() for b in visible] == ["Rooms…", "Wall mode", "Favourites", "Account…", "Sign out"]
+    assert [b.inner_text() for b in visible] == ["Rooms…", "Disco…", "Wall mode", "Favourites", "Account…", "Sign out"]
     shot(page, f"users-guest-menu-{size}-{theme}")
     page.click("#moreBtn")
     expect(page.locator("#moreMenu")).to_be_hidden()
