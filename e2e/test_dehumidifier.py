@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 from playwright.sync_api import expect, sync_playwright
 
-from test_wall import HA, LAYOUT, PASSWORD, ROOT, USER, free_port, marker, marker_center, new_page, shot, wait_http
+from legacy import HA, LAYOUT, PASSWORD, ROOT, USER, free_port, marker, marker_center, new_page, shot, wait_http
 
 DH = "humidifier.dehumidifier"
 LAYOUT_DH = {**LAYOUT, "placements": LAYOUT["placements"] + [{"entity_id": DH, "x": 3.6, "y": 6.9}]}

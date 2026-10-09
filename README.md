@@ -382,15 +382,35 @@ The layout is a single JSON document in SQLite (`DB_PATH`, default `/data/layout
 ## Development
 
 CI: `.github/workflows/test.yml` runs on every push and same-repo PR on a **self-hosted** runner
-(`runs-on: self-hosted`). It needs Docker on the runner (the runner user must be in the `docker` group);
-it runs pytest via `docker build --target test` and then builds the production image. Fork PRs are skipped.
+(`runs-on: self-hosted`). It needs Docker on the runner (the runner user must be in the `docker` group). Fork PRs are skipped.
+- `test`: pytest via `docker build --target test`, then the production image build.
+- `e2e`: the browser suite and the Node unit tests, via `e2e/docker.sh` in `mcr.microsoft.com/playwright/python`
+  (from Microsoft's registry, not Docker Hub) with its own network namespace, so the test servers on 127.0.0.1 inside
+  the container never meet the live app. On failure, screenshots and Playwright traces are uploaded as an artifact
+  (`e2e-failure-…`, kept 7 days; open a trace with `playwright show-trace <file>.zip` or at trace.playwright.dev).
+- `deploy` (main only) needs both.
 
 ```sh
 pip install -r requirements-dev.txt
 python -m pytest backend/tests          # HA is mocked; no real devices touched
-pip install playwright && python -m pytest e2e   # browser tests against e2e/fake_ha.py
 docker build --target test .            # same, inside the image
 node --test tests/*.test.js            # snapping / wall maths (frontend/snap.js), plain Node, no npm
 HA_URL=… HA_TOKEN=… APP_USER=u APP_PASSWORD=p DB_PATH=./data/layout.db \
   uvicorn backend.app:create_app --factory --reload
 ```
+
+**Browser tests** (`e2e/`, Python Playwright + pytest): each test module starts `e2e/fake_ha.py` (a fake Home
+Assistant: states, discovery template, service calls with a call log, generated history, websocket) and the app with
+a temp database on free ports, signs in through `/login.html` and loads a plan; tests assert the exact service calls
+HA receives, on a 1280×800 desktop and a 390×844 touch phone, and fail on any uncaught page error. They also run the
+Node unit tests. One command runs everything:
+
+```sh
+pip install -r requirements-e2e.txt && python -m playwright install chromium   # once
+python -m pytest e2e                    # ~3 min; -k heating, -x, … as usual
+e2e/docker.sh                           # the same in the Playwright image, exactly as CI runs it
+```
+
+Screenshots the tests take go to `e2e/screenshots` (`SHOTS=dir` to change). Failures save a screenshot of every open
+page to `e2e/artifacts` (`E2E_ARTIFACTS`), plus a trace with `E2E_TRACE=1` (on by default in `e2e/docker.sh`).
+The Playwright version is pinned twice — `requirements-e2e.txt` and the image tag in `e2e/docker.sh` — keep them equal.

@@ -4,3 +4,5 @@ __pycache__/
 .pytest_cache/
 data/
 *.db
+e2e/screenshots/
+e2e/artifacts/

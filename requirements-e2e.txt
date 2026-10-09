@@ -1,0 +1,4 @@
+# Browser tests (e2e/): python -m pytest e2e. CI runs them in mcr.microsoft.com/playwright/python:v1.56.0-noble;
+# keep the playwright pin and that image tag in step (.github/workflows/test.yml).
+-r requirements-dev.txt
+playwright==1.56.0

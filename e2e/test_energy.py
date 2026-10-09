@@ -1,8 +1,7 @@
 """Browser tests for energy costs and device names / hidden devices (fake HA from e2e/fake_ha.py).
 
     python -m pytest -q e2e/test_energy.py      # SHOTS=dir to keep screenshots
-Helpers come from test_wall.py. The fixtures are module-scoped copies of its session ones: two Playwright
-instances can't be alive at once, so this module's browser is closed before test_wall.py's starts.
+Uses the shared module-scoped `servers`/`browser` fixtures from conftest.py and the helpers in legacy.py.
 """
 import json
 import re
@@ -10,21 +9,10 @@ import re
 import pytest
 from playwright.sync_api import expect
 
-import test_wall
-from test_wall import HA, SIZES, hold, marker, new_page, shot
+from legacy import HA, SIZES, hold, marker, new_page, shot
 
 CLEAN = {"keep_on": [], "names": {}, "hidden": [], "energy": {}}
 PHONE_DESKTOP = [s for s in SIZES if s != "portrait"]
-
-
-@pytest.fixture(scope="module")
-def servers(tmp_path_factory):
-    yield from test_wall.servers.__wrapped__(tmp_path_factory)
-
-
-@pytest.fixture(scope="module")
-def browser():
-    yield from test_wall.browser.__wrapped__()
 
 
 @pytest.fixture

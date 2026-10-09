@@ -3,3 +3,5 @@
 data
 **/__pycache__
 **/.pytest_cache
+e2e/screenshots
+e2e/artifacts

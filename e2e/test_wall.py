@@ -1,170 +1,19 @@
-"""Browser tests for wall tablet mode, against the real app and a fake Home Assistant (e2e/fake_ha.py).
-
-    pip install -r requirements-dev.txt playwright
-    python -m pytest -q e2e        # SHOTS=dir to keep screenshots (default: e2e/screenshots, git-ignored)
-Not run by the Docker test stage (needs a browser).
-"""
+"""Wall tablet mode, against the real app and the fake Home Assistant (fixtures in conftest.py)."""
 import json
-import os
 import re
-import socket
-import subprocess
-import sys
-import time
-import urllib.request
-from pathlib import Path
 
 import pytest
-from playwright.sync_api import expect, sync_playwright
+from playwright.sync_api import expect
 
-ROOT = Path(__file__).resolve().parent.parent
-SHOTS = Path(os.environ.get("SHOTS", ROOT / "e2e" / "screenshots"))
-USER, PASSWORD = "me", "pw-for-tests"
-SIZES = {"tablet": (1280, 800), "portrait": (768, 1024), "phone": (390, 844)}
+from conftest import PASSWORD, USER, hold, marker, marker_center, shot, toggles
 
-LAYOUT = {
-    "unit": "m",
-    "rooms": [
-        {"id": "lounge", "name": "Lounge", "x": 0, "y": 0, "w": 5.2, "h": 4.2},
-        {"id": "kitchen", "name": "Kitchen", "x": 5.2, "y": 0, "w": 3.2, "h": 2.6},
-        {"id": "hall", "name": "Hall", "x": 5.2, "y": 2.6, "w": 3.2, "h": 1.6},
-        {"id": "bed", "name": "Bedroom", "x": 0, "y": 4.2, "w": 4.4, "h": 3.4},
-        {"id": "bath", "name": "Bathroom", "x": 4.4, "y": 4.2, "w": 2.4, "h": 2.2},
-    ],
-    "placements": [
-        {"entity_id": "light.lounge", "x": 2.4, "y": 2.0},
-        {"entity_id": "light.strip", "x": 1.0, "y": 3.5},
-        {"entity_id": "switch.tv", "x": 4.4, "y": 3.4},
-        {"entity_id": "climate.lounge_valve", "x": 0.5, "y": 0.9},
-        {"entity_id": "light.kitchen", "x": 6.8, "y": 1.3},
-        {"entity_id": "switch.kettle", "x": 7.8, "y": 0.6},
-        {"entity_id": "light.bedroom", "x": 2.2, "y": 5.9},
-        {"entity_id": "climate.bedroom_valve", "x": 0.5, "y": 7.0},
-        {"entity_id": "binary_sensor.contact_sensor_door", "x": 7.9, "y": 3.6},
-    ],
-    "openings": [
-        {"id": "o1", "type": "door", "x": 8.4, "y": 3.0, "len": 0.9, "orient": "v",
-         "entity_id": "binary_sensor.contact_sensor_door"},
-        {"id": "o2", "type": "window", "x": 1.4, "y": 0, "len": 1.6, "orient": "h"},
-    ],
-}
-
-
-def free_port():
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
-def wait_http(url, timeout=20):
-    end = time.time() + timeout
-    while time.time() < end:
-        try:
-            urllib.request.urlopen(url, timeout=1)
-            return
-        except urllib.error.HTTPError:
-            return
-        except Exception:
-            time.sleep(0.1)
-    raise RuntimeError(f"{url} did not come up")
-
-
-@pytest.fixture(scope="session")
-def servers(tmp_path_factory):
-    ha_port, app_port = free_port(), free_port()
-    ha = subprocess.Popen([sys.executable, str(ROOT / "e2e" / "fake_ha.py"), str(ha_port)], cwd=ROOT)
-    wait_http(f"http://127.0.0.1:{ha_port}/_calls")
-    env = {**os.environ, "HA_URL": f"http://127.0.0.1:{ha_port}", "HA_TOKEN": "test-token", "APP_USER": USER,
-           "APP_PASSWORD": PASSWORD, "DB_PATH": str(tmp_path_factory.mktemp("db") / "layout.db")}
-    app = subprocess.Popen([sys.executable, "-m", "uvicorn", "backend.app:create_app", "--factory", "--host", "127.0.0.1",
-                            "--port", str(app_port), "--log-level", "warning"], cwd=ROOT, env=env)
-    wait_http(f"http://127.0.0.1:{app_port}/healthz")
-    yield {"ha": f"http://127.0.0.1:{ha_port}", "app": f"http://localhost:{app_port}"}
-    for proc in (app, ha):  # open SSE streams keep uvicorn from a graceful exit
-        proc.terminate()
-        try:
-            proc.wait(5)
-        except subprocess.TimeoutExpired:
-            proc.kill(); proc.wait()
-
-
-class HA:
-    def __init__(self, base):
-        self.base = base
-
-    def calls(self):
-        return json.load(urllib.request.urlopen(f"{self.base}/_calls"))
-
-    def reset(self):
-        urllib.request.urlopen(urllib.request.Request(f"{self.base}/_reset", method="POST"))
-
-    def wait_call(self, pred, timeout=5):
-        end = time.time() + timeout
-        while time.time() < end:
-            hit = [c for c in self.calls() if pred(c)]
-            if hit:
-                return hit
-            time.sleep(0.1)
-        raise AssertionError(f"no matching call in {self.calls()}")
-
-
-@pytest.fixture(scope="session")
-def browser():
-    with sync_playwright() as p:
-        exe = "/opt/pw-browsers/chromium" if Path("/opt/pw-browsers/chromium").is_file() else None
-        b = p.chromium.launch(executable_path=exe) if exe else p.chromium.launch()
-        yield b
-        b.close()
+SIZES = ["tablet", "portrait", "phone"]
 
 
 @pytest.fixture
-def ha(servers):
-    h = HA(servers["ha"]); h.reset()
-    return h
-
-
-def new_page(browser, servers, size="tablet", clock=None, **kw):
-    w, h = SIZES[size]
-    ctx = browser.new_context(viewport={"width": w, "height": h}, timezone_id="Europe/London", locale="en-GB",
-                              has_touch=size != "tablet", **kw)
-    page = ctx.new_page()
-    page.on("pageerror", lambda e: page.errors.append(str(e)))
-    page.errors = []
-    if clock:
-        page.clock.install(time=clock)
-    page.goto(servers["app"] + "/login.html")
-    page.fill("[name=username]", USER)
-    page.fill("[name=password]", PASSWORD)
-    page.click("button[type=submit]")
-    page.wait_for_url(re.compile(r"/(\?.*)?$"))
-    r = page.request.put(servers["app"] + "/api/layout", data=json.dumps(LAYOUT), headers={"Content-Type": "application/json"})
-    assert r.ok, r.text()
-    return page
-
-
-def shot(page, name):
-    SHOTS.mkdir(parents=True, exist_ok=True)
-    page.wait_for_timeout(250)
-    page.screenshot(path=str(SHOTS / f"{name}.png"))
-
-
-def marker(page, eid):
-    return page.locator(f'#plan .marker[data-dev="{eid}"]')
-
-
-def marker_center(page, eid):
-    b = marker(page, eid).locator("circle").bounding_box()
-    return b["x"] + b["width"] / 2, b["y"] + b["height"] / 2
-
-
-def hold(page, locator, ms=1200):
-    b = locator.bounding_box()
-    page.mouse.move(b["x"] + b["width"] / 2, b["y"] + b["height"] / 2)
-    page.mouse.down(); page.wait_for_timeout(ms); page.mouse.up()
-
-
-def toggles(ha, eid):
-    return [c for c in ha.calls() if c["service"] in ("toggle", "turn_on", "turn_off") and eid in json.dumps(c["data"])]
+def new_page(stack, ha, open_page):
+    """Signed in, wall-test layout saved, not navigated yet."""
+    return lambda size="tablet", clock=None, **kw: open_page(stack, size, goto=None, clock=clock, **kw)
 
 
 def set_settings(page, **vals):
@@ -179,9 +28,9 @@ def set_settings(page, **vals):
 
 # ---------------------------------------------------------------------------------------------------------------------
 
-def test_enter_from_menu_and_exit(browser, servers, ha):
-    page = new_page(browser, servers)
-    page.goto(servers["app"] + "/")
+def test_enter_from_menu_and_exit(new_page, stack, ha):
+    page = new_page()
+    page.goto(stack.url + "/")
     expect(marker(page, "light.lounge")).to_be_visible()
     r_normal = float(marker(page, "light.lounge").locator("circle").get_attribute("r"))
     page.click("#moreBtn"); page.click("#wallBtn")
@@ -199,17 +48,17 @@ def test_enter_from_menu_and_exit(browser, servers, ha):
     # Escape on desktop exits and restores the normal UI and URL.
     page.keyboard.press("Escape")
     expect(page.locator("body")).not_to_have_class(re.compile(r"\bwall\b"))
-    assert page.url == servers["app"] + "/"
+    assert page.url == stack.url + "/"
     expect(page.locator("header")).to_be_visible()
     expect(page.locator("#side")).to_be_visible()
     assert float(marker(page, "light.lounge").locator("circle").get_attribute("r")) == r_normal
     assert not page.errors
 
 
-@pytest.mark.parametrize("size", list(SIZES))
-def test_wall_url_tap_longpress_and_screens(browser, servers, ha, size):
-    page = new_page(browser, servers, size)
-    page.goto(servers["app"] + "/?wall")
+@pytest.mark.parametrize("size", SIZES)
+def test_wall_url_tap_longpress_and_screens(new_page, stack, ha, size):
+    page = new_page(size)
+    page.goto(stack.url + "/?wall")
     expect(page.locator("body")).to_have_class(re.compile(r"\bwall\b"))
     expect(page.locator("header")).to_be_hidden()
     expect(marker(page, "light.kitchen")).to_be_visible()
@@ -249,9 +98,9 @@ def test_wall_url_tap_longpress_and_screens(browser, servers, ha, size):
     assert not page.errors
 
 
-def test_away_home_and_all_off(browser, servers, ha):
-    page = new_page(browser, servers)
-    page.goto(servers["app"] + "/?wall")
+def test_away_home_and_all_off(new_page, stack, ha):
+    page = new_page()
+    page.goto(stack.url + "/?wall")
     expect(page.locator("#wallAway .st")).to_have_text("Home")
     page.click("#wallAway")
     expect(page.locator("#modeDialog")).to_be_visible()
@@ -265,20 +114,21 @@ def test_away_home_and_all_off(browser, servers, ha):
     # Back home, then All off with its confirmation.
     page.click("#wallAway"); page.click("#modeOk")
     expect(page.locator("#wallAway .st")).to_have_text("Home", timeout=3000)
-    ha.reset(); page.wait_for_timeout(500)
+    ha.reset()  # back to lounge, strip and TV on; wait until the page has those states, not a fixed delay
+    page.wait_for_function("['light.lounge', 'light.strip', 'switch.tv'].every((e) => st.devices.get(e)?.state === 'on')")
     asked = []
     page.once("dialog", lambda d: (asked.append(d.message), d.accept()))
     page.click("#wallAllOff")
-    calls = ha.wait_call(lambda c: c["service"] == "turn_off")
+    calls = ha.wait_calls(2, "turn_off")  # one call per domain: light, then switch
     assert asked and asked[0].startswith("Turn off 3 devices")
     off = {e for c in calls for e in c["data"]["entity_id"]}
     assert {"light.lounge", "light.strip", "switch.tv"} <= off
     assert not page.errors
 
 
-def test_exit_via_clock_hold(browser, servers, ha):
-    page = new_page(browser, servers, "portrait")
-    page.goto(servers["app"] + "/?wall")
+def test_exit_via_clock_hold(new_page, stack, ha):
+    page = new_page("portrait")
+    page.goto(stack.url + "/?wall")
     hold(page, page.locator("#wallClock"))
     expect(page.locator("#wallExit")).to_be_visible()
     shot(page, "wall-portrait-exit-pop")
@@ -289,10 +139,12 @@ def test_exit_via_clock_hold(browser, servers, ha):
     assert page.evaluate("localStorage.getItem('hc.wall.on')") is None
 
 
-def test_settings_persist_in_local_storage(browser, servers, ha):
-    page = new_page(browser, servers)
-    page.goto(servers["app"] + "/?wall")
+def test_settings_persist_in_local_storage(new_page, stack, ha):
+    page = new_page()
+    page.goto(stack.url + "/?wall")
     set_settings(page, start="22:30", end="06:45", idle=600, nightIdle=20)
+    # Saved when the dialog closes; wait for the write rather than reading straight away.
+    page.wait_for_function("localStorage.getItem('hc.wall.settings')?.includes('22:30')")
     stored = json.loads(page.evaluate("localStorage.getItem('hc.wall.settings')"))
     assert stored == {"start": "22:30", "end": "06:45", "idle": 600, "nightIdle": 20}
     page.reload()
@@ -301,10 +153,10 @@ def test_settings_persist_in_local_storage(browser, servers, ha):
     shot(page, "wall-tablet-settings")
 
 
-def test_night_dimming(browser, servers, ha):
+def test_night_dimming(new_page, stack, ha):
     # Local (London) 22:59:20; idle timeout stays at its 2 min default.
-    page = new_page(browser, servers, clock="2026-10-09T22:59:20+01:00")
-    page.goto(servers["app"] + "/?wall")
+    page = new_page(clock="2026-10-09T22:59:20+01:00")
+    page.goto(stack.url + "/?wall")
     expect(page.locator("#wallTime")).to_have_text("22:59")
     page.clock.run_for(20_000)
     expect(page.locator("#wallDim")).to_be_hidden()          # 22:59:40, not night yet
@@ -332,9 +184,9 @@ def test_night_dimming(browser, servers, ha):
     assert not page.errors
 
 
-def test_daily_reload_during_dim(browser, servers, ha):
-    page = new_page(browser, servers, clock="2026-10-09T12:00:00+01:00")
-    page.goto(servers["app"] + "/?wall")
+def test_daily_reload_during_dim(new_page, stack, ha):
+    page = new_page(clock="2026-10-09T12:00:00+01:00")
+    page.goto(stack.url + "/?wall")
     expect(page.locator("#wallTime")).to_have_text("12:00")
     page.evaluate("window.__marker = 1")
     page.clock.run_for(130_000)  # dims after 2 min, but the page is young: no reload
@@ -348,9 +200,9 @@ def test_daily_reload_during_dim(browser, servers, ha):
     assert "?wall" in page.url
 
 
-def test_offline_reload_from_service_worker(browser, servers, ha):
-    page = new_page(browser, servers, service_workers="allow")
-    page.goto(servers["app"] + "/?wall")
+def test_offline_reload_from_service_worker(new_page, stack, ha):
+    page = new_page(service_workers="allow")
+    page.goto(stack.url + "/?wall")
     page.evaluate("navigator.serviceWorker.ready")
     page.reload()  # now controlled: the SW caches the page and the API responses
     page.wait_for_function("!!navigator.serviceWorker.controller")
@@ -365,12 +217,12 @@ def test_offline_reload_from_service_worker(browser, servers, ha):
     page.context.set_offline(False)
 
 
-def test_signed_out_wall_tablet_returns_to_wall(browser, servers, ha):
-    page = new_page(browser, servers)
-    page.goto(servers["app"] + "/?wall")
+def test_signed_out_wall_tablet_returns_to_wall(new_page, stack, ha):
+    page = new_page()
+    page.goto(stack.url + "/?wall")
     expect(page.locator("body")).to_have_class(re.compile(r"\bwall\b"))
     page.context.clear_cookies()
-    page.goto(servers["app"] + "/login.html")
+    page.goto(stack.url + "/login.html")
     page.fill("[name=username]", USER); page.fill("[name=password]", PASSWORD); page.click("button[type=submit]")
     page.wait_for_url(re.compile(r"/\?wall$"))
     expect(page.locator("body")).to_have_class(re.compile(r"\bwall\b"))
