@@ -118,8 +118,7 @@ container isn't healthy within ~2.5 min it puts the previous image (`homecontrol
 
 ## More menu (⋯), temperatures, Away/Home, backup
 
-The ⋯ button at the right of the header holds: Away / I'm home, Wall mode, *Show temperatures on plan*, Energy,
-Hidden devices, Export layout,
+The ⋯ button at the right of the header holds: Away / I'm home, Wall mode, *Schedules…* (see *Schedules*), *Show temperatures on plan*, Energy, Hidden devices, Export layout,
 Import layout, Units (m/ft), Refresh devices and Sign out. It closes on a tap outside or Escape.
 
 - **Temperatures on the plan:** every room with a radiator valve in it (L-shapes respected) is tinted by the
@@ -202,7 +201,8 @@ Push notification on your phone when a door/window sensor stays open (works with
 ## Automations
 
 These run on the server (every 15 s, sooner after a contact sensor changes), so they work with the app closed.
-Each one has its own switch in the bell sheet, and settings are shared by all devices.
+Each one has its own switch in the bell sheet, and settings are shared by all devices. Their pushes wait during
+quiet hours (see *Quiet hours*).
 
 - **Window open → radiators down** (*Doors & windows* → “Radiators down while a window is open”, default on).
   When a **window** linked to a contact sensor (Edit → select the window → *Link sensor*) has been open for
@@ -271,6 +271,50 @@ Every device sheet ends with **✎ Rename** and **Hide**.
   and older exports can't wipe them); send `{}` / `[]` to clear. API: `PUT /api/devices/{entity_id}/meta`
   `{"name"?: string|null, "hidden"?: bool}` → the saved layout.
 
+## Schedules
+
+⋯ → *Schedules…*: timed actions run by homecontrol itself on the server (nothing is written into Home Assistant),
+so they work with the app closed.
+
+- **List:** each schedule shows its days, time, target and action, “Next: Tue 06:30” and “Last ran: Mon 06:30 — 2
+  lights at 40 %”, with its own on/off switch. Tap one to edit or delete it; *+ Add schedule* makes a new one.
+  *Schedules on* is the master switch: off means nothing runs at all.
+- **A schedule:** a name; *Do* — turn on, turn off, brightness % (lights only) or set temperature (radiators only);
+  *Which* — ticked lights/plugs/radiators, or “All lights in <room>” (whatever lights are placed in that room on the
+  plan when it runs, L-shapes respected); *Days* — Mon–Sun chips with Every day / Weekdays / Weekends; *When* — a
+  fixed time, or sunrise/sunset ± up to 180 min.
+- **Sunrise/sunset** are calculated on the server (NOAA solar equations, no internet) for the location under
+  *Location for sunrise / sunset* (default London 51.5074, −0.1278).
+- **Time zone:** `TZ_NAME` (default `Europe/London`). Times are wall-clock times: 06:30 is 06:30 in GMT and BST. On
+  the spring-forward night a time between 01:00 and 02:00 runs at the same time + 1 h (01:30 → 02:30 BST); on the
+  autumn night a repeated time runs once, the first time.
+- **Safe with real devices:** each run is stored in SQLite before anything is sent, so it happens once per day even
+  across restarts. Runs missed while the server was down are not caught up — only up to 2 minutes late. Making,
+  editing or switching on a schedule (or the master switch) never fires a time that has already passed. Everything
+  due at the same moment is merged into one call per kind of action (e.g. one `light.turn_on` for all lights), a
+  device named by two due schedules gets only the later one's action, and a failed call is not retried (“Last
+  ran: … failed”). Editing the time or action of a schedule that already ran today lets the new time run today.
+- **Radiators:** temperature schedules are skipped while Away (“skipped: away”). A radiator held low by an open
+  window (see *Automations*) isn't touched; it goes to the schedule's temperature when the window closes.
+- API: `GET /api/schedules` → `{"enabled", "lat", "lon", "tz", "now", "schedules": [{id, name, enabled, days (0 = Mon),
+  time {"type": "fixed", "at": "HH:MM"} | {"type": "sunrise"|"sunset", "offset": min}, action {"type": "on"|"off"|
+  "brightness"|"temperature", "value"}, target {"entity_ids": [...]} | {"room": id}, next (ms), last {at, status}}]}`,
+  `POST /api/schedules`, `PUT`/`DELETE /api/schedules/{id}`, `PUT /api/schedules/settings` `{"enabled", "lat", "lon"}`.
+  At most 50 schedules and 50 devices each; devices must exist and fit the action.
+
+## Quiet hours
+
+In the bell sheet. During quiet hours (default on, 23:00–07:00, set *From*/*To*) or a mute, the automations' pushes
+— low battery, offline/back online, window open → radiator off, weekly summary — are held (in SQLite, so they survive
+a restart; the same message twice is kept once) and arrive as **one** push, “While you were asleep”, when quiet hours
+or the mute end. **Door-open alerts and *Send test notification* always come through.**
+
+- *Mute 1 h* / *Mute until morning* (until the quiet-hours end time) hold the same pushes outside quiet hours; the
+  active mute is shown with *Cancel mute*. The automations themselves (e.g. radiators down) keep running.
+- API: `GET /api/alerts/quiet` → `{"active", "quiet", "muted", "mute_until", "until", "held"}` (times in ms),
+  `POST /api/alerts/mute` `{"for": "1h"|"morning"|"off"}`; `/api/alerts/settings` has `quiet_hours`, `quiet_from`,
+  `quiet_to` (`HH:MM`) and `mute_until` (epoch seconds or `null`, at most 48 h ahead).
+
 ## API
 
 `GET /healthz` · `POST /api/login` `{"username","password"}` · `POST /api/logout` · `GET /api/me` · `GET /api/devices` · `GET /api/events` (SSE: `snapshot`, `status` `{"ws": bool}`, then `device` events) · `POST /api/devices/refresh` · `POST /api/devices/{entity_id}/toggle` ·
@@ -278,7 +322,9 @@ Every device sheet ends with **✎ Rename** and **Hide**.
 `GET /api/push/key` · `POST /api/push/subscribe` (PushSubscription JSON) · `POST /api/push/unsubscribe` `{"endpoint"}` ·
 `POST /api/push/test` · `GET`/`PUT /api/alerts/settings` `{"enabled", "door_open_minutes", "notify_on_close",
 "window_heating_enabled", "window_open_minutes", "window_off_temp", "window_notify", "health_battery", "health_unavailable",
-"health_unavailable_minutes", "weekly_summary"}` (partial updates) · `GET /api/automations/status` (`windows_linked`, `held`) ·
+"health_unavailable_minutes", "weekly_summary", "quiet_hours", "quiet_from", "quiet_to", "mute_until"}` (partial updates) ·
+`GET /api/alerts/quiet` · `POST /api/alerts/mute` · `GET`/`POST /api/schedules` · `PUT`/`DELETE /api/schedules/{id}` ·
+`PUT /api/schedules/settings` · `GET /api/automations/status` (`windows_linked`, `held`) ·
 `GET /api/summary/latest` (404 until the first one) · `POST /api/summary/preview` ·
 `GET /api/history/{entity_id}?range=24h|7d|30d` (`series` `[{name, unit, points: [[t_ms, v|null]]}]`, `timeline` `[{state, start, end}]`, plugs: `energy_kwh`) ·
 `GET /api/doors/log?range=24h|7d&tz=Europe/London` (per door: `events` `[{t, state, open_ms}]` newest first, `summary`)
@@ -296,7 +342,7 @@ it runs pytest via `docker build --target test` and then builds the production i
 ```sh
 pip install -r requirements-dev.txt
 python -m pytest backend/tests          # HA is mocked; no real devices touched
-pip install playwright && python -m pytest e2e   # browser tests (wall mode, energy, names) against e2e/fake_ha.py
+pip install playwright && python -m pytest e2e   # browser tests against e2e/fake_ha.py
 docker build --target test .            # same, inside the image
 node --test tests/*.test.js            # snapping / wall maths (frontend/snap.js), plain Node, no npm
 HA_URL=… HA_TOKEN=… APP_USER=u APP_PASSWORD=p DB_PATH=./data/layout.db \
