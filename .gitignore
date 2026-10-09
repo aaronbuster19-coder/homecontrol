@@ -6,3 +6,8 @@ data/
 *.db
 e2e/screenshots/
 e2e/artifacts/
+
+# OpenTofu (ci-runner/): provider binaries and any state that lands here by mistake (state belongs in VM_DIR)
+.terraform/
+*.tfstate
+*.tfstate.*

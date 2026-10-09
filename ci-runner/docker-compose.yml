@@ -1,0 +1,79 @@
+# The homecontrol CI runner: one GitHub Actions self-hosted runner per VM, labelled homecontrol-ci, for
+# .github/workflows/test.yml (test and e2e jobs: runs-on: [self-hosted, homecontrol-ci]). Cloned from Luna's
+# (Loyalty-Rewards ci-runner/docker-compose.yml): same image, digest and settings, own names.
+#
+# Where this runs: INSIDE each homecontrol-ci Hyper-V VM, not on Windows. main.tf copies this file into the VM as
+# /opt/homecontrol-ci-runner/docker-compose.yml, next to an .env holding only the runner keys (REPO_URL, RUNNER_TOKEN,
+# RUNNER_NAME), and starts it with a systemd unit (homecontrol-ci-compose.service) that runs, retrying until it works,
+#   docker compose --project-directory /opt/homecontrol-ci-runner up --detach
+# The WinRM password and the state passphrase never reach the VM. Editing this file and running `tofu apply` rebuilds
+# the VMs (fresh disks), so put a fresh RUNNER_TOKEN in ci-runner/.env first (see .env.example).
+#
+# Check it on any machine with Docker:
+#   docker compose -f ci-runner/docker-compose.yml --env-file ci-runner/.env.example config
+#
+# Image: myoung34/github-runner (community image, about 67M pulls; https://github.com/myoung34/docker-github-actions-runner),
+# runner 2.338.0 on Ubuntu 24.04, pinned by digest (index digest, pushed 2026-10-06;
+# https://hub.docker.com/v2/repositories/myoung34/github-runner/tags/2.338.0-ubuntu-noble). It already has what
+# test.yml needs: git and the docker CLI with buildx (every step is a docker build or docker run on the VM's Docker),
+# plus sudo, curl and dumb-init as PID 1.
+# The official image (ghcr.io/actions/actions-runner:2.338.0@sha256:4ffadc0002b2581327e06101fc8c06cd189232baf79fe561fac9caeb76f5e807)
+# is the fallback if you won't trust a community image, at the cost of a hand-written config.sh/run.sh command.
+#
+# Updates: auto-update is off (DISABLE_AUTO_UPDATE), because the runner's self-update exits the container and the
+# update is lost on restart. GitHub stops sending jobs to a runner more than 30 days behind the newest release
+# (https://github.com/actions/runner/releases), so at least monthly: change the tag and digest below (Docker Hub,
+# tag <version>-ubuntu-noble), put a fresh RUNNER_TOKEN in .env and run `tofu apply -parallelism=1`. That also gives the VMs clean disks.
+#
+# Security, honestly: every job (same-repo pull requests and Dependabot included) runs as root here AND can drive the VM's
+# Docker through the socket, which is root on the VM. Any job can read this container's environment
+# (/proc/1/environ, docker inspect). That is why the only credential is the registration token: it stays valid for one
+# hour from when you fetch it (and could register MORE runners in that hour, so fetch it right before `tofu apply` and
+# check Settings > Actions > Runners afterwards); after that hour it is worthless. No long-lived token (PAT) is ever
+# given to this container. The wall is the VM: main.tf blocks the LAN, the tailnet, link-local and the Windows host
+# at the Hyper-V switch, outside anything a job can change.
+name: homecontrol-ci
+
+services:
+  runner:
+    image: myoung34/github-runner:2.338.0-ubuntu-noble@sha256:2112bde2ee92b7480babfbe3043d0461e322b97ca01e6ac94698895f3dc1f528
+    restart: unless-stopped
+    # Host networking, as Luna: job steps run in this container, and a bridged container's traffic is NAT'd twice
+    # (VM, then the host's LunaCI-NAT), which the host NAT drops. On the VM's own network, git checkout and the
+    # actions' downloads work, and the container uses the VM's systemd-resolved stub.
+    network_mode: host
+    # (Luna's ipc: host is left out: Chromium runs in e2e/docker.sh's own container, with --shm-size=1g.)
+    stop_grace_period: 1m
+    # environment: lists exactly what the container gets. Never use env_file: here, which would pass every .env line.
+    environment:
+      REPO_URL: ${REPO_URL:?set REPO_URL in .env}
+      RUNNER_SCOPE: repo
+      # Registration token (valid one hour), read only at the first registration. After that the registration
+      # lives in the runner-config volume and the token is no longer needed.
+      RUNNER_TOKEN: ${RUNNER_TOKEN:-}
+      # Never add EPHEMERAL or ACCESS_TOKEN here: the entrypoint treats ANY non-empty EPHEMERAL (even "false") as on,
+      # and ACCESS_TOKEN would be a long-lived PAT that every job can read.
+      RUNNER_NAME: ${RUNNER_NAME:-homecontrol-ci-hyperv}
+      # Fixed: the workflow asks for [self-hosted, homecontrol-ci]. The default labels (self-hosted, Linux, X64) are
+      # added too. Never set NO_DEFAULT_LABELS: it would drop "self-hosted" and no job would ever match.
+      LABELS: homecontrol-ci
+      RUN_AS_ROOT: "true"
+      # Same path on the VM and in the container (bind mount below), so container actions can mount the workspace.
+      # /tmp on the VM is emptied at each boot, which also clears old checkouts.
+      RUNNER_WORKDIR: /tmp/runner/work
+      # Keeps .runner/.credentials in the runner-config volume so a restart or reboot doesn't need a new token.
+      CONFIGURED_ACTIONS_RUNNER_FILES_DIR: /runner/config
+      # Required with the line above. A retired runner is therefore removed by hand in GitHub
+      # (Settings > Actions > Runners); GitHub also drops one that has been offline for 14 days.
+      DISABLE_AUTOMATIC_DEREGISTRATION: "true"
+      DISABLE_AUTO_UPDATE: "true"
+      UNSET_CONFIG_VARS: "true"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /tmp/runner:/tmp/runner
+      - runner-config:/runner/config
+    logging:
+      driver: local          # rotated: 5 x 20 MB, compressed
+
+volumes:
+  runner-config:

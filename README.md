@@ -707,8 +707,10 @@ The layout is a single JSON document in SQLite (`DB_PATH`, default `/data/layout
 
 ## Development
 
-CI: `.github/workflows/test.yml` runs on every push and same-repo PR on a **self-hosted** runner
-(`runs-on: self-hosted`). It needs Docker on the runner (the runner user must be in the `docker` group). Fork PRs are skipped.
+CI: `.github/workflows/test.yml` runs on every push and same-repo PR on **self-hosted** runners. Fork PRs are skipped.
+`test` and `e2e` run on `[self-hosted, homecontrol-ci]`: the Hyper-V VMs built by `ci-runner/` (see `ci-runner/README.md`).
+`deploy` runs on `[self-hosted, dockerbox]`: the runner on dockerbox, which needs the custom label `dockerbox` and Docker
+access (the runner user in the `docker` group).
 - `test`: pytest via `docker build --target test`, then the production image build.
 - `e2e`: the browser suite and the Node unit tests, via `e2e/docker.sh` in `mcr.microsoft.com/playwright/python`
   (from Microsoft's registry, not Docker Hub) with its own network namespace, so the test servers on 127.0.0.1 inside
