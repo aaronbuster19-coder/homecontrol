@@ -9,7 +9,8 @@ websocket /api/websocket (token auth, subscribe_events -> state_changed events).
 Test controls: GET /fake/calls (service call log), POST /fake/reset (calls + states + forecast) — also as /_calls,
 /_reset — POST /fake/set {"entity_id", "state"?, "attributes"?} (change a state and push it like a wall switch would;
 also as /_state), POST /fake/forecast {"cold": true} (tonight drops to 1°) or {"error": 500} (get_forecasts fails)
-and GET /fake/forecast_calls (get_forecasts requests, kept out of /fake/calls).
+and GET /fake/forecast_calls (get_forecasts requests, kept out of /fake/calls). POST /fake/fail {"service": "turn_on",
+"count": n, "status": 500} makes the next n calls of that service fail (logged in /fake/calls as "failed": true).
 With FAKE_HA_TV=1 a Samsung TV (media_player, with a SmartThings duplicate on the same device), a speaker, and
 GET /api/media_player_proxy/<entity> (the TV's artwork, a PNG) exist (e2e/test_tv.py).
 """
@@ -179,6 +180,7 @@ app.state.sockets = set()
 app.state.changes = {}   # entity id -> [(before, after)] state dicts: real changes, merged into the history
 app.state.forecast = {}  # {"cold": bool, "error": status}
 app.state.forecast_calls = []
+app.state.fail = {}  # service -> {"count": n, "status": code}: the next n calls of it fail (disco error tests)
 
 
 def authorized(request: Request) -> bool:
@@ -263,6 +265,11 @@ async def get_forecasts(request: Request):
 @app.post("/api/services/{domain}/{service}")
 async def service(domain: str, service: str, request: Request):
     body = await request.json()
+    f = app.state.fail.get(service)
+    if f and f["count"] > 0:
+        f["count"] -= 1
+        app.state.calls.append({"domain": domain, "service": service, "data": body, "t": time.time(), "failed": True})
+        return JSONResponse({"message": "fake failure"}, f.get("status", 500))
     app.state.calls.append({"domain": domain, "service": service, "data": body, "t": time.time()})
     ids = body.get("entity_id", [])
     for eid in [ids] if isinstance(ids, str) else ids:
@@ -437,6 +444,7 @@ async def reset():
     app.state.calls.clear()
     app.state.changes.clear()
     app.state.forecast = {}
+    app.state.fail = {}
     app.state.states = initial_states()
     for eid in app.state.states:
         await broadcast(eid)
@@ -456,6 +464,13 @@ async def set_state(request: Request):
     changed(body["entity_id"], before)
     await broadcast(body["entity_id"])
     return s
+
+
+@app.post("/fake/fail")
+async def set_fail(request: Request):
+    body = await request.json()
+    app.state.fail[body["service"]] = {"count": int(body.get("count", 1)), "status": int(body.get("status", 500))}
+    return app.state.fail
 
 
 @app.get("/fake/forecast_calls")

@@ -747,7 +747,7 @@ appliance (“Fridge · Plug 2”). ‹ / › go through the months (up to 12 ba
 `GET /api/summary/latest` (404 until the first one) · `POST /api/summary/preview` ·
 `GET /api/history/{entity_id}?range=24h|7d|30d` (`series` `[{name, unit, points: [[t_ms, v|null]]}]`, `timeline` `[{state, start, end}]`, plugs: `energy_kwh`) ·
 `GET /api/doors/log?range=24h|7d&tz=Europe/London` (per door: `events` `[{t, state, open_ms}]` newest first, `summary`) ·
-`GET /api/activity` (see *Activity*) · `GET /api/weather` · `PUT /api/weather/settings` · `POST /api/weather/refresh` (see *Weather*)
+`GET /api/activity` (see *Activity*) · `GET`/`POST /api/disco…` (see *Disco mode*) · `GET /api/weather` · `PUT /api/weather/settings` · `POST /api/weather/refresh` (see *Weather*)
 
 Devices carry `power` (W), `energy_today` (kWh), `battery` (%) and `battery_low` (bool) when HA knows them.
 
@@ -866,13 +866,44 @@ installed app offers it as a shortcut too: long-press the app icon → *Favourit
 - API: `GET /api/tiles` → `{"pins": [entity ids]}`; `PUT /api/tiles` `{"pins": [...]}` (reorder / replace; each a
   known light, plug, valve, dehumidifier, media player or door sensor, or one already pinned); `POST /api/tiles/{id}`
   pins (appended, idempotent); `DELETE /api/tiles/{id}` unpins. 400 for unknown devices or more than 24.
+## Disco mode
+Colour lights (the TP-Link L530 / L630 / L430C, anything HA says can do hs/rgb colour) cycle through party colours.
+- **Start:** ⋯ → **Disco…** (whole home), or the **Disco** chip in a room view (that room). Pick a style — **Rainbow
+  fade** (all lights glide through the rainbow together), **Party flash** (sudden jumps between bright colours) or
+  **Slow chill** (soft colours drifting, each light its own) — a speed (slow / normal / fast), the lights, and when it
+  stops by itself (10 min … 2 h, default **30 min**). Lights without colour are left alone (the sheet says how many).
+- **Which lights:** the colour lights that are on are ticked; one that is off only takes part when you tick it (it then
+  comes on at 80 %). Nothing that is off is ever switched on otherwise.
+- **Party flash** shows a photosensitivity warning first, and the server refuses it without that confirmation.
+- **It runs on the server**, so it keeps going while your phone sleeps. While it runs, a bar at the bottom of every
+  signed-in screen shows the style, how many lights and when it stops, with a big **Stop**. ⋯ shows *Disco (on)…*.
+- **On stop** every light goes back to what it was: on/off, brightness, colour or white temperature (grouped calls).
+  That snapshot is kept in SQLite (table `disco`), so after a restart mid-disco (a deploy) the lights are put back too
+  (unless the disco would have ended more than 10 minutes ago).
+- **It stops by itself** when: the time is up; someone changes a light taking part by hand (in the app, the HA app or on
+  the wall — that light keeps its new state, the others go back); **All off** or **Away** (by hand or Auto Away — the
+  lights being switched off stay off); or Home Assistant fails 3 times in a row (it backs off 2×, 4× the step time
+  first, then stops and restores). Starting another disco replaces the running one without a flicker.
+- **Gentle on the bulbs and the network:** at most one colour change per light per second, and one `light.turn_on` per
+  colour per step (all lights in one call for Rainbow and Party flash; Slow chill has one per light, every 5–12 s). Only
+  the start and the restore appear in *Activity* (“Disco on · 3 lights”, “Disco off”), not each colour.
+- **Roles:** guests may start and stop a disco too, for lights they are allowed to control (every `light.*`); a disco
+  using a light a role can't control can't be stopped or replaced by that role.
+- API: `GET /api/disco` → `{running, preset, preset_name, speed, entity_ids, turned_on, started_by, started_at, ends_at,
+  now, last: {reason, text, at}, presets, speeds, default_minutes, max_minutes}` (times in ms) ·
+  `POST /api/disco/start` `{preset: rainbow|flash|chill, speed?: slow|normal|fast, entity_ids?: [...], room?: id,
+  minutes?: 1–120, warning_ok?: true}` (`entity_ids` = picked by name, may switch lights on; else the colour lights that
+  are on, in `room` or the whole home; `warning_ok` is required for `flash`) · `POST /api/disco/stop`. SSE event `disco`
+  carries the same status on every start / stop. 400 for a bad request or no colour lights on, 403 for a light the role
+  can't control.
+
 ## Users and roles
 Everyone gets their own login, with one of three roles:
 | Role | Can |
 |---|---|
 | **Admin** | everything: settings, layout (Edit), schedules, Auto Away, standby saver, names, users |
 | **Member** | control every device, Heating / All off, Away / I'm home, mute pushes, alerts on their own phone; read history, energy, activity. No settings, layout or user changes |
-| **Guest** | see the plan and switch / dim the **lights**; nothing else. Optional expiry (1 day … 1 month) |
+| **Guest** | see the plan and switch / dim the **lights** (and start / stop a disco with them); nothing else. Optional expiry (1 day … 1 month) |
 - **Upgrading needs nothing:** the `APP_USER` / `APP_PASSWORD` login becomes the first admin on start (its existing
   cookies stay valid). That account is always an admin and can't be removed or demoted from the app; its password stays
   in `.env`. Renaming `APP_USER` replaces it.

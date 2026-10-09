@@ -1,0 +1,63 @@
+/* ---------- disco mode (disco.js) — every colour from the theme variables in style.css ---------- */
+.disco-sheet .sheet-body { max-height: 92vh; max-height: 92dvh; overflow-y: auto; overscroll-behavior: contain; }
+.disco-label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; margin: 14px 0 6px; }
+.disco-label:first-of-type { margin-top: 4px; }
+.disco-opt { position: relative; display: flex; align-items: center; gap: 10px; cursor: pointer; border: 1px solid var(--line);
+  border-radius: 12px; background: var(--bg); -webkit-tap-highlight-color: transparent; }
+.disco-opt input { position: absolute; opacity: 0; pointer-events: none; }
+.disco-opt.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--panel)); }
+.disco-opt:has(input:focus-visible) { outline: 2px solid var(--focus); outline-offset: 2px; }
+.disco-presets { display: flex; flex-direction: column; gap: 6px; }
+.disco-presets .disco-opt { padding: 10px 12px; }
+.disco-ptext { display: flex; flex-direction: column; min-width: 0; }
+.disco-pname { font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.disco-about { color: var(--muted); font-size: 13px; }
+.disco-warnchip { font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 99px; color: var(--heat-ink);
+  border: 1px solid color-mix(in srgb, var(--heat) 50%, transparent); background: color-mix(in srgb, var(--heat) 10%, transparent); }
+.disco-seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.disco-seg .disco-opt { justify-content: center; min-height: 40px; padding: 6px 8px; }
+.disco-lights { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.disco-lights label { display: flex; align-items: center; gap: 10px; padding: 7px 4px; cursor: pointer; border-radius: 8px; }
+.disco-lights label:hover { background: rgba(var(--hl), .05); }
+.disco-lights input { width: 20px; height: 20px; margin: 0; accent-color: var(--accent); flex: none; }
+.disco-lights .name { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.disco-state { color: var(--muted); font-size: 13px; white-space: nowrap; }
+.disco-dot { width: 14px; height: 14px; border-radius: 50%; flex: none; background: var(--off); }
+.disco-dot.lit { background: var(--on); box-shadow: 0 0 0 1px var(--line); }
+.disco-hint { margin: 8px 0 0; font-size: 13px; }
+.disco-mins { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 14px; }
+.disco-mins select { min-height: 38px; }
+.disco-go { margin-top: 16px; }
+.disco-now { display: flex; align-items: center; gap: 10px; justify-content: space-between; padding: 8px 8px 8px 12px; margin-bottom: 4px;
+  border-radius: 12px; border: 1px solid color-mix(in srgb, var(--tv-play) 45%, var(--line)); background: color-mix(in srgb, var(--tv-play) 9%, var(--panel)); font-size: 14px; }
+.disco-warning { border-radius: 12px; padding: 4px 14px; margin: 10px 0 16px; color: var(--text);
+  border: 1px solid color-mix(in srgb, var(--open) 55%, var(--line)); background: color-mix(in srgb, var(--open) 9%, var(--panel)); }
+.disco-warning p:first-child { font-weight: 600; color: var(--open-ink); }
+.disco-warn-acts { display: flex; gap: 10px; }
+.disco-warn-acts button { flex: 1; min-height: 50px; }
+
+/* the running disco: a bar at the bottom, a big Stop */
+.disco-bar { position: fixed; z-index: 19; left: 50%; transform: translateX(-50%); bottom: max(14px, env(safe-area-inset-bottom));
+  display: flex; align-items: center; gap: 12px; width: min(440px, calc(100vw - 24px)); padding: 8px 8px 8px 12px;
+  background: var(--panel); border: 1px solid color-mix(in srgb, var(--tv-play) 55%, var(--line)); border-radius: 16px;
+  box-shadow: 0 10px 30px var(--shadow-color); }
+.disco-bar[hidden] { display: none; }
+.disco-info { display: flex; flex-direction: column; flex: 1; min-width: 0; line-height: 1.25; }
+.disco-info b, .disco-sub { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.disco-sub { color: var(--muted); font-size: 13px; }
+.disco-ball { position: relative; width: 38px; height: 38px; flex: none; border-radius: 50%; overflow: hidden;
+  background: conic-gradient(var(--open), var(--heat), var(--on), var(--closed), var(--idle), var(--tv-play), var(--open));
+  box-shadow: 0 0 0 1px var(--line); animation: disco-spin 6s linear infinite; }
+.disco-ball svg { display: block; width: 100%; height: 100%; fill: none; stroke: var(--panel); stroke-width: 1.3; opacity: .75; }
+@keyframes disco-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .disco-ball { animation: none; } }
+button.disco-stop { min-height: 48px; min-width: 96px; padding: 8px 18px; font-size: 17px; font-weight: 600; border-radius: 12px;
+  background: var(--open); border-color: var(--open); color: var(--on-accent); }
+.disco-now button.disco-stop { min-height: 40px; min-width: 76px; font-size: 15px; }
+body.disco-on #list { padding-bottom: 76px; }  /* the last devices stay reachable above the bar */
+
+/* room view chip */
+.room-facts .rf.disco-chip { cursor: pointer; min-height: 0; color: var(--text); font: inherit; font-size: 13px; }
+.room-facts .rf.disco-chip svg { color: var(--tv-play); }
+.room-facts .rf.disco-chip svg path { stroke: var(--panel); }
+.room-facts .rf.disco-chip.on { border-color: color-mix(in srgb, var(--tv-play) 55%, transparent); background: color-mix(in srgb, var(--tv-play) 12%, transparent); }

@@ -592,6 +592,7 @@ function startLive() {
   });
   es.addEventListener("status", (e) => { st.ws = !!JSON.parse(e.data).ws; updateStatus(); });
   if (typeof applianceEvents === "function") applianceEvents(es); // washer cycles etc.
+  if (typeof discoEvents === "function") discoEvents(es); // disco mode (disco.js)
   es.onopen = () => { st.live = true; updateStatus(); };
   // EventSource retries by itself; polling covers the gap.
   es.onerror = () => { if (st.live) { st.live = false; updateStatus(); loadDevices(); } };
