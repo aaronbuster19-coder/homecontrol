@@ -144,6 +144,7 @@ function renderEnergy(c) {
     big.append(en("b", null, e.total_p != null ? fmtP(e.total_p) : `${e.total_kwh.toFixed(2)} kWh`),
       en("span", null, e.total_p != null ? `${label}: ${e.total_kwh.toFixed(2)} kWh` : label));
     box.appendChild(big);
+    if (e.tariff) box.appendChild(en("div", "sub", `Priced at ${e.tariff.name} half-hourly rates (${e.tariff.region_name}).`));
     if (e.standing_total_p != null) box.appendChild(en("div", "sub standing", `Plus standing charge ${fmtP(e.standing_total_p)} (${e.days} day${e.days === 1 ? "" : "s"} × ${e.standing_p}p) — not split across plugs.`));
     const shown = e.plugs.filter((p) => !p.hidden);
     hidden.push(...e.plugs.filter((p) => p.hidden).map((p) => ({ label: p.name, entity_id: p.entity_id, value: `${p.kwh.toFixed(2)} kWh${p.cost_p != null ? " · " + fmtP(p.cost_p) : ""}` })));

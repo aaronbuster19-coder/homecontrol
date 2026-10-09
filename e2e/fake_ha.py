@@ -11,6 +11,11 @@ Test controls: GET /fake/calls (service call log), POST /fake/reset (calls + sta
 also as /_state), POST /fake/forecast {"cold": true} (tonight drops to 1°) or {"error": 500} (get_forecasts fails)
 and GET /fake/forecast_calls (get_forecasts requests, kept out of /fake/calls). POST /fake/fail {"service": "turn_on",
 "count": n, "status": 500} makes the next n calls of that service fail (logged in /fake/calls as "failed": true).
+Fake Octopus Energy API (the app's OCTOPUS_API points here in the browser tests): GET /octopus/v1/products/<product>/
+electricity-tariffs/<code>/standard-unit-rates/ — deterministic half-hourly prices for any period (7.5p 01:00–04:00,
+35p 16:00–19:00 London time, 18–24p otherwise); products other than AGILE-*/GO-* answer 404. POST /fake/octopus
+{"fail": true} makes it answer 503, {"tomorrow": false} withholds the last day of the requested period; GET
+/fake/octopus_calls lists the requests (kept out of /fake/calls).
 With FAKE_HA_TV=1 a Samsung TV (media_player, with a SmartThings duplicate on the same device), a speaker, and
 GET /api/media_player_proxy/<entity> (the TV's artwork, a PNG) exist (e2e/test_tv.py).
 """
@@ -180,6 +185,7 @@ app.state.sockets = set()
 app.state.changes = {}   # entity id -> [(before, after)] state dicts: real changes, merged into the history
 app.state.forecast = {}  # {"cold": bool, "error": status}
 app.state.forecast_calls = []
+app.state.octopus, app.state.octopus_calls = {}, []  # fake Octopus settings, requests
 app.state.fail = {}  # service -> {"count": n, "status": code}: the next n calls of it fail (disco error tests)
 
 
@@ -426,6 +432,38 @@ async def history(start: str, request: Request):
     return out
 
 
+# ---------- fake Octopus Energy API ----------
+def octo_price(t: datetime) -> float:
+    loc = t.astimezone(LONDON)
+    if 1 <= loc.hour < 4:
+        return 7.5
+    if 16 <= loc.hour < 19:
+        return 35.0
+    return round(21 + 3 * math.sin(loc.hour / 24 * 2 * math.pi), 2)
+
+
+@app.get("/octopus/v1/products/{product}/electricity-tariffs/{code}/standard-unit-rates/")
+async def octopus_rates(product: str, code: str, request: Request):
+    q = request.query_params
+    app.state.octopus_calls.append({"product": product, "code": code, **dict(q)})
+    if app.state.octopus.get("fail"):
+        return JSONResponse({"detail": "Service unavailable"}, 503)
+    if not product.startswith(("AGILE-", "GO-")) or not code.startswith(f"E-1R-{product}-"):
+        return JSONResponse({"detail": "No EnergyTariff matches the given query."}, 404)
+    t0 = datetime.fromisoformat(q["period_from"].replace("Z", "+00:00"))
+    t1 = datetime.fromisoformat(q["period_to"].replace("Z", "+00:00"))
+    if app.state.octopus.get("tomorrow") is False:  # the last local day isn't published yet
+        last = (t1 - timedelta(seconds=1)).astimezone(LONDON).date()
+        t1 = datetime.combine(last, datetime.min.time(), tzinfo=LONDON).astimezone(timezone.utc)
+    out, t = [], t0
+    while t < t1:
+        out.append({"value_exc_vat": round(octo_price(t) / 1.05, 4), "value_inc_vat": octo_price(t),
+                    "valid_from": t.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "valid_to": (t + timedelta(minutes=30)).strftime("%Y-%m-%dT%H:%M:%SZ"), "payment_method": None})
+        t += timedelta(minutes=30)
+    return {"count": len(out), "next": None, "previous": None, "results": out[::-1]}
+
+
 @app.get("/api/media_player_proxy/{entity_id}")
 async def media_proxy(entity_id: str):
     from fastapi.responses import Response
@@ -446,6 +484,8 @@ async def reset():
     app.state.changes.clear()
     app.state.forecast = {}
     app.state.fail = {}
+    app.state.octopus = {}
+    app.state.octopus_calls.clear()
     app.state.states = initial_states()
     for eid in app.state.states:
         await broadcast(eid)
@@ -472,6 +512,17 @@ async def set_fail(request: Request):
     body = await request.json()
     app.state.fail[body["service"]] = {"count": int(body.get("count", 1)), "status": int(body.get("status", 500))}
     return app.state.fail
+
+
+@app.post("/fake/octopus")
+async def set_octopus(request: Request):
+    app.state.octopus = await request.json()
+    return app.state.octopus
+
+
+@app.get("/fake/octopus_calls")
+async def octopus_calls():
+    return app.state.octopus_calls
 
 
 @app.get("/fake/forecast_calls")

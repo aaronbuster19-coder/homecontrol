@@ -397,12 +397,14 @@ def test_api_settings_refresh_and_roles(client):
     assert client.post("/api/tariff/refresh").json()["error"] is None and octo.urls == []  # disabled: nothing fetched
     assert client.put("/api/tariff/settings", json={"region": "Z"}).status_code == 400
     assert client.put("/api/tariff/settings", json={"enabled": True}, headers=basic("mia", "pass-word-1")).status_code == 403
-    r = client.put("/api/tariff/settings", json={"enabled": True, "region": "A"})
-    assert r.status_code == 200 and r.json()["settings"]["region"] == "A"
+    r = client.put("/api/tariff/settings", json={"enabled": True, "region": "A"})  # switching on fetches at once
+    assert r.status_code == 200 and r.json()["settings"]["region"] == "A" and r.json()["today"]["known"] > 0
+    assert len(octo.urls) == 1 and "E-1R-AGILE-24-10-01-A" in octo.urls[0]
+    client.put("/api/tariff/settings", json={"remind": True})
+    assert len(octo.urls) == 1  # other settings don't fetch
     r = client.post("/api/tariff/refresh", headers=basic("mia", "pass-word-1"))  # members may refresh
-    assert r.status_code == 200 and len(octo.urls) == 1 and "E-1R-AGILE-24-10-01-A" in octo.urls[0]
-    assert r.json()["today"]["known"] > 0
+    assert r.status_code == 200 and len(octo.urls) == 2
     client.post("/api/tariff/refresh")
-    assert len(octo.urls) == 1  # forced refreshes are rate-limited
+    assert len(octo.urls) == 2  # forced refreshes are rate-limited
     for method, path in (("get", "/api/tariff"), ("post", "/api/tariff/refresh"), ("put", "/api/tariff/settings")):
         assert getattr(client, method)(path, headers=basic("gus", "pass-word-1"), **({"json": {}} if method == "put" else {})).status_code == 403

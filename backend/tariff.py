@@ -303,6 +303,7 @@ class Tariff:
         self.fetch = fetch or http_json
         self.base = (base or os.environ.get("OCTOPUS_API") or OCTOPUS_API).rstrip("/")
         self.wake = asyncio.Event()
+        self._lock = asyncio.Lock()
         self._task = None
         self._typical: dict = {}
         self._pruned = None
@@ -336,8 +337,7 @@ class Tariff:
         self.kv.put(SETTINGS_KEY, s)
         if self.code(s) != self.code(old) or (s["enabled"] and not old["enabled"]):
             self._load()
-            self._put_state(error=None, fails=0, next_at=0.0)  # fetch on the next check
-            self.wake.set()
+            self._put_state(error=None, fails=0, next_at=0.0)  # due now: the route fetches straight away
         return s
 
     def active(self) -> bool:
@@ -408,6 +408,10 @@ class Tariff:
         return out
 
     async def refresh(self, force: bool = False) -> None:
+        async with self._lock:  # the loop, a settings change and a forced refresh never fetch side by side
+            await self._refresh(force)
+
+    async def _refresh(self, force: bool) -> None:
         s, now = self.settings(), self.clock()
         if not s["enabled"]:
             return
@@ -629,6 +633,7 @@ def add_routes(app, tariff: Tariff, json_body) -> None:
             tariff.put_settings(await json_body(request))
         except TariffError as e:
             raise HTTPException(400, str(e))
+        await tariff.refresh()  # just switched on or to another tariff: fetch now, so the answer has prices
         return await tariff.status()
 
     @app.post("/api/tariff/refresh")
