@@ -90,6 +90,7 @@ const ROOMVIEW = (() => {
     }
     document.body.classList.add("room-view"); bar.hidden = false; facts.hidden = false;
     closeRooms(); $("moreMenu").hidden = true;
+    if (typeof resetPlanZoom === "function") resetPlanZoom(); // zoom.js: start from the whole room
     const vb = vbFor(r); scaleFor(vb); // after the strip is shown: the plan is a little smaller now
     animateTo(vb, animate);
     return true;
@@ -100,6 +101,7 @@ const ROOMVIEW = (() => {
     document.body.classList.remove("room-view"); bar.hidden = true; facts.hidden = true;
     if ($("wallRoomBack")) $("wallRoomBack").hidden = true;
     resetScale();
+    if (typeof resetPlanZoom === "function") resetPlanZoom(); // zoom.js: back to the whole home
     if (!fromPop) {
       if (history.state?.hcBack) history.back(); // the popstate that follows finds nothing left to do
       else history.replaceState(null, "", base());
