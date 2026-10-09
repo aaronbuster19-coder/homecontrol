@@ -38,6 +38,7 @@ from .schedules import validate_settings as validate_schedule_settings
 from . import media, presence as presence_api, standby as standby_api
 from .modes import ModeError, ModeStore, current_targets, now_iso, public, restore_groups, validate_mode_settings
 from .summary import local_tz
+from . import climate as climate_api
 from .store import NAME_MAX, LayoutError, LayoutStore, carry_settings, stored_media, stored_plugs, stored_refs, validate_energy, validate_layout
 
 CACHE_TTL = 300
@@ -744,6 +745,11 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
     # ---- Auto Away (backend/presence.py), standby saver (backend/standby.py) ----
     presence_api.add_routes(app, automations.presence, devices, live, ha, json_body, automations.wake.set)
     standby_api.add_routes(app, automations.standby, devices, plug_devices, energy, store.get, live, json_body, automations.wake.set)
+
+    # ---- Smart preheat + damp warnings (backend/climate.py): own loop, own routes ----
+    climate_api.add_routes(app, climate_api.Climate(
+        automations.store, live, ha.call_service, store.get, mode_store.get, automations.schedules, automations.window,
+        lambda p: automations._notify(p, "damp"), automations.lock, devices, clock, local_tz()), ha, ensure_states, json_body)
 
     @app.get("/sw.js", include_in_schema=False)
     async def service_worker():
