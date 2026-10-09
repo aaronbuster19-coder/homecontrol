@@ -368,7 +368,7 @@ def test_rules_match_the_frontend():
     block = js[js.index("const APPLIANCE = {"):]
     block = block[:block.index("\n};")]
     got = {}
-    for m in re.finditer(r'^  (\w+): \{ rule: "(\w+)"(?:, busy: "([^"]*)", idle: "([^"]*)")?, th: (\{[^}]*\}|CYCLE_TH) \},', block, re.M):
+    for m in re.finditer(r'^  (\w+): \{ rule: "(\w+)"(?:, busy: "([^"]*)")?(?:, idle: "([^"]*)")?, th: (\{[^}]*\}|CYCLE_TH) \},', block, re.M):
         th = cyc if m.group(5) == "CYCLE_TH" else json.loads(re.sub(r"(\w+):", r'"\1":', m.group(5)))
         got[m.group(1)] = (m.group(2), m.group(3), m.group(4), {k: float(v) for k, v in th.items()})
     assert got == {t: (r, b, i, {k: float(v) for k, v in th.items()}) for t, (r, b, i, th) in APPLIANCES.items()}

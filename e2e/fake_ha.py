@@ -7,7 +7,7 @@ states and broadcast), GET /api/history/period/<start> (generated, deterministic
 (token auth, subscribe_events -> state_changed events).
 Test controls: GET /fake/calls (service call log), POST /fake/reset (calls + states) — also as /_calls, /_reset —
 and POST /fake/set {"entity_id", "state"?, "attributes"?} (change a state and push it like a wall switch would;
-also as /_state). With FAKE_HA_APPLIANCES=1 three more plugs exist (washer, fridge, "Plug 3"; e2e/test_appliances.py).
+also as /_state). With FAKE_HA_APPLIANCES=1 six more plugs exist (washer, fridge, "Plug 3", hoover, PC, server; e2e/test_appliances.py).
 """
 import json
 import math
@@ -90,7 +90,7 @@ def initial_states():
     ]}
 
 
-# FAKE_HA_APPLIANCES=1 (the appliance tests' own stack): three more plugs with power sensors, for linking appliances.
+# FAKE_HA_APPLIANCES=1 (the appliance tests' own stack): six more plugs with power sensors, for linking appliances.
 APPLIANCE_PLUGS = os.environ.get("FAKE_HA_APPLIANCES") == "1"
 if APPLIANCE_PLUGS:
     TEMPLATE += """switch|switch.washer|Washing machine|TP-Link|P110
@@ -100,12 +100,19 @@ switch|switch.fridge|Fridge plug|TP-Link|P110
 rel|switch.fridge|sensor.fridge_power|power|W|measurement|Fridge plug Current consumption
 switch|switch.plug_3|Plug 3|TP-Link|TP11
 rel|switch.plug_3|sensor.plug_3_power|power|W|measurement|Plug 3 Current consumption
+switch|switch.hoover|Hoover plug|TP-Link|P110
+rel|switch.hoover|sensor.hoover_power|power|W|measurement|Hoover plug Current consumption
+switch|switch.pc|PC plug|TP-Link|P110
+rel|switch.pc|sensor.pc_power|power|W|measurement|PC plug Current consumption
+switch|switch.server|Server plug|TP-Link|P110
+rel|switch.server|sensor.server_power|power|W|measurement|Server plug Current consumption
 """
     _base_states = initial_states
 
     def initial_states():
         out = _base_states()
-        for eid, state, w in (("washer", "on", "0.8"), ("fridge", "on", "2.1"), ("plug_3", "off", "0")):
+        for eid, state, w in (("washer", "on", "0.8"), ("fridge", "on", "2.1"), ("plug_3", "off", "0"),
+                              ("hoover", "on", "0.5"), ("pc", "off", "0"), ("server", "on", "35")):
             out[f"switch.{eid}"] = {"entity_id": f"switch.{eid}", "state": state, "attributes": {},
                                     "last_changed": "2026-10-09T10:00:00+00:00", "last_updated": "2026-10-09T10:00:00+00:00"}
             out[f"sensor.{eid}_power"] = {"entity_id": f"sensor.{eid}_power", "state": w,
@@ -193,7 +200,10 @@ POWER = {"sensor.tv_power": lambda h: 86.4 if 18 <= h < 23 else 4.0,
 if APPLIANCE_PLUGS:  # a 2 h wash every day (09:00 2 kW, 10:00 500 W), a fridge compressor every third hour, a fan 13–16
     POWER.update({"sensor.washer_power": lambda h: 2000.0 if h == 9 else 500.0 if h == 10 else 1.0,
                   "sensor.fridge_power": lambda h: 80.0 if h % 3 == 0 else 2.0,
-                  "sensor.plug_3_power": lambda h: 35.0 if 13 <= h < 16 else 0.0})
+                  "sensor.plug_3_power": lambda h: 35.0 if 13 <= h < 16 else 0.0,
+                  "sensor.hoover_power": lambda h: 45.0 if h == 19 else 0.5,  # one 1 h charge a day
+                  "sensor.pc_power": lambda h: 120.0 if 9 <= h < 17 else 4.0,
+                  "sensor.server_power": lambda h: 35.0})
 
 
 def _rows(eid: str, start: datetime, end: datetime, with_attrs: bool) -> list[dict]:

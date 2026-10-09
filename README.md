@@ -152,19 +152,22 @@ lamp is (“the one by the sofa”) at a glance.
 
 A fan, kettle, washing machine or fridge on the plan can be **linked to the smart plug it's plugged into**. The drawing
 then becomes the control and shows what the appliance is doing, read from the plug's power. Nothing is ever switched
-automatically — the status is read-only inference, and only your taps switch plugs.
+automatically — the status is read-only inference, and only your taps switch plugs. The one exception is opt-in per
+appliance: a hoover whose *Switch the plug off when charged* is ticked (default off; see below).
 
 - **Types:** fan, floor lamp, TV, heater, kettle, microwave, coffee machine, toaster, dishwasher, tumble dryer,
-  freezer, iron and hair straightener (in the catalogue's *Appliances* group), plus the fridge and washing machine. Appliance-capable pieces carry a
+  freezer, iron, hair straightener and hoover (a cordless stick vacuum on its charging dock; in the catalogue's
+  *Appliances* group), the desktop PC and home server (next to the desks, *Work & dining*), plus the fridge and
+  washing machine. Appliance-capable pieces carry a
   small plug badge in the catalogue.
 - **Link:** in edit mode select the piece → **Link plug** → pick a plug (its name, current watts, and which appliance
   it's already linked to — one plug links to one appliance, so picking a taken plug moves the link) or *None*. If the
   plug's name differs, a one-tap offer renames it after the appliance (e.g. “Plug 3” → “Fan”; the app's own names, see
   *Names and hidden devices* — Home Assistant isn't changed). **Save** stores the link; Copy never copies it.
 - **View mode** (plan, room view, wall mode): a linked appliance glows softly while its plug is on (brighter while
-  busy) and shows a pill with its status and live watts. **Tap** it to toggle the plug — except a **fridge / freezer**
-  or a plug marked *Keep on*: those open the plug sheet, and switching them off there asks first (“Turn off the
-  fridge?”). **Long-press** opens the plug sheet (history, energy, rename) with an *Appliance* section. The plug's own
+  busy) and shows a pill with its status and live watts. **Tap** it to toggle the plug — except a **fridge / freezer**,
+  a **home server** or a plug marked *Keep on*: those open the plug sheet, and switching them off there asks first
+  (“Turn off the fridge?”; for the server with a warning that it may be the server running homecontrol). **Long-press** opens the plug sheet (history, energy, rename) with an *Appliance* section. The plug's own
   marker is hidden by default (*Hide plug marker* in that section brings it back; both then work), and comes back
   whenever furniture is hidden (⋯ → *Show furniture* off). Device list rows of linked plugs show the appliance's drawing
   and status. Markers and room-name taps above an appliance still win; unlinked furniture never takes a tap.
@@ -177,8 +180,10 @@ automatically — the status is read-only inference, and only your taps switch p
   | Iron / hair straightener | *Heating* over 100 W / 15 W, else *Ready* |
   | Heater | *Heating* over 100 W · TV: *On* over 15 W, else *Standby* |
   | Fridge / freezer | *Cooling* while the compressor draws over 30 W, else *Idle* |
-  | Fan / floor lamp | *On · 35 W* |
+  | Fan / floor lamp | *On · 35 W* · home server: *Running · 35 W* |
+  | Desktop PC | *On · 120 W* over 10 W, else *Sleep* (*Off* with the plug off) |
   | Washer / dryer / dishwasher | *Running 47 min* once over 10 W for 2 min; *Finished 12 min ago* once it then stays under 5 W for 3 min (shorter quiet spells mid-cycle, e.g. soaking, don't count); *Idle* 2 h after |
+  | Hoover | *Charging · 45 W* over 10 W (and while it tapers off above 3 W); *Charged* once it has stayed under 3 W for 10 min after charging (shorter dips don't count); *Not charging* otherwise or with the plug off |
 
   Off plugs show no pill; an unavailable plug shows *Offline*.
 - **“Washing finished”** (*Dryer finished*, *Dishwasher finished*): one push per cycle, from the server's automations
@@ -186,9 +191,22 @@ automatically — the status is read-only inference, and only your taps switch p
   timer starts again from what it sees after the restart); switching the plug off mid-cycle ends the cycle without a
   push. It's held during quiet hours / mute and arrives in the morning digest. Toggle: bell sheet → *Appliances*
   (default on).
+- **“Hoover charged”:** the same way — one push per charge from the server's charge tracker (state in SQLite; after a
+  restart the 10-minute trickle timer starts again, so it never declares a charge done on a gap it didn't see; unplugging
+  mid-charge ends it without a push). It has a **Turn off** button (as for the left-on reminders below), is held during
+  quiet hours and follows the same bell-sheet toggle. **Switch the plug off when charged** (hoover sheet, default
+  **off**): when ticked, the server itself turns the plug off once, as soon as it detects the charge finished — the
+  call is marked done before it's made, logged, and never retried or repeated for that charge (switching the plug back
+  on by hand leaves it on; the next charge switches it off again). Stored as `"auto_off": true` on the link.
+- **Home server:** protected like the fridge — a tap opens the sheet, switching off asks (“This may be the server
+  running homecontrol…”), and “All off”, Away and the standby saver always leave its plug on. A watchdog sends **one
+  safety push**, “Home server lost power” (through quiet hours, like door alerts), when its plug has read 0 W, off or
+  unavailable for 5 min; it can come again only after the plug has read running again. If homecontrol itself runs on
+  that server, it can't send this push — it's for a server that's a different machine (a NAS, a Plex box…); use Home
+  Assistant's own alerts, or a second device, to watch the box running homecontrol.
 - **Left on too long:** *Remind me if on longer than …* in the appliance section (15 min – 24 h). On by default for
-  heaters and fans (3 h) and irons and hair straighteners (1 h), off for the rest (cycle appliances and fridges have
-  none). When the plug has been on and drawing power (over 3 W; thermostat pauses under 10 min don't break the run)
+  heaters and fans (3 h) and irons and hair straighteners (1 h), off for the rest, e.g. the desktop PC (cycle
+  appliances, hoovers, fridges and home servers have none). When the plug has been on and drawing power (over 3 W; thermostat pauses under 10 min don't break the run)
   that long, **one** push: “Heater has been on for 3 h”, with a **Turn off** button. Heater, iron and straightener
   reminders are safety pushes and come through quiet hours like door alerts; the others are held. It reminds again
   only after the plug has been off. Timers live in SQLite and carry on across a restart. *Turn off* calls
@@ -198,19 +216,21 @@ automatically — the status is read-only inference, and only your taps switch p
 - **Usage** in the appliance section, from Home Assistant's power history (cached 2 min; costs only with a unit rate,
   see *Energy costs*): washer / dryer / dishwasher — cycles this week and last week, average cycle length, kWh and cost
   per cycle (the same cycle rules, replayed over the history); kettle — boils today and this week (microwave, coffee
-  machine, toaster, iron, straightener: uses); fan, heater, floor lamp, TV — hours on this week; fridge / freezer —
+  machine, toaster, iron, straightener: uses); fan, heater, floor lamp, TV, home server — hours on this week (desktop
+  PC: hours above its *On* level, so sleep doesn't count); hoover — charges this week and average charge time; fridge / freezer —
   average kWh and cost per day over the last 7 full days; every appliance — kWh and cost this week. Weeks start on
   Monday.
-- “All off” and Away leave the plugs of linked fridges and freezers on, like *Keep on* plugs.
+- “All off” and Away leave the plugs of linked fridges, freezers and home servers on, like *Keep on* plugs; the standby
+  saver can't be enabled for them.
 - **Layout JSON:** furniture items gain `"plug": "switch.washer"`, `"hide_marker": true` (default) and optional
-  `"thresholds"` (`on_w`, or `run_w`/`run_min`/`idle_w`/`idle_min`) and `"remind"` (minutes, or `false`; absent = the
-  type's default). The plug must be a known plug (or one the stored
+  `"thresholds"` (`on_w`, or `run_w`/`run_min`/`idle_w`/`idle_min`, or for a hoover `charge_w`/`trickle_w`/
+  `charged_min`), `"remind"` (minutes, or `false`; absent = the type's default) and, hoovers only, `"auto_off": true`. The plug must be a known plug (or one the stored
   layout already links) and unique; an older app that saves furniture without `plug` keeps the stored links (send
   `"plug": null` to unlink). *Import without unknown devices* drops links to unknown plugs and keeps the pieces.
 - API: `GET /api/appliances` → `{"now", "appliances": {furniture id: {"plug", "type", "status", "phase"?,
-  "run_start"?, "finished_at"?}}}`; the SSE stream sends `appliances` events when a cycle changes;
-  `GET /api/appliances/{furniture id}/stats` → `{"week": {"kwh", "cost_p"}, "cycles"? | "uses"? | "hours_week"? |
-  "daily"?}`; `POST /api/devices/{entity_id}/turn_off`.
+  "run_start"?, "finished_at"? | "charge_start"?, "charged_at"?}}}`; the SSE stream sends `appliances` events when a cycle changes;
+  `GET /api/appliances/{furniture id}/stats` → `{"week": {"kwh", "cost_p"}, "cycles"? | "charges"? | "uses"? |
+  "hours_week"? | "daily"?}`; `POST /api/devices/{entity_id}/turn_off`.
 
 ## Dehumidifier
 
@@ -461,8 +481,8 @@ measures power with its switch and the recent saver actions.
   touched it since: turning it on by hand in between hands it back to you (left alone in the morning).
 - **While Away** it still saves at night, but doesn't switch anything back on in an empty flat: the switch-on
   waits and happens when you're Home again.
-- **Keep-on plugs and plugs a fridge / freezer is linked to** (layout furniture of type `fridge` with `"plug"`) can
-  never be enabled; a plug that becomes one is switched off in the saver.
+- **Keep-on plugs and plugs a fridge / freezer or home server is linked to** (layout furniture of type `fridge`,
+  `freezer` or `home_server` with `"plug"`) can never be enabled; a plug that becomes one is switched off in the saver.
 - Shows *“Saves ≈ £X/year”*: overnight standby W × hours off × 365 × unit rate (`settings.energy`).
 - Safety, as for schedules (same timing helpers: local wall-clock times, DST-safe — a time in the spring-forward gap
   runs an hour later, a repeated autumn time once): each night/morning is handled at most once (written to SQLite
@@ -470,7 +490,7 @@ measures power with its switch and the recent saver actions.
   plugs due together share one call, a failed switch-off isn't retried (the plug just stays on), a failed switch-on
   is retried after 5 and 10 min, then given up. Every action, skip and failure is in the log.
 - API: `GET /api/standby` → `{rate_p, now, plugs: [{entity_id, name, enabled, threshold_w, off_at, on_at,
-  standby_w, suggested_w, blocked: null|"keep on"|"fridge", owned, owned_since, owed, year_kwh, year_p, next}],
+  standby_w, suggested_w, blocked: null|"keep on"|"fridge"|"server", owned, owned_since, owed, year_kwh, year_p, next}],
   log}` · `PUT /api/standby/{entity_id}` `{"enabled", "threshold_w", "off_at", "on_at"}`.
 
 ## Names and hidden devices
