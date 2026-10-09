@@ -201,6 +201,7 @@ function render() {
   if (typeof renderFurniture === "function") renderFurniture(markersG);
   renderFloorplanHandles(markersG);
   if (typeof renderRoomView === "function") renderRoomView();
+  if (typeof renderTiles === "function") renderTiles(); // tiles.js: the favourites grid
   renderSide();
   $("deleteSel").disabled = !st.sel;
   $("editRoom").disabled = st.sel?.type !== "room";
@@ -312,6 +313,7 @@ function renderSheet() {
   }
   historySection(d, c);
   deviceMeta(d, c);
+  if (typeof tilesSheetRow === "function") tilesSheetRow(d, c); // tiles.js: ☆ Add to favourites
 }
 // Lights and plugs toggle straight away; valves and sensors open their sheet (and so does a fridge's plug).
 function tapDevice(eid) {
