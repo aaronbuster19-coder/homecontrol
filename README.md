@@ -118,7 +118,8 @@ container isn't healthy within ~2.5 min it puts the previous image (`homecontrol
 
 ## More menu (⋯), temperatures, Away/Home, backup
 
-The ⋯ button at the right of the header holds: Away / I'm home, *Show temperatures on plan*, Export layout,
+The ⋯ button at the right of the header holds: Away / I'm home, Wall mode, *Show temperatures on plan*, Energy,
+Hidden devices, Export layout,
 Import layout, Units (m/ft), Refresh devices and Sign out. It closes on a tap outside or Escape.
 
 - **Temperatures on the plan:** every room with a radiator valve in it (L-shapes respected) is tinted by the
@@ -228,6 +229,48 @@ Each one has its own switch in the bell sheet, and settings are shared by all de
 To turn everything off: untick the four switches in the bell sheet (radiators down, low battery, offline,
 weekly summary). Disabling alerts on a phone only stops pushes to that phone; the radiator automation still runs.
 
+## Energy costs
+
+⋯ → **Energy** opens a sheet with what the smart plugs used **today / this week (from Monday) / this month (from
+the 1st)**, in kWh and money, a per-plug breakdown sorted by use with bars, and **overnight standby**: each plug's
+average power between 01:00 and 05:00 over the last 7 nights, with what that costs over a year if it stays like
+that (W × 24 × 365 / 1000 × rate). That's how to spot always-on devices. **Only the smart plugs are measured, not
+the whole flat.**
+
+- *Set tariff…* / *Change…* in that sheet: unit rate in pence per kWh (0–200, 2 dp) and an optional daily
+  standing charge in pence per day. Leave the rate empty to hide costs. They live in the layout
+  (`settings.energy`), so they survive restarts and travel with Export/Import.
+- With a rate set, pence appear wherever kWh do: the plug sheet (“Today 0.42 kWh · 10p”), the history range
+  total (“7d: 3.10 kWh · 76p”) and the weekly summary (“This week ≈ £1.23 (+£0.20 vs last week)”).
+  Under £1 shows as pence, from £1 as £x.xx.
+- The standing charge is shown on its own (days in the range × charge), never split across plugs.
+- Numbers come from HA's history of each plug's power sensor, integrated server-side; “today” uses the plug's own
+  today's-energy sensor when it has one (so it matches the plug sheet). Boundaries are local midnight
+  (`TZ_NAME`, default Europe/London), DST included. Finished days are fetched once and cached for 30 min, today
+  for 1 min. Hidden plugs count in the totals and are listed under a *Hidden* fold.
+- API: `GET`/`PUT /api/energy/settings` `{"rate_p", "standing_p"}` (null = not set) ·
+  `GET /api/energy?range=today|week|month` → `{start, end, days, rate_p, standing_p, total_kwh, total_p,
+  standing_total_p, plugs: [{entity_id, name, hidden, kwh, cost_p, source: meter|history}]}` ·
+  `GET /api/energy/standby` → `{from, to, nights, rate_p, plugs: [{entity_id, name, hidden, avg_w, coverage_h,
+  year_kwh, year_p}]}` (`avg_w` null with under an hour of overnight data).
+
+## Names and hidden devices
+
+Every device sheet ends with **✎ Rename** and **Hide**.
+
+- *Rename* sets the name shown in this app (max 40 characters, trimmed); empty goes back to Home Assistant's
+  name, and HA itself is never changed. The sheet shows the HA name underneath when they differ. Names are
+  applied on the server, so the plan, list, sheets, live updates, door/battery/offline/window pushes and the
+  weekly summary all use them. Device JSON has `name` (shown) and `ha_name` (HA's).
+- *Hide* removes a device from the plan, the device list, wall mode, room-name light toggles and the heating
+  sheet; the energy sheet lists it under a *Hidden* fold. Its placement is kept, so ⋯ → **Hidden devices** →
+  *Unhide* puts the marker back where it was. **All off and Away still switch hidden lights and plugs off**;
+  All off's confirmation says how many hidden ones it includes.
+- Stored in the layout as `settings.names` `{entity_id: name}` and `settings.hidden` `[entity_id]`, so Export/Import
+  carries them. A layout `PUT` that leaves out `names`, `hidden` or `energy` keeps the stored values (older apps
+  and older exports can't wipe them); send `{}` / `[]` to clear. API: `PUT /api/devices/{entity_id}/meta`
+  `{"name"?: string|null, "hidden"?: bool}` → the saved layout.
+
 ## API
 
 `GET /healthz` · `POST /api/login` `{"username","password"}` · `POST /api/logout` · `GET /api/me` · `GET /api/devices` · `GET /api/events` (SSE: `snapshot`, `status` `{"ws": bool}`, then `device` events) · `POST /api/devices/refresh` · `POST /api/devices/{entity_id}/toggle` ·
@@ -253,7 +296,7 @@ it runs pytest via `docker build --target test` and then builds the production i
 ```sh
 pip install -r requirements-dev.txt
 python -m pytest backend/tests          # HA is mocked; no real devices touched
-pip install playwright && python -m pytest e2e   # browser tests (wall mode) against e2e/fake_ha.py
+pip install playwright && python -m pytest e2e   # browser tests (wall mode, energy, names) against e2e/fake_ha.py
 docker build --target test .            # same, inside the image
 node --test tests/*.test.js            # snapping / wall maths (frontend/snap.js), plain Node, no npm
 HA_URL=… HA_TOKEN=… APP_USER=u APP_PASSWORD=p DB_PATH=./data/layout.db \
