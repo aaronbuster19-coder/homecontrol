@@ -16,6 +16,8 @@ from .discovery import Device, parse_template_output
 from .ha import DISCOVERY_TEMPLATE, HAClient, HAError
 from .history import DOOR_RANGES, History, RangeError, check_range
 from .live import Live, build_device, ws_url
+from .schedules import ScheduleError, validate_schedule
+from .schedules import validate_settings as validate_schedule_settings
 from .modes import ModeError, ModeStore, current_targets, now_iso, public, restore_groups, validate_mode_settings
 from .store import LayoutError, LayoutStore, validate_layout
 
@@ -100,7 +102,7 @@ def check_temp(t: float) -> None:
 
 
 def create_app(settings: Settings | None = None, ha: HAClient | None = None, live: Live | None = None,
-               push_sender=None) -> FastAPI:
+               push_sender=None, clock=time.time) -> FastAPI:
     settings = settings or load_settings()
     ha = ha or HAClient(settings.ha_url, settings.ha_token)
     store = LayoutStore(settings.db_path)
@@ -172,7 +174,8 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
         return dev
 
     alerts = Alerts(alert_store, pusher, live, devices)
-    automations = Automations(AutoStore(settings.db_path), alert_store.settings, pusher, live, ha, store, mode_store.get, devices)
+    automations = Automations(AutoStore(settings.db_path), alert_store.settings, pusher, live, ha, store, mode_store.get, devices,
+                              clock=clock)
     app.state.automations = automations
     history = History(ha)
 
@@ -239,6 +242,71 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
         alerts.wake.set()
         automations.wake.set()
         return s
+
+    # ---- quiet hours / mute for automation pushes ----
+    @app.get("/api/alerts/quiet")
+    async def quiet_state():
+        return automations.quiet.state()
+
+    @app.post("/api/alerts/mute")
+    async def mute(request: Request):
+        data = await json_body(request)
+        kind = data.get("for") if isinstance(data, dict) else None
+        if kind not in ("1h", "morning", "off"):
+            raise HTTPException(400, "for must be 1h, morning or off")
+        alert_store.put_settings({**alert_store.settings(), "mute_until": automations.quiet.mute_until(kind)})
+        automations.wake.set()  # unmuted: deliver the digest now
+        return automations.quiet.state()
+
+    # ---- schedules ----
+    @app.get("/api/schedules")
+    async def list_schedules():
+        return automations.schedules.listing()
+
+    @app.put("/api/schedules/settings")
+    async def put_schedule_settings(request: Request):
+        try:
+            s = validate_schedule_settings(await json_body(request), automations.schedules.store.settings())
+        except ScheduleError as e:
+            raise HTTPException(400, str(e))
+        automations.schedules.put_settings(s)
+        automations.wake.set()
+        return automations.schedules.listing()
+
+    async def checked_schedule(request: Request, old: dict | None = None) -> dict:
+        data = await json_body(request)
+        try:
+            return validate_schedule(data, await devices(), store.get(), old)
+        except ScheduleError as e:
+            raise HTTPException(400, str(e))
+
+    def public_schedule(sid: str) -> dict:
+        return next(s for s in automations.schedules.listing()["schedules"] if s["id"] == sid)
+
+    @app.post("/api/schedules")
+    async def create_schedule(request: Request):
+        data = await checked_schedule(request)
+        try:
+            s = automations.schedules.create(data)
+        except ScheduleError as e:
+            raise HTTPException(400, str(e))
+        automations.wake.set()
+        return public_schedule(s["id"])
+
+    @app.put("/api/schedules/{sid}")
+    async def update_schedule(sid: str, request: Request):
+        old = automations.schedules.store.get(sid)
+        if old is None:
+            raise HTTPException(404, "unknown schedule")
+        automations.schedules.update(old, await checked_schedule(request, old))
+        automations.wake.set()
+        return public_schedule(sid)
+
+    @app.delete("/api/schedules/{sid}")
+    async def delete_schedule(sid: str):
+        if not automations.schedules.store.delete(sid):
+            raise HTTPException(404, "unknown schedule")
+        return {"ok": True}
 
     # ---- automations: window heating status, weekly summary ----
     @app.get("/api/automations/status")

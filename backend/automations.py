@@ -1,4 +1,4 @@
-"""Automations that act on their own: window open -> radiators down, device health pushes, weekly summary.
+"""Automations that act on their own: window open -> radiators down, device health pushes, weekly summary, schedules.
 
 Everything runs in one background loop (every CHECK_EVERY s, sooner after a contact sensor changes). Each
 feature has its own switch in the alert settings, state that must survive a restart lives in SQLite, and every
@@ -15,7 +15,9 @@ import time
 from .alerts import parse_time
 from .geometry import opening_rooms, placed_in
 from .live import build_device
-from .summary import WeeklySummary
+from .quiet import HeldStore, Quiet
+from .schedules import ScheduleEngine, ScheduleStore
+from .summary import WeeklySummary, local_tz
 
 log = logging.getLogger("homecontrol.automations")
 CHECK_EVERY = 15
@@ -286,9 +288,15 @@ class Automations:
         self.store, self.settings, self.pusher, self.live, self.ha = store, settings, pusher, live, ha
         self.layout_store, self.ensure_devices = layout_store, ensure_devices
         self.lock = asyncio.Lock()  # Away/Home take it too, so they never interleave with a window tick
-        self.window = WindowHeating(store, settings, self._set_temp, self._notify, mode, clock)
-        self.health = Health(store, settings, self._notify, clock)
-        self.summary = WeeklySummary(store, settings, ha, lambda: self.live.devices, layout_store.get, self._notify, clock, tz)
+        tz = tz or local_tz()
+        self.clock = clock
+        # automation pushes go through quiet hours; door alerts (alerts.py) and the test push don't
+        self.quiet = Quiet(HeldStore(store.path), settings, pusher, clock, tz)
+        self.window = WindowHeating(store, settings, self._set_temp, lambda p: self._notify(p, "window"), mode, clock)
+        self.health = Health(store, settings, lambda p: self._notify(p, "health"), clock)
+        self.summary = WeeklySummary(store, settings, ha, lambda: self.live.devices, layout_store.get,
+                                     lambda p: self._notify(p, "summary"), clock, tz)
+        self.schedules = ScheduleEngine(ScheduleStore(store.path), ha.call_service, layout_store.get, mode, self.window, clock, tz)
         self.wake = asyncio.Event()
         self._task: asyncio.Task | None = None
         live.add_observer(self.on_device)
@@ -296,8 +304,8 @@ class Automations:
     async def _set_temp(self, valve: str, temp: float) -> None:
         await self.ha.call_service("climate", "set_temperature", {"entity_id": valve, "temperature": temp})
 
-    async def _notify(self, payload: dict) -> None:
-        await self.pusher.notify(payload)
+    async def _notify(self, payload: dict, category: str) -> None:
+        await self.quiet.notify(payload, category)
 
     def on_device(self, item: dict, raw: dict | None) -> None:
         if item.get("kind") == "sensor":
@@ -311,7 +319,8 @@ class Automations:
                 log.warning("automations: device discovery failed: %s", e)
         devices, states = self.live.devices, self.live.states
         if devices and states:  # nothing is decided before HA's states are known
-            for name, step in (("window heating", lambda: self._window(devices, states)),
+            for name, step in (("schedules", lambda: self._schedules(devices, states)),
+                               ("window heating", lambda: self._window(devices, states)),
                                ("device health", lambda: self.health.tick(devices, states))):
                 try:
                     await step()
@@ -321,7 +330,14 @@ class Automations:
             await self.summary.tick()
         except Exception as e:
             log.warning("weekly summary failed: %s", e)
+        try:
+            await self.quiet.tick()
+        except Exception as e:
+            log.warning("quiet hours digest failed: %s", e)
 
+    async def _schedules(self, devices, states) -> None:
+        async with self.lock:
+            await self.schedules.tick(devices, states)
     async def _window(self, devices, states) -> None:
         async with self.lock:
             await self.window.tick(self.layout_store.get(), devices, states)
@@ -343,8 +359,15 @@ class Automations:
                 raise
             except Exception as e:
                 log.warning("automations check failed: %s", e)
+            wait = every
+            try:  # wake up right when the next schedule is due
+                due = self.schedules.next_due()
+                if due is not None:
+                    wait = min(every, max(0.5, due - self.clock() + 0.1))
+            except Exception as e:
+                log.warning("schedules: next run unknown: %s", e)
             try:
-                await asyncio.wait_for(self.wake.wait(), every)
+                await asyncio.wait_for(self.wake.wait(), wait)
                 await asyncio.sleep(DEBOUNCE)
             except asyncio.TimeoutError:
                 pass

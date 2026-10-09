@@ -5,6 +5,7 @@ import json
 import logging
 import math
 import os
+import re
 import sqlite3
 import threading
 import time
@@ -18,9 +19,14 @@ DEFAULT_SETTINGS = {"enabled": True, "door_open_minutes": 5, "notify_on_close": 
                     # automations (backend/automations.py)
                     "window_heating_enabled": True, "window_open_minutes": 2, "window_off_temp": 7.0, "window_notify": True,
                     "health_battery": True, "health_unavailable": True, "health_unavailable_minutes": 30,
-                    "weekly_summary": True}
+                    "weekly_summary": True,
+                    # quiet hours for automation pushes (backend/quiet.py); door alerts and tests always go through
+                    "quiet_hours": True, "quiet_from": "23:00", "quiet_to": "07:00", "mute_until": None}
 BOOL_SETTINGS = ("enabled", "notify_on_close", "window_heating_enabled", "window_notify", "health_battery",
-                 "health_unavailable", "weekly_summary")
+                 "health_unavailable", "weekly_summary", "quiet_hours")
+TIME_SETTINGS = ("quiet_from", "quiet_to")
+HHMM = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
+MAX_MUTE = 48 * 3600
 INT_SETTINGS = {"door_open_minutes": (1, 120), "window_open_minutes": (1, 30), "health_unavailable_minutes": (10, 240)}
 WINDOW_OFF_TEMP = (5, 15)
 GONE = (404, 410)
@@ -108,6 +114,17 @@ def validate_settings(data, current: dict) -> dict:
         if isinstance(t, bool) or not isinstance(t, (int, float)) or not math.isfinite(t) or not lo <= t <= hi:
             raise SettingsError(f"window_off_temp must be {lo}–{hi}")
         out["window_off_temp"] = round(float(t) * 2) / 2
+    for k in TIME_SETTINGS:
+        if k in data:
+            if not isinstance(data[k], str) or not HHMM.match(data[k]):
+                raise SettingsError(f"{k} must be HH:MM")
+            out[k] = data[k]
+    if "mute_until" in data:  # epoch seconds, or null to cancel
+        m = data["mute_until"]
+        if m is not None and (isinstance(m, bool) or not isinstance(m, (int, float)) or not math.isfinite(m)
+                              or not 0 < m - time.time() <= MAX_MUTE):
+            raise SettingsError("mute_until must be null or a time within the next 48 h")
+        out["mute_until"] = m
     return out
 
 
