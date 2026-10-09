@@ -114,6 +114,10 @@ POLICY: dict[tuple[str, str], str] = {
     ("GET", "/api/disco"): GUEST,
     ("POST", "/api/disco/start"): GUEST,
     ("POST", "/api/disco/stop"): GUEST,
+    # presence lighting (backend/presence_lighting.py): members see it, admins change it
+    ("GET", "/api/presence-lighting"): MEMBER,
+    ("PUT", "/api/presence-lighting/settings"): ADMIN,
+    ("PUT", "/api/presence-lighting/rooms/{room_id}"): ADMIN,
     ("GET", "/openapi.json"): ADMIN,
     ("GET", "/docs"): ADMIN,
     ("GET", "/docs/oauth2-redirect"): ADMIN,

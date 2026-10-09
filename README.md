@@ -543,6 +543,40 @@ off except keep-on, radiators to the away temperature with their targets remembe
   `PUT /api/presence/settings` `{"enabled", "people": null|[ids], "away_minutes", "come_home", "only_between",
   "from", "to", "notify"}` (partial updates).
 
+## Presence lighting
+
+⋯ → **Presence lighting…**: when a door opens after dark, that room's lights come on; they go off again once there
+has been no door activity for a while. **Off by default, twice:** a master switch, then each room on its own.
+
+- **Per room:** the *door sensors* (default: the sensors linked to the doors on its walls — a door on a shared wall
+  counts for both rooms) and the *lights* (default: the lights placed in it). Pick others under *N doors · N lights*;
+  *Use the plan's defaults* goes back. Only `light.*` entities can be chosen, so plugs (fridge, home server, keep-on)
+  are never switched. **Off after N min without door activity** (default 10, 1–120).
+- **Dark** is Home Assistant's `sun.sun` (`below_horizon`). Without it, sunset / sunrise are computed for the
+  schedules' location (London unless changed in ⋯ → Schedules) in `TZ_NAME`. The sheet says which, and until when.
+- **On:** a door contact opening (closed → open) after dark switches on the room's lights that are off — one
+  `light.turn_on` per room, at most every 10 s (debounced). Lights that were already on aren't touched and never
+  switched off by it. Daylight openings switch nothing.
+- **Off:** any door activity (open or close) restarts the quiet period; after it, the lights it switched on that are
+  still on go off.
+- **Never fights you:** a room light switched on or off by anyone else (wall switch, the app, a schedule) pauses the
+  room until the next quiet period (N min without door activity), and the lights it had switched on become yours —
+  it never switches them off. Its own changes are recognised (the state it asked for, within a minute).
+- **Never while Away:** nothing switches on; Away's own switch-off isn't counted as a hand change.
+- Safety: decisions run in the automations loop (woken by door / light changes and when a quiet period ends); what it
+  switched on, pauses and timers are kept in SQLite, so a restart still switches its lights off, and door events from
+  before a restart are never replayed. A failed switch-on is not retried (the next opening may try after a minute); a
+  failed switch-off is retried after 1, then 2 min, then given up. Turning the master switch or a room off forgets
+  what it had switched on. Actions show in *Activity* as “presence lighting” and in the sheet's *Recent* list.
+- Roles: admins change it; members see the sheet read-only; guests don't see it (the server answers 403).
+- API: `GET /api/presence-lighting` → `{enabled, now, mode, dark: {dark, source: "ha"|"computed", until},
+  rooms: [{id, name, enabled, quiet_minutes, sensors, lights, auto_sensors, auto_lights, suggested_sensors,
+  room_lights, phase: "off"|"setup"|"daylight"|"ready"|"on"|"paused"|"away", owned, off_at, paused_until}],
+  all_sensors, all_lights, log}` · `PUT /api/presence-lighting/settings` `{"enabled"}` ·
+  `PUT /api/presence-lighting/rooms/{room_id}` `{"enabled", "sensors": null|[ids], "lights": null|[ids],
+  "quiet_minutes"}` (partial updates; `null` = the plan's defaults). Settings live in the automations' SQLite table,
+  not in the layout, so layout JSON is unchanged.
+
 ## Standby saver
 
 Per plug, opt-in (off by default): the plug sheet has **Standby saver**, and ⋯ → **Energy** lists every plug that
@@ -748,6 +782,7 @@ appliance (“Fridge · Plug 2”). ‹ / › go through the months (up to 12 ba
 `GET /api/alerts/quiet` · `POST /api/alerts/mute` · `GET`/`POST /api/schedules` · `PUT`/`DELETE /api/schedules/{id}` ·
 `PUT /api/schedules/settings` · `GET /api/automations/status` (`windows_linked`, `held`) ·
 `GET /api/presence` · `PUT /api/presence/settings` · `GET /api/standby` · `PUT /api/standby/{entity_id}` ·
+`GET /api/presence-lighting` · `PUT /api/presence-lighting/settings` · `PUT /api/presence-lighting/rooms/{room_id}` ·
 `GET /api/summary/latest` (404 until the first one) · `POST /api/summary/preview` ·
 `GET /api/history/{entity_id}?range=24h|7d|30d` (`series` `[{name, unit, points: [[t_ms, v|null]]}]`, `timeline` `[{state, start, end}]`, plugs: `energy_kwh`) ·
 `GET /api/doors/log?range=24h|7d&tz=Europe/London` (per door: `events` `[{t, state, open_ms}]` newest first, `summary`) ·

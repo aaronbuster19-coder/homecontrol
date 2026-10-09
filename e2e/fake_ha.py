@@ -93,6 +93,9 @@ def initial_states():
         # presence for Auto Away (HA person entities; the companion app's zone: home / not_home / a zone name)
         s("person.alex", "home", friendly_name="Alex", source="device_tracker.alex_phone"),
         s("person.sam", "home", friendly_name="Sam", source="device_tracker.sam_phone"),
+        # HA's sun (presence lighting: below_horizon = dark); the tests set the state they need
+        s("sun.sun", "above_horizon", next_setting="2026-10-09T17:24:00+00:00", next_rising="2026-10-10T06:13:00+00:00",
+          friendly_name="Sun"),
         # outdoor weather: the Met.no entity HA creates by default (forecasts via weather.get_forecasts)
         s("weather.forecast_home", "partlycloudy", temperature=12.4, apparent_temperature=10.2, humidity=71, wind_speed=16.1,
           wind_bearing=225, temperature_unit="°C", wind_speed_unit="km/h", pressure=1012, friendly_name="Forecast Home"),
