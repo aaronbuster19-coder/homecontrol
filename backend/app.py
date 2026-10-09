@@ -37,6 +37,7 @@ from .schedules import ScheduleError, validate_schedule
 from .schedules import validate_settings as validate_schedule_settings
 from . import media, presence as presence_api, standby as standby_api
 from . import underlay as underlay_api
+from . import tiles as tiles_api
 from .modes import ModeError, ModeStore, current_targets, now_iso, public, restore_groups, validate_mode_settings
 from .summary import local_tz
 from . import climate as climate_api
@@ -753,6 +754,8 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
         lambda p: automations._notify(p, "damp"), automations.lock, devices, clock, local_tz()), ha, ensure_states, json_body)
     # ---- floor-plan photo underlay (backend/underlay.py) ----
     app.include_router(underlay_api.router(settings.db_path))
+    # ---- quick tiles: pinned favourites for /?view=tiles (backend/tiles.py) ----
+    tiles_api.add_routes(app, tiles_api.TileStore(settings.db_path), devices, json_body)
 
     @app.get("/sw.js", include_in_schema=False)
     async def service_worker():

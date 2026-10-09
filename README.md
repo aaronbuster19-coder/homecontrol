@@ -848,3 +848,20 @@ API (signed in): `GET /api/underlay` (`{"image": null}`, or `image {type, w, h, 
 `Content-Type: image/png|jpeg|webp`; 413 over 10 MB, 415 not an image) · `GET /api/underlay/image?v=<version>` ·
 `DELETE /api/underlay`. `backend/underlay.py`'s `router(db_path, admin=…)` takes a dependency that guards PUT, upload
 and delete.
+## Quick tiles (favourites)
+A compact grid of the devices you use most, for a phone's home screen: **/?view=tiles**, or ⋯ → *Favourites*. An
+installed app offers it as a shortcut too: long-press the app icon → *Favourites* (Android Chrome; the manifest's
+`shortcuts`). *Plan* goes back to the floor plan.
+- **Pin:** open any light, plug, radiator, dehumidifier, TV or door sensor's sheet and tap **☆ Add to favourites**
+  (tap again to remove), or in the tiles view *Edit* → **+ Add** for a list of every device. Up to 24 tiles.
+- **Tiles** show the device's colour, name and state (“20.5° → 21°”, “on · 35 W”; a linked appliance shows its drawing,
+  name and status, e.g. *Fridge · Idle · 2.1 W*), live over the same event stream as the plan.
+- **Tap** does exactly what a tap on the plan does: lights and plugs toggle; radiators, dehumidifiers, TVs and sensors
+  open their sheet; a **fridge / freezer, home server or *Keep on* plug opens its sheet** and switching it off there asks
+  first. **Long-press** opens any tile's sheet. Nothing is ever switched by pinning or by opening the view.
+- **Edit:** ‹ › move a tile, × removes it, *Done* to finish (taps don't switch anything while editing).
+- Pins are stored on the server (own SQLite table `tiles`, not in the layout), so every signed-in device shows the same
+  tiles; a pinned device that's missing from Home Assistant for a while keeps its place. Hidden devices aren't shown.
+- API: `GET /api/tiles` → `{"pins": [entity ids]}`; `PUT /api/tiles` `{"pins": [...]}` (reorder / replace; each a
+  known light, plug, valve, dehumidifier, media player or door sensor, or one already pinned); `POST /api/tiles/{id}`
+  pins (appended, idempotent); `DELETE /api/tiles/{id}` unpins. 400 for unknown devices or more than 24.

@@ -230,6 +230,7 @@ body.drawing .opening { pointer-events: none; }
   border: 1px solid var(--line); border-radius: 12px; padding: 6px; box-shadow: 0 10px 30px var(--shadow-color);
   display: flex; flex-direction: column; }
 .more-menu[hidden] { display: none; }
+#moreMenu { max-height: calc(100vh - 76px); max-height: calc(100dvh - 76px); overflow-y: auto; overscroll-behavior: contain; } /* scrolls when taller than the screen */
 .more-menu > button, .more-row { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
   background: none; border: 0; border-radius: 8px; padding: 9px 10px; min-height: 42px; font-size: 15px; cursor: pointer; }
 .more-menu > button:hover, .more-row:hover { background: rgba(var(--hl), .06); }

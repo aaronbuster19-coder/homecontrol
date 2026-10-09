@@ -1,0 +1,59 @@
+/* ---------- quick tiles: /?view=tiles (tiles.js) — colours from style.css variables ---------- */
+.tiles-view[hidden], .tiles-empty[hidden] { display: none; }
+body.tiles > header, body.tiles #editbar, body.tiles main, body.tiles #moreMenu { display: none !important; }
+body.tiles { overflow-y: auto; }
+.tiles-view { min-height: 100vh; min-height: 100dvh; }
+.tiles-bar { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 8px; background: var(--bg);
+  padding: max(10px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right), calc((100% - 948px) / 2)) 10px
+    max(16px, env(safe-area-inset-left), calc((100% - 948px) / 2));  /* lines up with the grid below */
+  border-bottom: 1px solid var(--line); }
+.tiles-bar h2 { font-size: 17px; margin: 0; flex: none; }
+.tiles-status { flex: 1; min-width: 0; color: var(--muted); font-size: 13px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.tiles-status.err { color: var(--open-ink); }
+.tiles-bar button { flex: none; }
+
+.tiles-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; max-width: 980px;
+  margin: 0 auto; padding: 16px max(16px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
+.tile { position: relative; min-width: 0; --tile-c: var(--on); }
+.tile-main { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; min-height: 112px; height: 100%;
+  padding: 12px 12px 10px; border-radius: 14px; text-align: left; background: var(--panel); border: 1px solid var(--line);
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation; user-select: none; -webkit-user-select: none;
+  transition: background .15s, border-color .15s; }
+.tile-main:active { transform: scale(.98); }
+.tile.on .tile-main { border-color: var(--tile-c); background: color-mix(in srgb, var(--tile-c) 14%, var(--panel)); }
+.tile.heat { --tile-c: var(--heat); }
+.tile.alert { --tile-c: var(--open); }
+.tile.na .tile-main { opacity: .6; }
+.tile-ic { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 50%; margin-bottom: 8px; flex: none;
+  background: var(--off); box-shadow: 0 1px 3px var(--marker-shadow); }
+.tile-ic svg { width: 22px; height: 22px; }
+.tile-ic.appl { background: none; box-shadow: none; }
+.tile-ic.appl svg { width: 36px; height: 36px; }
+.tile-name { font-weight: 600; font-size: 15px; line-height: 1.25; max-width: 100%; overflow: hidden; display: -webkit-box;
+  -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
+.tile-val { color: var(--muted); font-size: 13px; max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.tile.on .tile-val { color: var(--text); }
+.tile-ctl { position: absolute; top: 6px; right: 6px; display: flex; gap: 4px; }
+.tile-ctl button { min-height: 32px; min-width: 32px; padding: 0 6px; border-radius: 8px; font-size: 18px; line-height: 1; background: var(--bg); }
+.tiles-view.editing .tile-main { cursor: default; }
+.tiles-view.editing .tile-main:active { transform: none; }
+.tile-add { min-height: 112px; border: 1.5px dashed var(--line); border-radius: 14px; background: none; color: var(--muted); font-size: 15px; }
+.tile-add:hover { color: var(--text); border-color: var(--muted); }
+.tiles-empty { max-width: 420px; margin: 40px auto; padding: 0 24px; text-align: center; }
+.tiles-empty p:first-child { font-size: 17px; font-weight: 600; margin: 0 0 6px; }
+.tiles-empty .hint { margin-bottom: 18px; }
+
+/* picker (Edit → + Add) */
+#tilesPick .sheet-body { max-height: 92vh; overflow-y: auto; overscroll-behavior: contain; }
+.tiles-pick { list-style: none; margin: 0; padding: 0; }
+.tiles-pick .group { color: var(--muted); font-size: 12px; text-transform: uppercase; padding: 12px 4px 4px; }
+.tiles-pick button { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; border: 0; background: none; padding: 8px 6px; }
+.tiles-pick button:hover { background: rgba(var(--hl), .06); }
+.tiles-pick svg { width: 22px; height: 22px; flex: none; }
+.tiles-pick .name { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.tiles-pick .star { font-size: 20px; color: var(--muted); }
+.tiles-pick .pinned .star { color: var(--on-ink); }
+
+/* device sheet: ☆ Add to favourites */
+.tiles-pin { display: block; width: 100%; margin-top: 14px; }
+.tiles-pin.pinned { color: var(--on-ink); border-color: color-mix(in srgb, var(--on) 55%, var(--line)); }
