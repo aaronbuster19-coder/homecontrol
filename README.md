@@ -740,3 +740,28 @@ e2e/docker.sh                           # the same in the Playwright image, exac
 Screenshots the tests take go to `e2e/screenshots` (`SHOTS=dir` to change). Failures save a screenshot of every open
 page to `e2e/artifacts` (`E2E_ARTIFACTS`), plus a trace with `E2E_TRACE=1` (on by default in `e2e/docker.sh`).
 The Playwright version is pinned twice — `requirements-e2e.txt` and the image tag in `e2e/docker.sh` — keep them equal.
+
+## Floor-plan photo
+
+Trace the flat from an estate-agent plan or a photo of one: **Edit → Photo**, *Upload photo…* (PNG, JPEG or WebP,
+up to 10 MB; big phone photos are shrunk to 4000 px in the browser and their EXIF rotation baked in). A first photo is
+laid over the rooms drawn so far (or the visible plan) with *Move on plan* on: drag to move, pinch or scroll to scale,
+two fingers or Shift+scroll to rotate. The panel also has opacity, rotation and width (m / ft), *Fit to plan*,
+*Replace…* and *Remove*. While a photo shows, rooms go see-through so its walls show; then draw rooms over it as usual.
+
+- Saved as you go and kept apart from the layout: *Save* / *Cancel* only affect the rooms, layout PUTs and exports
+  never touch it, and the layout JSON is unchanged.
+- Shown in edit mode (*Show while editing* turns it off on this device). Outside edit mode it's hidden unless
+  *Also show outside edit mode* is ticked (everyone); never in wall mode. *Invert colours in the dark theme* (default
+  on) turns a black-on-white scan into white-on-dark.
+- Stored next to the database: the image as `underlay.img` beside `DB_PATH`, its placement in the `underlay` table.
+  Not part of *Export layout*; back up the data folder to keep it.
+- The file's bytes decide its type (SVG, HTML, HEIC and anything else are refused, whatever the Content-Type says), and
+  it is only ever served to signed-in users, with `X-Content-Type-Options: nosniff`.
+
+API (signed in): `GET /api/underlay` (`{"image": null}`, or `image {type, w, h, bytes, version}` plus `x`, `y`
+(centre, m), `width` (m), `rot` (°, −180–180), `opacity` (0.05–1), `show_view`, `invert_dark`) ·
+`PUT /api/underlay` (any of those placement fields; the rest stay) · `POST /api/underlay/image` (raw image body,
+`Content-Type: image/png|jpeg|webp`; 413 over 10 MB, 415 not an image) · `GET /api/underlay/image?v=<version>` ·
+`DELETE /api/underlay`. `backend/underlay.py`'s `router(db_path, admin=…)` takes a dependency that guards PUT, upload
+and delete.

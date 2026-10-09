@@ -35,6 +35,7 @@ from .live import Live, build_device, ws_url
 from .schedules import ScheduleError, validate_schedule
 from .schedules import validate_settings as validate_schedule_settings
 from . import media, presence as presence_api, standby as standby_api
+from . import underlay as underlay_api
 from .modes import ModeError, ModeStore, current_targets, now_iso, public, restore_groups, validate_mode_settings
 from .summary import local_tz
 from .store import NAME_MAX, LayoutError, LayoutStore, carry_settings, stored_media, stored_plugs, stored_refs, validate_energy, validate_layout
@@ -742,6 +743,9 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
     # ---- Auto Away (backend/presence.py), standby saver (backend/standby.py) ----
     presence_api.add_routes(app, automations.presence, devices, live, ha, json_body, automations.wake.set)
     standby_api.add_routes(app, automations.standby, devices, plug_devices, energy, store.get, live, json_body, automations.wake.set)
+
+    # ---- floor-plan photo underlay (backend/underlay.py) ----
+    app.include_router(underlay_api.router(settings.db_path))
 
     @app.get("/sw.js", include_in_schema=False)
     async def service_worker():
