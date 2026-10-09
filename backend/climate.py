@@ -500,8 +500,8 @@ class Climate:
                 pass
             self.wake.clear()
 
-    def start(self, every: float = CHECK_EVERY, delay: float = STARTUP_DELAY) -> None:
-        self._task = asyncio.create_task(self._run(every, delay))
+    def start(self, every: float | None = None, delay: float | None = None) -> None:
+        self._task = asyncio.create_task(self._run(every or CHECK_EVERY, STARTUP_DELAY if delay is None else delay))
 
     async def stop(self) -> None:
         if self._task:
@@ -515,6 +515,7 @@ class Climate:
     def status(self) -> dict:
         s, layout, states, now = self.settings(), self.layout(), self.live.states, self.clock()
         cfg, rooms = self.rooms_cfg(), []
+        done = self.store.get("climate_preheat_done", {}) or {}
         for room in layout.get("rooms", []):
             rid = room.get("id")
             valves = self.valves_in(room)
@@ -526,6 +527,8 @@ class Climate:
                 nxt = {"name": p["name"], "at": int(p["at"] * 1000), "setpoint": p["setpoint"],
                        "start": int(p["start"] * 1000) if p["start"] is not None else None,
                        "lead_min": round(p["lead"] / 60) if p["lead"] is not None else None}
+                started = done.get(f"{p['sid']}|{int(p['at'])}|{rid}")
+                nxt["started"] = int(started * 1000) if started else None
             rd = self.readings(room, states)
             m = self.damp.get(rid) or {}
             since = m.get("since")

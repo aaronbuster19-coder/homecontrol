@@ -14,6 +14,7 @@
 <title>homecontrol</title>
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="tv.css">
+<link rel="stylesheet" href="climate.css">
 <script>/* theme before first paint: hc.theme = auto | light | dark (⋯ → Theme); theme.js has the menu */
 (function () {
   var d = document.documentElement, q = matchMedia("(prefers-color-scheme: light)"), mode = "auto", force = null;
@@ -230,6 +231,7 @@
 <script src="tv.js"></script>
 <script src="activity.js"></script>
 <script src="weather.js"></script>
+<script src="climate.js"></script>
 <script src="theme.js"></script>
 <script>if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});</script>
 </body>

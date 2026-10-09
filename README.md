@@ -740,3 +740,43 @@ e2e/docker.sh                           # the same in the Playwright image, exac
 Screenshots the tests take go to `e2e/screenshots` (`SHOTS=dir` to change). Failures save a screenshot of every open
 page to `e2e/artifacts` (`E2E_ARTIFACTS`), plus a trace with `E2E_TRACE=1` (on by default in `e2e/docker.sh`).
 The Playwright version is pinned twice — `requirements-e2e.txt` and the image tag in `e2e/docker.sh` — keep them equal.
+
+## Climate: smart preheat and damp warnings
+
+⋯ → *Climate…* opens the climate sheet (a damp push opens it too, via `/?climate`). Everything is run by the server
+(`backend/climate.py`, its own loop every 60 s), and settings are shared by all devices.
+
+**Smart preheat** — off by default: switch on *Smart preheat*, then tick each room that should use it.
+- Each room learns how fast it warms up (°C per hour) from its radiator valves: a *warm-up* is a target raised at
+  least 1° above the room's temperature, until the room gets within 0.3° of it (warm-ups under 10 min or 0.5° are
+  ignored; a valve going offline drops one; the result is clamped to 0.2–8 °/h and averaged with the earlier ones).
+  It learns live all the time, and from the last 7 days of HA history the first time preheat is ticked for a room
+  (and on *Re-learn*). Until a room has learnt its rate, 1 °/h is assumed.
+- Before a **heating schedule** (⋯ → *Schedules…*, a radiator temperature) that sets the room's valves, preheat sets
+  those valves to the schedule's temperature early: *(setpoint − room now) ÷ rate × 1.15*, at most *Start at most*
+  (default 2 h, 15 min–4 h). The schedule still runs at its time as usual. The sheet shows each room's rate, its next
+  heating schedule and when preheat would start.
+- Safety: one `climate.set_temperature` per schedule occurrence and room, recorded in SQLite before the call and
+  never repeated (also not after a restart; a failed call is logged, not retried). Never while **Away**, while a
+  window in the room is open (or window heating holds one of its valves), when the room is already within 0.3° of the
+  setpoint, when its valves are already set to it, or with under 5 min to go. Only valves placed in an opted-in room
+  are touched. It takes the automations' lock, so it never interleaves with Away/Home, schedules or window heating;
+  activity entries say “smart preheat”.
+
+**Damp & mould** — each room's humidity (a dehumidifier placed in it, a valve that reports humidity, or a HA humidity
+sensor chosen under *Humidity sensors*) and temperature (its valves, else the dehumidifier). Humidity ≥ 70 % with
+the temperature ≤ 16° (both adjustable) means *humid and cool*; after 2 h (15 min–12 h) it's a **damp risk**. Once at
+risk a room stays at risk until humidity drops 3 % below the limit or it warms 0.5° above it (no flapping); readings
+going missing pause the timer rather than reset it. The sheet shows every room with a reading (green / amber / red)
+and, at risk, a button to the dehumidifier's sheet — it only suggests, it never switches the dehumidifier.
+*Push a damp warning* (off by default): “Damp risk: Bedroom — Humidity 78 % at 15.2° for 2 h. Run the Dehumidifier —
+it's off.”, once per room per 12 h (1–72 h; marked before sending, survives restarts). It's a quiet-hours category
+(`damp`): at night it waits for the morning digest.
+
+API: `GET /api/climate` → `{"settings", "rooms": [{"id", "name", "preheat", "humidity_entity", "valves", "rate",
+"rate_n", "learned_at", "next": {"name", "at", "setpoint", "start", "lead_min", "started"}|null, "blocked", "damp":
+{"humidity", "temperature", "humidity_source", "at_risk", "since", "sustained", "pushed", "dehumidifier"}}],
+"humidity_sensors", "default_rate", "mode", "now", "log"}` · `PUT /api/climate/settings` (partial) `{"preheat_enabled",
+"max_lead_min", "damp_push", "damp_humidity", "damp_temp", "damp_minutes", "damp_cooldown_h"}` ·
+`PUT /api/climate/rooms/{room_id}` `{"preheat": bool, "humidity_entity": "sensor.x"|null}` (the first switch-on also
+returns `learn`) · `POST /api/climate/rooms/{room_id}/learn` (re-learn from 7 days of history).

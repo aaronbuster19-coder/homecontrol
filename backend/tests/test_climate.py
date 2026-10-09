@@ -222,6 +222,7 @@ def test_preheat_starts_early_once(tmp_path):
     rig2 = Rig(tmp_path, ts(2026, 10, 9, 5, 40))
     rig2.tick()
     assert rig2.calls == []
+    assert rig.c.status()["rooms"][0]["next"]["started"] == int(ts(2026, 10, 9, 5, 0) * 1000)
     log = rig.c.status()["log"][0]
     assert log["action"] == "Preheat started" and log["room"] == "Bedroom" and "Morning heat" in log["note"]
     # the next day's occurrence is a new one
