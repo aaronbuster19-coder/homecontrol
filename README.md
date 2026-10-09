@@ -681,6 +681,53 @@ integration HA sets up on install creates; otherwise the first one. Choose anoth
   "hourly", "daily", "tonight": {"low", "cold", "heating"?, "text"?}, "forecast_error"}`, `PUT /api/weather/settings`
   `{"entity_id": "weather.x"|null, "frost_push": bool}`, `POST /api/weather/refresh` (drops the forecast cache).
 
+## Morning brief and monthly energy report
+
+**Morning brief** — one card with what you want to know first thing:
+
+- **Last night (22:00–07:00):** every door / window opened and closed, with times (the latest 6, *Show all* for the
+  rest), how often each opened, and anything still open now (in red).
+- **Weather:** now, today's high / low, “Rain likely from 15:00 (70 %)” (the first hour today at 50 % or more) and the
+  cold-night hint — from the same `weather.*` entity as the *Weather* sheet. › opens the weather sheet.
+- **Yesterday's energy:** what the smart plugs cost yesterday (kWh without a tariff), compared with the day before,
+  the three biggest users (by their linked appliance's name) and the daily standing charge. › opens the monthly report.
+- **Left on:** lights, plugs, TVs and the dehumidifier that are on now, oldest first, with watts and “since 19:02”.
+  Keep-on plugs and linked fridges / freezers / home servers are meant to be on and aren't listed. Tap a row for its
+  device sheet; **the brief never switches anything itself**.
+
+It opens by itself **once per morning** (05:00–12:00, the first time the app is opened that day, on each device), not
+in wall mode, not over an open sheet, dialog or edit mode, and not when the app was opened from a notification. *Got
+it*, ×, Escape or a tap outside closes it. Untick **Show every morning** in the card to stop that (remembered per
+device; ⋯ → **Morning brief** still opens it any time).
+
+**Energy report** (⋯ → *Energy report*, or › on the brief's energy card): each appliance's share of the month's
+smart-plug cost, with a bar, kWh, and what it cost last month (▲ / ▼ %). A plug linked to an appliance shows as the
+appliance (“Fridge · Plug 2”). ‹ / › go through the months (up to 12 back).
+
+- **This month** covers its finished days (1st to yesterday) and is compared with **the same days of last month**
+  (“vs £7.20 on 1–8 Sep”); a finished month is compared with the whole of the month before. On the 1st it opens on
+  last month. The standing charge is shown on its own (days × charge), never split across appliances. Costs use
+  today's unit rate (see *Energy costs*); without one, kWh.
+- **Daily totals are kept by homecontrol**, because Home Assistant's recorder only keeps about 10 days of history by
+  default: each finished day's kWh per plug is integrated once from the plugs' power history (local midnight to
+  midnight, DST days are 23 / 25 h) and stored in SQLite (`energy_daily`, 400 days kept). This runs in the background
+  every hour (at most 7 days per HA call, newest first; after an HA error it waits 5 min) and when the report or brief
+  is opened (up to 14 missing days per month shown). Days HA no longer has are stored as “no data”, and the report says
+  “Data for 23 of 30 days” when a month is incomplete — so a month before homecontrol started keeping totals can't be
+  complete. A plug added later gets its days filled in without touching the other plugs' stored days. Read-only:
+  nothing is ever switched.
+- API: `GET /api/brief` → `{"date", "label", "generated_at", "night": {"from", "to", "label", "sensors", "events":
+  [{"t", "entity_id", "name", "state": "open"|"closed"}], "more", "doors": [{"entity_id", "name", "opens"}]},
+  "weather": {"available", "condition", "text", "temperature", "high", "low", "tonight", "rain_from"?, "rain_pct"?},
+  "energy": {"date", "available", "plugs", "kwh", "cost_p", "rate_p", "standing_p", "prev_kwh", "prev_cost_p", "top":
+  [{"entity_id", "name", "kwh", "cost_p"}]}, "left_on": [{"entity_id", "name", "kind", "power", "since"}], "open_now":
+  [{"entity_id", "name"}], "errors": {part: message}}` (a part that failed is `null`, the rest still comes) ·
+  `GET /api/energy/report?month=YYYY-MM` → `{"month", "label", "from", "to", "days", "days_with_data", "current",
+  "total_kwh", "total_p", "standing_total_p", "rate_p", "standing_p", "change_pct", "previous": {"month", "label",
+  "from", "to", "days", "days_with_data", "total_kwh", "total_p", "full"}, "rows": [{"entity_id", "name", "plug_name",
+  "appliance": {"id", "type", "name"}|null, "hidden", "kwh", "cost_p", "share_pct", "last_kwh", "last_cost_p",
+  "change_pct"}], "prev_month", "next_month", "collecting_since"}` (400 for a bad or out-of-range month).
+
 ## API
 
 `GET /healthz` · `POST /api/login` `{"username","password"}` · `POST /api/logout` · `GET /api/me` · `GET /api/devices` · `GET /api/events` (SSE: `snapshot`, `status` `{"ws": bool}`, then `device` events) · `POST /api/devices/refresh` · `POST /api/devices/{entity_id}/toggle` ·

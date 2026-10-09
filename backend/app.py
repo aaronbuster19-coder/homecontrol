@@ -19,6 +19,7 @@ class RevalidatingStaticFiles(StaticFiles):
 from pydantic import BaseModel
 
 from . import activity as activity_api, weather as weather_api
+from . import brief as brief_api
 from .activity import Activity, ActivityStore, ActorMiddleware, acting
 from .appliances import linked, protected_plugs
 from .appliance_stats import ApplianceStats
@@ -738,6 +739,7 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
 
     activity_api.add_routes(app, activity)
     weather_api.add_routes(app, weather, ensure_states, json_body)
+    brief_api.add_routes(app, settings.db_path, ha, live, store.get, devices, plug_devices, weather, local_tz(), clock)  # morning brief, monthly report
 
     # ---- Auto Away (backend/presence.py), standby saver (backend/standby.py) ----
     presence_api.add_routes(app, automations.presence, devices, live, ha, json_body, automations.wake.set)
