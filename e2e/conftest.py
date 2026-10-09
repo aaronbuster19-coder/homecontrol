@@ -209,7 +209,8 @@ def login(page, base, user=USER, password=PASSWORD):
 
 
 def put_layout(page, base, layout):
-    r = page.request.put(base + "/api/layout", data=json.dumps(layout), headers={"Content-Type": "application/json"})
+    # A layout without "furniture" keeps the stored furniture (older-client protection): start each test clean.
+    r = page.request.put(base + "/api/layout", data=json.dumps({"furniture": [], **layout}), headers={"Content-Type": "application/json"})
     assert r.ok, r.text()
     return r.json()
 

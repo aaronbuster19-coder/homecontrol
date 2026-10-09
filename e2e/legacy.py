@@ -91,6 +91,6 @@ def new_page(browser, servers, size="tablet", clock=None, **kw):
     page.fill("[name=password]", PASSWORD)
     page.click("button[type=submit]")
     page.wait_for_url(re.compile(r"/(\?.*)?$"))
-    r = page.request.put(servers["app"] + "/api/layout", data=json.dumps(LAYOUT), headers={"Content-Type": "application/json"})
+    r = page.request.put(servers["app"] + "/api/layout", data=json.dumps({"furniture": [], **LAYOUT}), headers={"Content-Type": "application/json"})
     assert r.ok, r.text()
     return page
