@@ -1,0 +1,83 @@
+/* Guest links: the guest page (guest.html, guest.js) and the admin's ⋯ → Guest links… sheet (guestlinks.js).
+   QR codes stay dark-on-light in both themes (scanners need it): --qr-bg / --qr-fg. */
+:root { --qr-bg: #ffffff; --qr-fg: #111111; --gd-glow: rgba(255, 196, 65, .16); }
+:root[data-theme=light] { --gd-glow: rgba(240, 174, 26, .18); }
+@media (prefers-color-scheme: light) { :root:not([data-theme]) { --gd-glow: rgba(240, 174, 26, .18); } }
+
+/* Only admins make guest links; the server refuses everyone else anyway. */
+:root:not([data-role=admin]) #guestLinksBtn { display: none !important; }
+
+/* ---------- the guest page ---------- */
+body.guest-page { height: auto; min-height: 100%; }
+.guest { max-width: 520px; margin: 0 auto; padding: max(18px, env(safe-area-inset-top)) 16px max(28px, env(safe-area-inset-bottom)); }
+.guest-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.guest-head img { border-radius: 10px; flex: none; }
+.guest-titles { min-width: 0; }
+.guest-head h1 { margin: 0; font-size: 22px; line-height: 1.2; overflow-wrap: anywhere; }
+.guest-sub { margin: 2px 0 0; color: var(--muted); font-size: 14px; }
+.guest-status { margin: 0 0 12px; color: var(--muted); font-size: 14px; min-height: 1.4em; }
+.guest-status[hidden] { display: none; }
+.guest-status.err { color: var(--open-ink); }
+.guest-devices { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.guest-devices[hidden] { display: none; }
+.gd { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 6px; }
+.gd.on { border-color: var(--on); box-shadow: 0 0 0 3px var(--gd-glow); }
+.gd.unavail { opacity: .6; }
+.gd-toggle { display: flex; align-items: center; gap: 14px; width: 100%; min-height: 72px; padding: 10px 12px;
+  border: 0; background: none; border-radius: 12px; text-align: left; }
+.gd-toggle:hover:not(:disabled) { background: rgba(var(--hl), .05); }
+.gd-icon { flex: none; display: grid; place-items: center; width: 52px; height: 52px; border-radius: 50%;
+  background: var(--off); color: var(--state-text-inv); transition: background .15s; }
+.gd.on .gd-icon { background: var(--on); color: var(--state-text); }
+.gd.on.coloured .gd-icon { background: var(--gd-colour, var(--on)); }
+.gd-icon svg { width: 28px; height: 28px; }
+.gd-text { display: flex; flex-direction: column; min-width: 0; }
+.gd-name { font-size: 17px; font-weight: 600; overflow-wrap: anywhere; }
+.gd-state { color: var(--muted); font-size: 14px; }
+.gd.on .gd-state { color: var(--on-ink); }
+.gd-bright { display: flex; align-items: center; gap: 12px; padding: 4px 12px 10px; }
+.gd-label { color: var(--muted); font-size: 13px; flex: none; }
+.gd-bright input { flex: 1; min-width: 0; height: 32px; accent-color: var(--on); }
+.gd-swatches { display: flex; flex-wrap: wrap; gap: 10px; padding: 2px 12px 12px; }
+.gd-swatch { width: 36px; height: 36px; min-height: 36px; padding: 0; border-radius: 50%; background: var(--sw);
+  border: 2px solid var(--line); }
+.guest-gone { margin-top: 24px; padding: 20px; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; }
+.guest-gone h2 { margin: 0 0 6px; font-size: 18px; }
+.guest-gone p { margin: 0; color: var(--muted); }
+.guest-gone[hidden] { display: none; }
+
+/* ---------- ⋯ → Guest links… (admins) ---------- */
+#guestSheet .sheet-body { max-height: 92vh; overflow-y: auto; overscroll-behavior: contain; }
+.gl-msg { min-height: 1em; margin: 0 0 6px; overflow-wrap: anywhere; }
+.gl-msg.warn { color: var(--open-ink); }
+.gl-new { border: 1px solid var(--accent); border-radius: 12px; padding: 12px; margin: 4px 0 10px; text-align: center; }
+.gl-new h4 { margin: 0 0 8px; font-size: 15px; }
+.gl-qr { width: min(240px, 70vw); margin: 0 auto; border-radius: 8px; overflow: hidden; line-height: 0; }
+.gl-qr svg { width: 100%; height: auto; display: block; }
+.gl-qr .qr-bg { fill: var(--qr-bg); }
+.gl-qr .qr-fg { fill: var(--qr-fg); }
+.gl-url { display: block; width: 100%; margin: 10px 0 8px; padding: 8px; font-size: 13px; background: var(--bg);
+  border: 1px solid var(--line); border-radius: 8px; text-overflow: ellipsis; }
+.gl-new-btns { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.gl-new .hint { text-align: left; margin: 10px 0 0; }
+.gl-list { list-style: none; margin: 0; padding: 0; }
+.gl-row { padding: 10px 0; border-top: 1px solid var(--line); }
+.gl-top { display: flex; align-items: center; gap: 10px; }
+.gl-name { flex: 1; min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
+.gl-pill { padding: 1px 8px; border-radius: 10px; font-size: 12px; background: rgba(var(--hl), .08); color: var(--muted); }
+.gl-row.live .gl-pill { color: var(--closed-ink); background: color-mix(in srgb, var(--closed) 16%, transparent); }
+.gl-row:not(.live) .gl-name { color: var(--muted); }
+.gl-row .sub { margin: 2px 0 0; }
+.gl-row button { min-height: 34px; padding: 4px 10px; }
+.gl-field { display: block; margin: 10px 0; font-size: 14px; }
+.gl-field[hidden] { display: none; }
+.gl-field > span { display: block; margin-bottom: 4px; color: var(--muted); font-size: 13px; }
+.gl-field input, .gl-field select { display: block; width: 100%; padding: 8px; min-height: 40px; background: var(--bg);
+  border: 1px solid var(--line); border-radius: 8px; }
+.gl-field input:focus { outline: none; border-color: var(--accent); }
+.gl-devs { max-height: 220px; overflow-y: auto; border: 1px solid var(--line); border-radius: 8px; padding: 4px 10px; background: var(--bg); }
+.gl-devs[hidden] { display: none; }
+.gl-devs label { display: flex; align-items: center; gap: 10px; min-height: 40px; }
+.gl-devs label input { width: 18px; height: 18px; flex: none; }
+.gl-devs .gl-kind { margin-left: auto; color: var(--muted); font-size: 12px; }
+#guestForm button[type=submit] { margin-top: 4px; }

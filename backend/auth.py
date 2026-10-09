@@ -15,7 +15,8 @@ SESSION_TTL = 90 * 24 * 3600
 MAX_FAILS = 10
 MAX_FAILS_GLOBAL = 50  # across all clients, since client keys come partly from headers
 FAIL_WINDOW = 600
-PUBLIC_PATHS = {"/healthz", "/login.html", "/login.js", "/style.css", "/manifest.webmanifest", "/sw.js", "/api/login"}
+PUBLIC_PATHS = {"/healthz", "/login.html", "/login.js", "/style.css", "/manifest.webmanifest", "/sw.js", "/api/login",
+                "/guest.html", "/guest.js", "/guest.css", "/api/guest/redeem"}  # guest links: backend/guest_links.py
 PUBLIC_PREFIXES = ("/icons/",)
 PAGE_PATHS = {"/", "/index.html"}
 
@@ -210,7 +211,7 @@ class AuthMiddleware:
             await send({"type": "http.response.start", "status": 404, "headers": []})
             await send({"type": "http.response.body", "body": b""})
             return
-        if is_public(scope["path"]):
+        if is_public(scope["path"]) or (scope.get("state") or {}).get("role") == "link":  # GuestLinkMiddleware vouched
             return await self.app(scope, receive, send)
         headers = {k.decode("latin-1"): v.decode("latin-1") for k, v in scope["headers"]}
         client = client_key(headers, (scope.get("client") or (None,))[0])

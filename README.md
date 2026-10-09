@@ -46,7 +46,8 @@ signed in for 90 days (an HttpOnly cookie, `Secure` when served over https). Sig
 - Changing `APP_PASSWORD` signs that account out everywhere; changing `SESSION_SECRET` signs everyone out.
 - 10 wrong passwords from one client within 10 minutes → locked out for the rest of that window (HTTP 429).
 - `curl -u user:pass` (HTTP Basic) still works for the API; the browser never gets a Basic popup.
-- Public without login: `/healthz`, the login page, manifest, icons, service worker.
+- Public without login: `/healthz`, the login page, manifest, icons, service worker, and the guest-link page
+  (`/guest.html`, see [Guest links](#guest-links-qr-codes)).
 
 ### Install the app
 
@@ -751,7 +752,7 @@ appliance (“Fridge · Plug 2”). ‹ / › go through the months (up to 12 ba
 `GET /api/summary/latest` (404 until the first one) · `POST /api/summary/preview` ·
 `GET /api/history/{entity_id}?range=24h|7d|30d` (`series` `[{name, unit, points: [[t_ms, v|null]]}]`, `timeline` `[{state, start, end}]`, plugs: `energy_kwh`) ·
 `GET /api/doors/log?range=24h|7d&tz=Europe/London` (per door: `events` `[{t, state, open_ms}]` newest first, `summary`) ·
-`GET /api/activity` (see *Activity*) · `GET`/`POST /api/disco…` (see *Disco mode*) · `GET /api/weather` · `PUT /api/weather/settings` · `POST /api/weather/refresh` (see *Weather*)
+`GET /api/activity` (see *Activity*) · `GET`/`POST /api/disco…` (see *Disco mode*) · `/api/guest/…` (see *Guest links*) · `GET /api/weather` · `PUT /api/weather/settings` · `POST /api/weather/refresh` (see *Weather*)
 
 Devices carry `power` (W), `energy_today` (kWh), `battery` (%) and `battery_low` (bool) when HA knows them.
 
@@ -924,7 +925,8 @@ Everyone gets their own login, with one of three roles:
 - The UI hides what a role can't use, but every route is enforced on the server (HTTP 403 with a short reason).
   Additions and changes to accounts show in *Activity* under *Security*.
 **For developers — classifying routes.** `backend/roles.py` has one `POLICY` table: `(METHOD, path template) -> least
-role` (`GUEST`, `MEMBER`, `ADMIN`, or `LIGHTS` = guests only for a `light.*` `{entity_id}`). `RoleMiddleware` (inside the
+role` (`GUEST`, `MEMBER`, `ADMIN`, `LIGHTS` = guests only for a `light.*` `{entity_id}`, or `LINK` = guest-link
+sessions only, which get nothing else — see *Guest links*). `RoleMiddleware` (inside the
 auth guard) finds the route a request will hit and checks it, so **a route missing from the table is admin-only**.
 `backend/tests/test_roles.py::test_every_route_is_classified` fails until each new route has a line, e.g.
 `("GET", "/api/brief"): MEMBER,` — and it calls every listed route as each role to check the 403s.
@@ -933,3 +935,33 @@ fresh cookie) · admin: `GET /api/users` · `POST /api/users` `{username, passwo
 seconds, guests only, within a year) · `PATCH /api/users/{username}` `{role?, expires?}` ·
 `PUT /api/users/{username}/password` `{password}` · `DELETE /api/users/{username}`. Writes need
 `Content-Type: application/json`. Passwords: 8–256 characters; usernames: 1–32 of letters, digits, `. _ @ -`.
+
+## Guest links (QR codes)
+Let a visitor switch the lights without an account: **⋯ → Guest links…** (admins) makes a link and a QR code that
+works for a set time and only for **one room's lights**, or for **lights and plugs you pick**.
+- **Make one:** a name (who it's for), *Can switch* (a room — only rooms with lights on the plan are offered — or
+  *Lights and plugs I choose…*), *Works for* (2 hours … 30 days, default 1 day) → *Create link*. The sheet shows the QR
+  code (made in the browser by the vendored `frontend/qr.js`, no CDN), the link with *Copy link* / *Share…*. It is shown
+  **only then**: the server keeps just a SHA-256 of it, so a lost link can't be shown again — revoke it and make a new
+  one. At most 20 live links.
+- **The visitor** scans it and gets a simple page (`/guest.html`): big on/off buttons for those lights, a brightness
+  slider and colour swatches where the bulb has them, live as they change. Nothing else in the flat appears — no plan,
+  no other device names or states. Fridges, home servers and *Keep on* plugs can never be in a link (and drop out of
+  one if marked later). A room link follows the plan: lights moved into or out of the room are in or out at once.
+- **Ends by itself** at its time, or at once on **Revoke** (the list shows each link's room / devices, until when, how
+  often it was opened, and Active / Expired / Revoked; ended links drop off after a week). An open guest page then says
+  “This link has stopped working”. Making, opening and revoking links show in *Activity* under *Security*.
+- **How it's kept safe:** the token is 32 random bytes in the URL *fragment* (`/guest.html#…`), which browsers never
+  send to a server or in a Referer; the page swaps it for an HttpOnly, SameSite=Strict cookie limited to `/api/guest`
+  and removes it from the address bar. A link session is its own role (`link` in `backend/roles.py`): it may call the
+  `/api/guest/session…` routes below and nothing else — every other route, including ones added later, answers 401 /
+  403 — and each request re-checks expiry and revocation. Wrong tokens (on redeem or as a cookie) are rate-limited: 10
+  per client per 10 minutes, then HTTP 429.
+- API — admin: `GET /api/guest/links` · `POST /api/guest/links` `{label, room | devices: [entity ids], minutes:
+  15–43200}` → the link with `token` and `path` (once) · `DELETE /api/guest/links/{id}` (revoke). Public:
+  `POST /api/guest/redeem` `{token}` (sets the cookie). Link session only: `GET /api/guest/session` →
+  `{label, room, expires, devices: [{entity_id, kind, name, state, brightness?, …}]}` · `GET /api/guest/session/events`
+  (SSE: `snapshot`, `device` for its own devices only, `end` when the link stops) ·
+  `POST /api/guest/session/devices/{entity_id}/toggle` · `POST /api/guest/session/devices/{entity_id}/light`
+  (`brightness_pct`, `hs_color`, `color_temp_kelvin`, as for `/api/devices/{id}/light`). Out-of-scope or unknown
+  devices: 404.

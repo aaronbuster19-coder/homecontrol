@@ -17,7 +17,7 @@ class RevalidatingStaticFiles(StaticFiles):
         resp = super().file_response(*args, **kwargs)
         resp.headers["Cache-Control"] = "no-cache"
         return resp
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from . import activity as activity_api, weather as weather_api
 from . import brief as brief_api
@@ -45,6 +45,7 @@ from .modes import ModeError, ModeStore, current_targets, now_iso, public, resto
 from .summary import local_tz
 from . import climate as climate_api
 from . import disco as disco_api
+from . import guest_links as guest_api
 from .store import NAME_MAX, LayoutError, LayoutStore, carry_settings, stored_media, stored_plugs, stored_refs, validate_energy, validate_layout
 
 CACHE_TTL = 300
@@ -103,6 +104,13 @@ def light_data(b: LightBody) -> dict:
     if not data:
         raise HTTPException(400, "nothing to set")
     return data
+
+
+def guest_light_data(data) -> dict:
+    try:
+        return light_data(LightBody.model_validate(data))
+    except ValidationError:
+        raise HTTPException(400, "send brightness_pct, hs_color, rgb_color or color_temp_kelvin")
 
 
 def on_off_groups(devs: dict[str, Device], entity_ids) -> dict[str, list[str]]:
@@ -782,6 +790,12 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
     app.include_router(underlay_api.router(settings.db_path))
     # ---- quick tiles: pinned favourites for /?view=tiles (backend/tiles.py) ----
     tiles_api.add_routes(app, tiles_api.TileStore(settings.db_path), devices, json_body)
+    # ---- guest links / QR codes: one room's lights or chosen devices, nothing else (backend/guest_links.py) ----
+    guest_links = guest_api.GuestLinks(guest_api.LinkStore(settings.db_path, clock), devices, store.get, live,
+                                       ensure_states, clock)
+    guest_api.add_routes(app, guest_links, json_body, guest_light_data, lambda ids: disco.interrupt("manual", ids),
+                         lambda *a: ha.call_service(*a), activity.record)
+    app.add_middleware(guest_api.GuestLinkMiddleware, links=guest_links)  # outermost: link cookies on its routes only
 
     @app.get("/sw.js", include_in_schema=False)
     async def service_worker():
