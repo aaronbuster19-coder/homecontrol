@@ -85,7 +85,7 @@ function tvSheet(d, c, unavailable) {
   const glyph = tvSvg(`<use href="#ic-${mediaIcon(d)}"/>`, "tv-glyph"); art.prepend(glyph);
   const info = tvMk("div", "tv-info");
   const chip = tvMk("span", "tv-state " + (unavailable ? "unavail" : on ? d.state : "off"), unavailable ? d.state : tvStateText(d));
-  info.appendChild(chip);
+  if (on || unavailable) info.appendChild(chip); // off: the title already says so
   const title = on ? (d.media_title || d.app_name || d.source || "On") : unavailable ? "Not reachable" : d.state === "standby" ? "Standby" : "Off";
   info.appendChild(tvMk("div", "tv-title", title));
   const subs = on ? [d.media_title ? (d.media_series_title || d.media_artist) : null, d.media_title && d.app_name ? d.app_name : null,

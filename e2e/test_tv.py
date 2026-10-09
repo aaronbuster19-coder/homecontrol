@@ -276,6 +276,9 @@ def test_wall_mode_chip_and_room_view(tv_stack, tha, open_page):
     expect(chip).to_be_hidden()
     tha.set(TV, "on")
     expect(chip).to_be_visible()
-    page2 = open_page(tv_stack, "desktop", layout=None, goto="/#room=lounge")
+    page2 = open_page(tv_stack, "desktop", layout=None)
+    page2.locator("#plan .marker").first.wait_for()  # the plan is loaded: the room exists
+    page2.goto(tv_stack.url + "/#room=lounge")  # as in test_roomview.py
+    expect(page2.locator("#roomName")).to_have_text("Lounge")
     expect(page2.locator('.room-facts .rf[data-fact="tv"]')).to_have_text("Samsung TV · Netflix")
     expect(page2.locator(f'#list li[data-dev="{TV}"]')).to_be_visible()  # listed in its room via the furniture
