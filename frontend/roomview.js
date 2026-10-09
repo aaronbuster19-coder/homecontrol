@@ -176,6 +176,8 @@ const ROOMVIEW = (() => {
     else if (f.sensors.length) facts.append(chip("closed", ICON("sensor"), f.sensors.length > 1 ? "Doors & windows closed" : `${f.sensors[0].name} closed`, "open"));
     if (typeof tvRoomFacts === "function") facts.append(...tvRoomFacts(r)); // "TV · Netflix"
     const disco = typeof discoRoomChip === "function" && discoRoomChip(r); if (disco) facts.append(disco); // disco.js
+    if (typeof scenesRoomChips === "function") facts.append(...scenesRoomChips(r)); // scenes.js: this room's scenes
+    const sleep = typeof sleepRoomChip === "function" && sleepRoomChip(r); if (sleep) facts.append(sleep); // sleep.js
     if (f.temp != null) facts.append(chip("temp", ICON("valve"), `${(Math.round(f.temp * 10) / 10).toFixed(1)}°`, "temp"));
     if (f.hum != null) facts.append(chip("hum", ICON("dehumidifier"), `${Math.round(f.hum)} %`, "hum"));
     facts.hidden = !facts.children.length;

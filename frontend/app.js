@@ -316,6 +316,7 @@ function renderSheet() {
     const bt = document.createElement("div"); bt.className = "sub" + (batteryWarn(d) ? " warn" : ""); bt.style.marginTop = "12px";
     bt.textContent = `🔋 ${batteryText(d)}`; c.appendChild(bt);
   }
+  if (typeof sleepSheetRow === "function") sleepSheetRow(d, c); // sleep.js: off in 15 / 30 / 60 min
   historySection(d, c);
   deviceMeta(d, c);
   if (typeof tilesSheetRow === "function") tilesSheetRow(d, c); // tiles.js: ☆ Add to favourites
@@ -598,6 +599,7 @@ function startLive() {
   es.addEventListener("status", (e) => { st.ws = !!JSON.parse(e.data).ws; updateStatus(); });
   if (typeof applianceEvents === "function") applianceEvents(es); // washer cycles etc.
   if (typeof discoEvents === "function") discoEvents(es); // disco mode (disco.js)
+  if (typeof sleepEvents === "function") sleepEvents(es); // sleep timers (sleep.js)
   es.onopen = () => { st.live = true; updateStatus(); };
   // EventSource retries by itself; polling covers the gap.
   es.onerror = () => { if (st.live) { st.live = false; updateStatus(); loadDevices(); } };
