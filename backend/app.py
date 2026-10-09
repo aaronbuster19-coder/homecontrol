@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .alerts import Alerts, AlertStore, Pusher, SettingsError, load_vapid, validate_settings, validate_subscription, webpush_sender
+from .automations import Automations, AutoStore
 from .auth import COOKIE, SESSION_TTL, AuthMiddleware, RateLimiter, Sessions, check_basic_auth, check_credentials, client_key, is_https, load_secret  # noqa: F401
 from .config import Settings, load_settings
 from .discovery import Device, parse_template_output
@@ -114,7 +115,9 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
     async def lifespan(app):
         live.start()
         alerts.start()
+        automations.start()
         yield
+        await automations.stop()
         await alerts.stop()
         await live.stop()
         await ha.close()
@@ -169,6 +172,8 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
         return dev
 
     alerts = Alerts(alert_store, pusher, live, devices)
+    automations = Automations(AutoStore(settings.db_path), alert_store.settings, pusher, live, ha, store, mode_store.get, devices)
+    app.state.automations = automations
     history = History(ha)
 
     @app.get("/api/history/{entity_id}")
@@ -232,7 +237,25 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
             raise HTTPException(400, str(e))
         alert_store.put_settings(s)
         alerts.wake.set()
+        automations.wake.set()
         return s
+
+    # ---- automations: window heating status, weekly summary ----
+    @app.get("/api/automations/status")
+    async def automations_status():
+        return automations.status()
+
+    @app.get("/api/summary/latest")
+    async def summary_latest():
+        s = automations.store.latest_summary()
+        if s is None:
+            raise HTTPException(404, "no weekly summary yet")
+        return s
+
+    @app.post("/api/summary/preview")
+    async def summary_preview():
+        await devices()
+        return await automations.summary.preview()
 
     @app.get("/healthz")
     async def healthz():
@@ -312,11 +335,15 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
         off = sorted(e for e, d in devs.items() if d.kind in ("light", "plug") and e not in keep)
         kept = sorted(e for e in keep if e in devs)
         valves = sorted(e for e, d in devs.items() if d.kind == "valve")
+        held = automations.window.held()  # radiators an open window keeps low stay low; remember their real target
         if s["mode"] != "away":  # pressing Away twice keeps the first remembered targets
-            s["targets"] = current_targets(valves, live.states)
+            s["targets"] = {**current_targets(valves, live.states),
+                            **{e: t for e, t in held.items() if e in valves and t is not None}}
             s["prev_alerts_enabled"] = alert_store.settings()["enabled"]
             s["since"] = now_iso()
         await call_groups(ha, "turn_off", on_off_groups(devs, off))
+        held_now = sorted(e for e in valves if e in held)
+        valves = [e for e in valves if e not in held]
         if valves:
             await ha.call_service("climate", "set_temperature", {"entity_id": valves, "temperature": s["away_temp"]})
         alert_store.put_settings({**alert_store.settings(), "enabled": True})
@@ -324,7 +351,7 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
         s["mode"] = "away"
         mode_store.put(s)
         return {**public(s), "turned_off": sorted(off), "kept_on": kept,
-                "valves": {e: s["away_temp"] for e in valves}, "alerts_enabled": True}
+                "valves": {e: s["away_temp"] for e in valves}, "held_by_window": held_now, "alerts_enabled": True}
 
     async def go_home() -> dict:
         s = mode_store.get()
@@ -332,7 +359,11 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
             return {**public(s), "valves": {}, "alerts_enabled": alert_store.settings()["enabled"]}
         valves = {e for e, d in (await devices()).items() if d.kind == "valve"}
         restored, skipped = {}, sorted(set(s["targets"]) - valves)
-        for t, ids in restore_groups(s["targets"], valves).items():
+        held = automations.window.held()  # window still open: keep it low, restore this target when it closes
+        for e in sorted(set(held) & set(s["targets"])):
+            automations.window.adopt(e, s["targets"][e])
+        targets = {e: t for e, t in s["targets"].items() if e not in held}
+        for t, ids in restore_groups(targets, valves).items():
             await ha.call_service("climate", "set_temperature", {"entity_id": ids, "temperature": t})
             restored.update({e: t for e in ids})
         a = alert_store.settings()
@@ -342,7 +373,8 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
             alerts.wake.set()
         s.update(mode="home", since=now_iso(), targets={}, prev_alerts_enabled=None)
         mode_store.put(s)
-        return {**public(s), "valves": restored, "skipped": skipped, "alerts_enabled": a["enabled"]}
+        return {**public(s), "valves": restored, "skipped": skipped, "held_by_window": sorted(set(held) & valves),
+                "alerts_enabled": a["enabled"]}
 
     @app.get("/api/mode")
     async def get_mode():
@@ -354,7 +386,8 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
         mode = data.get("mode") if isinstance(data, dict) else None
         if mode not in ("away", "home"):
             raise HTTPException(400, "mode must be away or home")
-        return await (go_away() if mode == "away" else go_home())
+        async with automations.lock:
+            return await (go_away() if mode == "away" else go_home())
 
     @app.put("/api/mode/settings")
     async def put_mode_settings(request: Request):

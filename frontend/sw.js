@@ -1,7 +1,7 @@
 "use strict";
 // Bump VERSION when the shell changes shape; content updates arrive anyway (network-first).
-const VERSION = "hc-v6";
-const SHELL = ["/", "/index.html", "/app.js", "/floorplan.js", "/controls.js", "/alerts.js", "/modes.js", "/history.js", "/style.css", "/login.html", "/login.js", "/manifest.webmanifest",
+const VERSION = "hc-v7";
+const SHELL = ["/", "/index.html", "/app.js", "/floorplan.js", "/controls.js", "/alerts.js", "/modes.js", "/history.js", "/automations.js", "/style.css", "/login.html", "/login.js", "/manifest.webmanifest",
   "/icons/icon-192.png", "/icons/icon-512.png", "/icons/icon-maskable-512.png", "/icons/apple-touch-icon.png"];
 const API_CACHED = ["/api/layout", "/api/devices"];
 
@@ -64,6 +64,7 @@ self.addEventListener("notificationclick", (e) => {
   const url = new URL((e.notification.data && e.notification.data.url) || "/", location.origin).href;
   e.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((wins) => {
     const w = wins.find((c) => new URL(c.url).origin === location.origin);
+    if (w) w.postMessage({ type: "open", url }); // e.g. "/?summary" opens the weekly summary in the running app
     return w ? w.focus() : self.clients.openWindow(url);
   }));
 });
