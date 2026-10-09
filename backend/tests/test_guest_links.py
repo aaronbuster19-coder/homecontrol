@@ -482,7 +482,10 @@ def test_stream_ends_when_the_link_stops(tmp_path, clock):
 
         async def devices():
             return {}
-        links = gl.GuestLinks(store, devices, lambda: {}, L(), None, clock)
+
+        async def ensure_states():
+            pass
+        links = gl.GuestLinks(store, devices, lambda: {}, L(), ensure_states, clock)
         client = type("C", (), {"queue": asyncio.Queue()})()
         gen = links.stream(link["id"], client, {"light.a"}, {"devices": []})
         assert (await gen.__anext__()).startswith("event: snapshot")
@@ -493,6 +496,18 @@ def test_stream_ends_when_the_link_stops(tmp_path, clock):
         assert await gen.__anext__() == sse("end", {"detail": gl.GONE})
         with pytest.raises(StopAsyncIteration):
             await gen.__anext__()
+        # the scope changed (layout edit): a fresh snapshot goes out at the next check
+        link3, _ = store.create("Al", {"devices": ["light.a"]}, 60, "aaron")
+        client3 = type("C", (), {"queue": asyncio.Queue()})()
+        every, gl.CHECK_EVERY = gl.CHECK_EVERY, 0  # check at once
+        try:
+            gen3 = links.stream(link3["id"], client3, {"light.gone"}, {"devices": []})
+            await gen3.__anext__()
+            nxt = await asyncio.wait_for(gen3.__anext__(), 2)
+        finally:
+            gl.CHECK_EVERY = every
+        assert nxt.startswith("event: snapshot") and '"label":"Al"' in nxt
+        await gen3.aclose()
         # expired with nothing to send: ends without waiting for a message
         link2, _ = store.create("Jo", {"devices": ["light.a"]}, 15, "aaron")
         client2 = type("C", (), {"queue": asyncio.Queue()})()

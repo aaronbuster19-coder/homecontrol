@@ -247,8 +247,11 @@ class GuestLinks:
                 if not self.store.active(link):
                     yield sse("end", {"detail": GONE})
                     return
-                if time.monotonic() >= next_check:
-                    ids = set(self.resolve(link["scope"], await self.devices(), self.layout()))
+                if time.monotonic() >= next_check:  # a light moved into or out of the room: a fresh snapshot
+                    now_ids = set(self.resolve(link["scope"], await self.devices(), self.layout()))
+                    if now_ids != ids:
+                        ids = now_ids
+                        yield sse("snapshot", await self.session(link))
                     next_check = time.monotonic() + CHECK_EVERY
                 wait = max(0.05, min(CHECK_EVERY, link["expires"] - self.clock() + 0.05, next_check - time.monotonic()))
                 try:
