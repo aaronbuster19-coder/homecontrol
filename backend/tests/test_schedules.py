@@ -201,7 +201,7 @@ def test_fires_once_and_not_again_after_restart(tmp_path):
     assert r.tick(T0 + 20) == [] and r.tick(T0 + 100) == []
     r2 = Rig(tmp_path, T0 + 30, store=r.store)   # restart within the grace window
     assert r2.tick() == []
-    assert r.last(s)["status"] == "1 device on" and r.last(s)["at"] == T0 * 1000
+    assert r.last(s)["status"] == "1 light on" and r.last(s)["at"] == T0 * 1000
     assert r.tick(T0 + 86400) == [("light", "turn_on", {"entity_id": ["light.bed"]})]   # next day: again, once
 
 
@@ -278,7 +278,7 @@ def test_room_target_uses_l_shape(tmp_path):
     r = Rig(tmp_path, T0 - 3600)
     s = r.add(target={"room": "lounge"}, action={"type": "brightness", "value": 60})
     assert r.tick(T0) == [("light", "turn_on", {"entity_id": ["light.lounge", "light.lounge2"], "brightness_pct": 60})]
-    assert r.last(s)["status"] == "2 devices 60 %"
+    assert r.last(s)["status"] == "2 lights at 60 %"
     r.layout = {**LAYOUT, "rooms": [BED]}   # room deleted later: skipped, nothing sent
     assert r.tick(T0 + 86400) == [] and r.last(s)["status"] == "skipped: no devices"
 
@@ -391,4 +391,4 @@ def test_api_schedule_runs_through_the_loop(app_client, fake_ha):
     c.portal.call(auto.tick)
     calls = [b for p, b in fake_ha.service_calls() if p == "/api/services/climate/set_temperature"]
     assert calls == [{"entity_id": ["climate.lounge_valve"], "temperature": 19.0}]
-    assert c.get("/api/schedules").json()["schedules"][0]["last"]["status"] == "1 device 19°"
+    assert c.get("/api/schedules").json()["schedules"][0]["last"]["status"] == "1 radiator to 19°"

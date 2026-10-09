@@ -389,8 +389,10 @@ class ScheduleEngine:
             parts = notes[s["id"]]
             if mine:
                 a = s["action"]
-                what = {"on": "on", "off": "off", "brightness": f"{a.get('value')} %", "temperature": f"{a.get('value', 0):g}°"}[a["type"]]
-                parts.insert(0, f"{_plural(len(mine), 'device')} {what}")
+                kinds = {devices[e].kind for e in mine}
+                noun = {"light": "light", "plug": "plug", "valve": "radiator"}[kinds.pop()] if len(kinds) == 1 else "device"
+                what = {"on": "on", "off": "off", "brightness": f"at {a.get('value')} %", "temperature": f"to {a.get('value', 0):g}°"}[a["type"]]
+                parts.insert(0, f"{_plural(len(mine), noun)} {what}")
             status = ("failed: Home Assistant error · " if s["id"] in failed else "") + (" · ".join(parts) or "done")
             self.store.put_run(s["id"], day, s["rev"], now, status)
             log.info("schedule %r (%s): %s", s["name"], day, status)
