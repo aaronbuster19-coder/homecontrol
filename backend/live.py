@@ -135,6 +135,10 @@ class Live:
     def add_observer(self, fn) -> None:
         self.observers.append(fn)
 
+    def republish(self, primary_ids) -> None:
+        """Push fresh device items (e.g. after a rename) to observers and browsers."""
+        self._publish({e for e in primary_ids if e in self.devices})
+
     def set_ws(self, up: bool) -> None:
         if up != self.ws_up:
             self.ws_up = up

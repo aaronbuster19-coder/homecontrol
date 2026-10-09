@@ -15,6 +15,11 @@ class Device:
     name: str
     model: str
     related: dict[str, str] = field(default_factory=dict)  # role (power|energy_today|battery|battery_low) -> entity_id
+    ha_name: str = ""     # HA's own name; `name` is the display name (custom name from the layout, else ha_name)
+    hidden: bool = False  # hidden from the plan, lists and sheets (layout settings.hidden)
+
+    def __post_init__(self):
+        self.ha_name = self.ha_name or self.name
 
     def to_dict(self) -> dict:
         d = asdict(self)
@@ -108,3 +113,15 @@ def parse_template_output(text: str) -> list[Device]:
     for d in devices:
         d.related = pick_related(rel.get(d.entity_id, []))
     return devices
+
+
+def apply_names(devices: dict[str, Device], settings: dict | None) -> set[str]:
+    """Custom names / hidden flags from the layout settings onto the devices; returns the ids that changed."""
+    names, hidden = (settings or {}).get("names") or {}, set((settings or {}).get("hidden") or [])
+    changed = set()
+    for eid, d in devices.items():
+        name, hid = names.get(eid) or d.ha_name, eid in hidden
+        if (d.name, d.hidden) != (name, hid):
+            d.name, d.hidden = name, hid
+            changed.add(eid)
+    return changed

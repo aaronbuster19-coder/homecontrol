@@ -5,7 +5,8 @@ from zoneinfo import ZoneInfo
 from backend.alerts import DEFAULT_SETTINGS
 from backend.automations import AutoStore
 from backend.discovery import Device
-from backend.summary import WeeklySummary, build_summary, week_window
+from backend.discovery import apply_names
+from backend.summary import WeeklySummary, build_summary, summary_text, week_window
 
 LON = ZoneInfo("Europe/London")
 H = 3600
@@ -84,7 +85,7 @@ def fake_history():
 def test_numbers_from_history():
     ha = fake_history()
     s = asyncio.run(build_summary(ha, DEVS, LAYOUT, START, SUN))
-    assert s["energy"] == {"this_kwh": 16.81, "last_kwh": 8.4, "change_pct": 100}
+    assert s["energy"] == {"this_kwh": 16.81, "last_kwh": 8.4, "change_pct": 100, "rate_p": None, "this_p": None, "last_p": None}
     assert [(p["name"], p["kwh"]) for p in s["plugs"]] == [("Kettle", 16.8), ("Fan", 0.01)]
     assert s["biggest_plug"]["name"] == "Kettle"
     assert [(d["name"], d["opens"]) for d in s["doors"]] == [("Front door", 3), ("Back door", 0)]
@@ -178,3 +179,25 @@ def test_preview_not_stored(tmp_path):
     ws, clock, pushes, store = rig(tmp_path, SUN + 3 * H)
     p = asyncio.run(ws.preview())
     assert p["preview"] and p["end"] == (SUN + 3 * H) * 1000 and pushes == [] and store.latest_summary() is None
+
+
+def test_cost_line_when_a_rate_is_set():
+    layout = {**LAYOUT, "settings": {"keep_on": [], "energy": {"rate_p": 24.5, "standing_p": 60}}}
+    s = asyncio.run(build_summary(fake_history(), DEVS, layout, START, SUN))
+    e = s["energy"]
+    assert e["rate_p"] == 24.5 and e["this_p"] == 411.85 and e["last_p"] == 205.8  # from unrounded kWh
+    # 16.81 kWh × 24.5p = £4.12; last week 8.4 × 24.5 = £2.06 -> +£2.06 (standing charge not included)
+    assert s["text"] == ("16.8 kWh (+100% vs last week) · This week ≈ £4.12 (+£2.06 vs last week) · Kettle used most · "
+                         "Front door opened 3× · Lounge 21.0°")
+    cheaper = summary_text({**s, "energy": {**e, "this_p": 50.0, "last_p": 125.0}})
+    assert "This week ≈ £0.50 (−£0.75 vs last week)" in cheaper
+    # no comparison when last week had (almost) nothing
+    assert "This week ≈ £0.50 ·" in summary_text({**s, "energy": {**e, "this_p": 50.0, "last_p": 0.0, "change_pct": None}})
+
+
+def test_custom_names_in_summary_text():
+    renamed = Device("switch.kettle", "plug", "Kettle", "P110", {"power": "sensor.kettle_power"})
+    devs = {**DEVS, renamed.entity_id: renamed}
+    apply_names(devs, {"names": {"switch.kettle": "Big kettle"}})
+    s = asyncio.run(build_summary(fake_history(), devs, LAYOUT, START, SUN))
+    assert "Big kettle used most" in s["text"] and s["plugs"][0]["name"] == "Big kettle"

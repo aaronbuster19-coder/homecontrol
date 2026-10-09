@@ -54,6 +54,10 @@ def _opens(rows: list[dict], start: int, end: int) -> int:
     return n
 
 
+def money(pence: float) -> str:
+    return f"£{pence / 100:.2f}"
+
+
 def summary_text(s: dict) -> str:
     parts = []
     e = s["energy"]
@@ -62,6 +66,12 @@ def summary_text(s: dict) -> str:
         if e.get("change_pct") is not None:
             p = e["change_pct"]
             txt += f" ({'+' if p >= 0 else '−'}{abs(p)}% vs last week)"
+        parts.append(txt)
+    if e.get("this_p") is not None:
+        txt = f"This week ≈ {money(e['this_p'])}"
+        if e.get("last_p") is not None and e.get("change_pct") is not None:
+            d = e["this_p"] - e["last_p"]
+            txt += f" ({'+' if d >= 0 else '−'}{money(abs(d))} vs last week)"
         parts.append(txt)
     if s.get("biggest_plug"):
         parts.append(f"{s['biggest_plug']['name']} used most")
@@ -101,9 +111,13 @@ async def build_summary(ha, devices: dict, layout: dict, start: float, end: floa
         if means:
             rooms.append({"id": r["id"], "name": r["name"], "avg_temp": round(sum(means) / len(means), 1)})
     change = round((this_tot - last_tot) / last_tot * 100) if plugs and last_tot > 0.05 else None
+    rate = ((layout.get("settings") or {}).get("energy") or {}).get("rate_p")
+    priced = plugs and rate is not None
     out = {"start": s_ms, "end": e_ms, "generated_at": int(time.time() * 1000),
            "energy": {"this_kwh": round(this_tot, 2) if plugs else None, "last_kwh": round(last_tot, 2) if plugs else None,
-                      "change_pct": change},
+                      "change_pct": change, "rate_p": rate,
+                      "this_p": round(this_tot * rate, 2) if priced else None,
+                      "last_p": round(last_tot * rate, 2) if priced else None},
            "plugs": plug_out, "biggest_plug": plug_out[0] if plug_out and plug_out[0]["kwh"] > 0 else None,
            "doors": doors, "top_door": doors[0] if doors and doors[0]["opens"] > 0 else None, "rooms": rooms}
     out["text"] = summary_text(out)

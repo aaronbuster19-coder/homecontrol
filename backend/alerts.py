@@ -224,7 +224,7 @@ class Watcher:
         entry = self.open.get(eid)
         if state == "on":
             if entry:
-                entry["avail"] = True
+                entry["avail"], entry["name"] = True, name  # name: follows a rename while open
             else:
                 since = parse_time(last_changed)
                 self.open[eid] = {"name": name, "since": min(since, now) if since else now, "alerted": False, "avail": True}

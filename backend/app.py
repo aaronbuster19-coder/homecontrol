@@ -12,12 +12,13 @@ from .alerts import Alerts, AlertStore, Pusher, SettingsError, load_vapid, valid
 from .automations import Automations, AutoStore
 from .auth import COOKIE, SESSION_TTL, AuthMiddleware, RateLimiter, Sessions, check_basic_auth, check_credentials, client_key, is_https, load_secret  # noqa: F401
 from .config import Settings, load_settings
-from .discovery import Device, parse_template_output
+from .discovery import Device, apply_names, parse_template_output
+from .energy import Energy, EnergyError
 from .ha import DISCOVERY_TEMPLATE, HAClient, HAError
 from .history import DOOR_RANGES, History, RangeError, check_range
 from .live import Live, build_device, ws_url
 from .modes import ModeError, ModeStore, current_targets, now_iso, public, restore_groups, validate_mode_settings
-from .store import LayoutError, LayoutStore, validate_layout
+from .store import NAME_MAX, LayoutError, LayoutStore, carry_settings, stored_refs, validate_energy, validate_layout
 
 CACHE_TTL = 300
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
@@ -159,6 +160,7 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
         if cache["devices"] is None or time.monotonic() - cache["at"] > CACHE_TTL:
             text = await ha.render_template(DISCOVERY_TEMPLATE)
             cache["devices"] = {d.entity_id: d for d in parse_template_output(text)}
+            apply_names(cache["devices"], store.get().get("settings"))
             cache["at"] = time.monotonic()
             live.set_devices(cache["devices"])
         return cache["devices"]
@@ -404,16 +406,10 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
     async def get_layout():
         return store.get()
 
-    @app.put("/api/layout")
-    async def put_layout(request: Request):
-        try:
-            data = await request.json()
-        except ValueError:
-            raise HTTPException(400, "invalid JSON")
-        # Entities already placed stay valid even if HA is briefly missing them.
+    async def save_layout(data) -> dict:
+        # Entities already referenced stay valid even if HA is briefly missing them.
         old = store.get()
-        known = {p["entity_id"] for p in old.get("placements", [])}
-        known |= {o["entity_id"] for o in old.get("openings", []) if o.get("entity_id")}
+        known = stored_refs(old)
         plugs = set(old.get("settings", {}).get("keep_on", []))
         try:
             devs = await devices()
@@ -422,11 +418,89 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
         except HAError:
             pass
         try:
-            layout = validate_layout(data, known, plugs)
+            layout = carry_settings(validate_layout(data, known, plugs), old, data)
         except LayoutError as e:
             raise HTTPException(400, str(e))
         store.put(layout)
+        if cache["devices"]:  # names / hidden flags show everywhere at once, SSE included
+            live.republish(apply_names(cache["devices"], layout.get("settings")))
         return layout
+
+    @app.put("/api/layout")
+    async def put_layout(request: Request):
+        try:
+            data = await request.json()
+        except ValueError:
+            raise HTTPException(400, "invalid JSON")
+        return await save_layout(data)
+
+    def with_settings(**changes) -> dict:
+        layout = store.get()
+        return {**layout, "settings": {"keep_on": [], **(layout.get("settings") or {}), **changes}}
+
+    @app.put("/api/devices/{entity_id}/meta")
+    async def put_device_meta(entity_id: str, request: Request):
+        """Display name (empty or null = HA's name) and hidden flag, kept in the layout settings."""
+        data = await json_body(request)
+        if not isinstance(data, dict) or not set(data) <= {"name", "hidden"}:
+            raise HTTPException(400, "send {name, hidden}")
+        dev = (await devices()).get(entity_id)
+        if dev is None:
+            raise HTTPException(404, "unknown device")
+        s = store.get().get("settings") or {}
+        names, hidden = dict(s.get("names") or {}), set(s.get("hidden") or [])
+        if "name" in data:
+            name = data["name"]
+            if name is not None and not isinstance(name, str):
+                raise HTTPException(400, "name must be text")
+            name = " ".join((name or "").split())
+            if len(name) > NAME_MAX:
+                raise HTTPException(400, f"name must be at most {NAME_MAX} characters")
+            if name and name != dev.ha_name:
+                names[entity_id] = name
+            else:
+                names.pop(entity_id, None)
+        if "hidden" in data:
+            if not isinstance(data["hidden"], bool):
+                raise HTTPException(400, "hidden must be true or false")
+            (hidden.add if data["hidden"] else hidden.discard)(entity_id)
+        return await save_layout(with_settings(names=names, hidden=sorted(hidden)))
+
+    # ---- energy costs ----
+    energy = Energy(ha)
+
+    @app.get("/api/energy/settings")
+    async def get_energy_settings():
+        return validate_energy((store.get().get("settings") or {}).get("energy") or {})
+
+    @app.put("/api/energy/settings")
+    async def put_energy_settings(request: Request):
+        try:
+            e = validate_energy(await json_body(request))
+        except LayoutError as err:
+            raise HTTPException(400, str(err))
+        await save_layout(with_settings(energy=e))
+        return e
+
+    async def plug_devices():
+        devs = await devices()
+        if not live.fresh():
+            live.load_states(await ha.states())
+        plugs = [d for d in devs.values() if d.kind == "plug"]
+        return plugs, {d.entity_id: build_device(d, live.states) for d in plugs}
+
+    @app.get("/api/energy")
+    async def get_energy(range: str = "today"):
+        plugs, items = await plug_devices()
+        try:
+            return await energy.totals(plugs, items, store.get(), range)
+        except EnergyError as e:
+            raise HTTPException(400, str(e))
+
+    @app.get("/api/energy/standby")
+    async def get_standby():
+        plugs, _ = await plug_devices()
+        return await energy.standby(plugs, store.get())
 
     @app.get("/sw.js", include_in_schema=False)
     async def service_worker():
