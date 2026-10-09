@@ -4,6 +4,8 @@ import httpx
 # Related lines: rel|primary entity_id|entity_id|device_class|unit|state_class|friendly_name, one for every
 # sensor/binary_sensor on the same HA device (power, energy, battery are picked in discovery.py).
 # Humidifier entities also get dc|entity_id|device_class (HA's dehumidifier/humidifier class).
+# Presence (Auto Away): person|person.x|friendly name|| and, as a fallback when HA has no person entities,
+# tracker|device_tracker.x|friendly name|source_type| for GPS / router trackers.
 DISCOVERY_TEMPLATE = """{% macro clean(v) %}{{ (v or '')|string|replace('|','/')|replace('\\n',' ') }}{% endmacro %}
 {%- for domain, key in [('light','light'),('switch','switch'),('climate','climate'),('binary_sensor','binary'),('humidifier','humidifier')] %}{% for s in states[domain] %}{% set d = device_id(s.entity_id) %}
 {{ key }}|{{ s.entity_id }}|{{ clean(device_attr(d,'name') if d else '') }}|{{ clean(device_attr(d,'manufacturer') if d else '') }}|{{ clean(device_attr(d,'model') if d else '') }}
@@ -13,6 +15,12 @@ dc|{{ s.entity_id }}|{{ clean(state_attr(s.entity_id,'device_class')) }}
 {%- if d %}{% for e in device_entities(d) if e != s.entity_id and (e.startswith('sensor.') or e.startswith('binary_sensor.')) %}
 rel|{{ s.entity_id }}|{{ e }}|{{ clean(state_attr(e,'device_class')) }}|{{ clean(state_attr(e,'unit_of_measurement')) }}|{{ clean(state_attr(e,'state_class')) }}|{{ clean(state_attr(e,'friendly_name')) }}
 {%- endfor %}{% endif %}{% endfor %}{% endfor %}
+{%- for s in states.person %}
+person|{{ s.entity_id }}|{{ clean(s.name) }}||
+{%- endfor %}
+{%- for s in states.device_tracker if state_attr(s.entity_id,'source_type') in ['gps','router'] %}
+tracker|{{ s.entity_id }}|{{ clean(s.name) }}|{{ clean(state_attr(s.entity_id,'source_type')) }}|
+{%- endfor %}
 """
 
 

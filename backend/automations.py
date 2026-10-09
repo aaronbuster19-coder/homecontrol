@@ -16,8 +16,10 @@ from .alerts import parse_time
 from .dehumidifier import TankAlert
 from .geometry import opening_rooms, placed_in
 from .live import build_device
+from .presence import Presence
 from .quiet import HeldStore, Quiet
 from .schedules import ScheduleEngine, ScheduleStore
+from .standby import StandbySaver
 from .summary import WeeklySummary, local_tz
 
 log = logging.getLogger("homecontrol.automations")
@@ -246,6 +248,8 @@ class Health:
     async def tick(self, devices: dict, states: dict) -> None:
         s, now, changed = self.settings(), self.clock(), False
         for eid, d in sorted(devices.items()):
+            if d.kind == "person":
+                continue  # presence, not a device that can go flat or offline
             item, m = build_device(d, states), self.marks.setdefault(eid, {})
             bat, low_flag = item.get("battery"), item.get("battery_low")
             low = low_flag is True or (bat is not None and bat < BATTERY_LOW)
@@ -299,6 +303,8 @@ class Automations:
         self.summary = WeeklySummary(store, settings, ha, lambda: self.live.devices, layout_store.get,
                                      lambda p: self._notify(p, "summary"), clock, tz)
         self.schedules = ScheduleEngine(ScheduleStore(store.path), ha.call_service, layout_store.get, mode, self.window, clock, tz)
+        self.presence = Presence(store, lambda p: self._notify(p, "presence"), mode, clock, tz)  # Auto Away
+        self.standby = StandbySaver(store, ha.call_service, ha, layout_store.get, mode, clock, tz)
         self.wake = asyncio.Event()
         self._task: asyncio.Task | None = None
         live.add_observer(self.on_device)
@@ -310,7 +316,9 @@ class Automations:
         await self.quiet.notify(payload, category)
 
     def on_device(self, item: dict, raw: dict | None) -> None:
-        if item.get("kind") == "sensor" or self.tank.observe(item):
+        if item.get("kind") == "plug":
+            self.standby.observe(item)
+        if item.get("kind") in ("sensor", "person") or self.tank.observe(item):
             self.wake.set()
 
     async def tick(self) -> None:
@@ -323,6 +331,8 @@ class Automations:
         if devices and states:  # nothing is decided before HA's states are known
             for name, step in (("schedules", lambda: self._schedules(devices, states)),
                                ("window heating", lambda: self._window(devices, states)),
+                               ("auto away", lambda: self._locked(self.presence.tick(devices, states))),
+                               ("standby saver", lambda: self._locked(self.standby.tick(devices, states))),
                                ("device health", lambda: self.health.tick(devices, states)),
                                ("dehumidifier tank", lambda: self.tank.tick(
                                    [build_device(d, states) for d in devices.values() if d.kind == "dehumidifier"]))):
@@ -342,6 +352,10 @@ class Automations:
     async def _schedules(self, devices, states) -> None:
         async with self.lock:
             await self.schedules.tick(devices, states)
+    async def _locked(self, coro):
+        async with self.lock:
+            return await coro
+
     async def _window(self, devices, states) -> None:
         async with self.lock:
             await self.window.tick(self.layout_store.get(), devices, states)
@@ -364,8 +378,9 @@ class Automations:
             except Exception as e:
                 log.warning("automations check failed: %s", e)
             wait = every
-            try:  # wake up right when the next schedule is due
-                due = self.schedules.next_due()
+            try:  # wake up right when the next schedule / Auto Away / standby saver step is due
+                due = min((t for t in (self.schedules.next_due(), self.presence.next_due(), self.standby.next_due())
+                           if t is not None), default=None)
                 if due is not None:
                     wait = min(every, max(0.5, due - self.clock() + 0.1))
             except Exception as e:

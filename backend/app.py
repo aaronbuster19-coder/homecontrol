@@ -20,6 +20,7 @@ from .history import DOOR_RANGES, History, RangeError, check_range
 from .live import Live, build_device, ws_url
 from .schedules import ScheduleError, validate_schedule
 from .schedules import validate_settings as validate_schedule_settings
+from . import presence as presence_api, standby as standby_api
 from .modes import ModeError, ModeStore, current_targets, now_iso, public, restore_groups, validate_mode_settings
 from .store import NAME_MAX, LayoutError, LayoutStore, carry_settings, stored_refs, validate_energy, validate_layout
 
@@ -473,6 +474,8 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
         return {**public(s), "valves": restored, "skipped": skipped, "held_by_window": sorted(set(held) & valves),
                 "alerts_enabled": a["enabled"]}
 
+    automations.presence.actions = (go_away, go_home)  # Auto Away runs exactly these
+
     @app.get("/api/mode")
     async def get_mode():
         return public(mode_store.get())
@@ -484,7 +487,9 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
         if mode not in ("away", "home"):
             raise HTTPException(400, "mode must be away or home")
         async with automations.lock:
-            return await (go_away() if mode == "away" else go_home())
+            r = await (go_away() if mode == "away" else go_home())
+            automations.presence.manual(mode)  # set by hand: Auto Away holds off
+            return r
 
     @app.put("/api/mode/settings")
     async def put_mode_settings(request: Request):
@@ -598,6 +603,10 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
     async def get_standby():
         plugs, _ = await plug_devices()
         return await energy.standby(plugs, store.get())
+
+    # ---- Auto Away (backend/presence.py), standby saver (backend/standby.py) ----
+    presence_api.add_routes(app, automations.presence, devices, live, ha, json_body, automations.wake.set)
+    standby_api.add_routes(app, automations.standby, devices, plug_devices, energy, store.get, live, json_body, automations.wake.set)
 
     @app.get("/sw.js", include_in_schema=False)
     async def service_worker():
