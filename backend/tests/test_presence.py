@@ -458,3 +458,17 @@ def test_api_people_setting_and_no_people(app_rig):
     s = c.put("/api/presence/settings", json={"people": [B]}).json()
     assert [p["tracked"] for p in s["people"]] == [False, True]
     assert c.put("/api/presence/settings", json={"people": ["switch.fan"]}).status_code == 400
+
+
+def test_people_never_get_offline_pushes(tmp_path):
+    from backend.alerts import DEFAULT_SETTINGS
+    from backend.automations import Health
+    pushes = []
+
+    async def push(p):
+        pushes.append(p)
+    h = Health(AutoStore(str(tmp_path / "h.db")), lambda: DEFAULT_SETTINGS, push, Clock(ts(2026, 10, 9, 12)))
+    devices = {A: Device(A, "person", "Alex", "Person")}
+    states = {A: {"state": "unavailable", "last_changed": "2026-10-01T00:00:00+00:00"}}
+    run(h.tick(devices, states))
+    assert pushes == []

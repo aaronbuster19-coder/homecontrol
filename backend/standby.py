@@ -103,7 +103,7 @@ class StandbySaver:
     def plug(self, eid: str) -> dict:
         return {**DEFAULTS, **self.plugs().get(eid, {})}
 
-    def put_plug(self, eid: str, new: dict, name: str = "") -> dict:
+    def put_plug(self, eid: str, new: dict, name: str = "", note: str = "") -> dict:
         old, all_ = self.plug(eid), self.plugs()
         timing = (new["off_at"], new["on_at"]) != (old["off_at"], old["on_at"])
         if new["enabled"] and (timing or not old["enabled"]):
@@ -112,7 +112,7 @@ class StandbySaver:
             new = {**new, "armed_at": old["armed_at"]}
         if old["enabled"] != new["enabled"]:
             self._log(eid, name, "enabled" if new["enabled"] else "disabled",
-                      f"off {new['off_at']} if below {new['threshold_w']:g} W, on {new['on_at']}" if new["enabled"] else "")
+                      f"off {new['off_at']} if below {new['threshold_w']:g} W, on {new['on_at']}" if new["enabled"] else note)
             if not new["enabled"]:  # switched off: no more automatic switching for this plug
                 self.state.pop(eid, None)
                 self._save()
@@ -202,8 +202,8 @@ class StandbySaver:
             st = self.state.setdefault(eid, {"off": None, "on": None, "owned": None, "owed": False})
             why = blocked_reason(eid, layout)
             if why:
-                self.put_plug(eid, {**p, "enabled": False}, d.name)
-                self._log(eid, d.name, "disabled", "it's a keep-on plug" if why == "keep on" else "a fridge is linked to it")
+                self.put_plug(eid, {**p, "enabled": False}, d.name,
+                              "it's a keep-on plug" if why == "keep on" else "a fridge is linked to it")
                 continue
             cur = (states.get(eid) or {}).get("state")
             if st["owned"] and cur == "on" and now - st["owned"] > SETTLE:

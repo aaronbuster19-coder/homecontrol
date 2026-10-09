@@ -263,6 +263,7 @@ function renderSheet() {
         .filter(Boolean).join(" · ");
       c.appendChild(pw);
     }
+    if (d.kind === "plug" && typeof standbyRow === "function") standbyRow(d, c);
   } else if (d.kind === "valve") {
     const cur = document.createElement("div"); cur.className = "sub";
     cur.textContent = `Current ${d.current_temperature ?? "–"}°C · ${d.state}`; c.appendChild(cur);
@@ -545,7 +546,7 @@ function updateStatus() {
   if (st.live && st.ws !== false) parts.push("● live");
   else if (st.live) parts.push("↻ 10 s");
   else if (st.updatedAt) parts.push(st.updatedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
-  parts.push(`${st.devices.size} devices`);
+  parts.push(`${[...st.devices.values()].filter((d) => d.kind !== "person").length} devices`);  // people (Auto Away) aren't devices
   setStatus(parts.join(" · "));
   $("status").classList.toggle("live", !!st.live && st.ws !== false);
 }

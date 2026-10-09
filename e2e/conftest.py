@@ -8,6 +8,7 @@ layout (Away mode, rate limits) use `fresh_stack`. The fake HA's states and call
 On failure a screenshot of every open page (and with E2E_TRACE=1 a Playwright trace) is saved to $E2E_ARTIFACTS (default
 e2e/artifacts). Set SHOTS=dir to also keep the screenshots the tests take on purpose (default e2e/screenshots).
 """
+import base64
 import json
 import os
 import re
@@ -142,14 +143,16 @@ class FakeHA:
 class Stack:
     """A fake HA and the app (temp DB) on free ports of 127.0.0.1."""
 
-    def __init__(self, tmp: Path):
+    def __init__(self, tmp: Path, clock: bool = False):
         ha_port, app_port = free_port(), free_port()
         self.ha_proc = subprocess.Popen([sys.executable, str(ROOT / "e2e" / "fake_ha.py"), str(ha_port), HOST], cwd=ROOT)
         wait_http(f"http://{HOST}:{ha_port}/fake/calls", self.ha_proc)
         env = {**os.environ, "HA_URL": f"http://{HOST}:{ha_port}", "HA_TOKEN": "test-token", "APP_USER": USER,
                "APP_PASSWORD": PASSWORD, "DB_PATH": str(tmp / "layout.db"), "TZ_NAME": "Europe/London"}
+        # clock=True: the test-only factory in e2e/clock_app.py, whose server clock POST /_test/clock moves
+        target = ["--app-dir", str(ROOT / "e2e"), "clock_app:create"] if clock else ["backend.app:create_app"]
         self.app_proc = subprocess.Popen(
-            [sys.executable, "-m", "uvicorn", "backend.app:create_app", "--factory", "--host", HOST,
+            [sys.executable, "-m", "uvicorn", *target, "--factory", "--host", HOST,
              "--port", str(app_port), "--log-level", "warning"], cwd=ROOT, env=env)
         try:
             wait_http(f"http://{HOST}:{app_port}/healthz", self.app_proc)
@@ -159,6 +162,13 @@ class Stack:
         self.ha = FakeHA(f"http://{HOST}:{ha_port}")
         # "localhost" is a secure context, so the service worker and push APIs are available.
         self.url = f"http://localhost:{app_port}"
+
+    def set_clock(self, t: float) -> float:
+        """Clock stacks only: the server's clock jumps to epoch seconds t (and keeps ticking); returns it."""
+        auth = base64.b64encode(f"{USER}:{PASSWORD}".encode()).decode()
+        req = urllib.request.Request(self.url + "/_test/clock", data=json.dumps({"t": t}).encode(), method="POST",
+                                     headers={"Content-Type": "application/json", "Authorization": f"Basic {auth}"})
+        return json.load(urllib.request.urlopen(req, timeout=5))["now"]
 
     def close(self):
         stop(self.app_proc, self.ha_proc)
@@ -174,6 +184,14 @@ def stack(tmp_path_factory):
 @pytest.fixture
 def fresh_stack(tmp_path_factory):
     s = Stack(tmp_path_factory.mktemp("fresh"))
+    yield s
+    s.close()
+
+
+@pytest.fixture
+def clock_stack(tmp_path_factory):
+    """A fresh fake HA + app with a movable server clock (e2e/clock_app.py), for automations that act at set times."""
+    s = Stack(tmp_path_factory.mktemp("clock"), clock=True)
     yield s
     s.close()
 

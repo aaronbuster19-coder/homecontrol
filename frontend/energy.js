@@ -168,6 +168,7 @@ function renderEnergy(c) {
       if (h) h.value += ` · standby ${yr(p)}`; else hidden.push({ label: p.name, entity_id: p.entity_id, value: `standby ${yr(p)}` });
     }
   }
+  if (typeof standbySection === "function") standbySection(c);
   if (hidden.length) {
     const fold = en("details", "sum-sec energy-hidden"); fold.open = !!eState.hiddenOpen;
     fold.addEventListener("toggle", () => { eState.hiddenOpen = fold.open; });

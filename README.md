@@ -193,7 +193,7 @@ API: `POST /api/devices/{id}/toggle` (`humidifier.toggle` or `switch.toggle`), `
 
 ## More menu (⋯), temperatures, Away/Home, backup
 
-The ⋯ button at the right of the header holds: Away / I'm home, Wall mode, *Schedules…* (see *Schedules*), *Show temperature & humidity on plan*, *Show furniture* (see *Furniture*), Energy, Hidden devices, Export layout,
+The ⋯ button at the right of the header holds: Away / I'm home, *Auto Away…* (see *Auto Away*), Wall mode, *Schedules…* (see *Schedules*), *Show temperature & humidity on plan*, *Show furniture* (see *Furniture*), Energy, Hidden devices, Export layout,
 Import layout, Units (m/ft), Refresh devices and Sign out. It closes on a tap outside or Escape.
 
 - **Temperatures on the plan:** every room with a radiator valve in it (L-shapes respected) is tinted by the
@@ -352,6 +352,62 @@ the whole flat.**
   `GET /api/energy/standby` → `{from, to, nights, rate_p, plugs: [{entity_id, name, hidden, avg_w, coverage_h,
   year_kwh, year_p}]}` (`avg_w` null with under an hour of overnight data).
 
+## Auto Away
+
+⋯ → **Auto Away…** (also *Automatic…* in the Away dialog) switches to Away when everyone has left and back Home
+when someone arrives. **Off by default.** It runs exactly the same Away / I'm home as the ⋯ menu (lights and plugs
+off except keep-on, radiators to the away temperature with their targets remembered, door alerts on; Home restores).
+
+- **Presence** comes from Home Assistant's `person.*` entities (state `home`, `not_home` or a zone name such as
+  `Work`, which counts as out). Only when HA has no person entities, GPS / router `device_tracker.*` entities
+  (attribute `source_type` `gps` or `router`) are used instead. They're discovered with the other devices (kind
+  `person`), are never on the plan, and are listed under *Presence* in the sheet, where you choose who counts
+  (default everyone). With none, the sheet says how to get them: install the **Home Assistant companion app** on
+  your phone, sign in and allow location. `unavailable` / `unknown` counts as *unchanged*: a phone that drops out
+  never triggers Away (and someone who has never been seen is never “out”).
+- **Go Away when everyone has left for N min** (default 10, 2–120). The N minutes are the hysteresis: anyone
+  home in between starts them over. One Away per “everyone out” stretch — if you press I'm home while the phones
+  still say out, it stays Home until someone has actually been home again.
+- **Come Home when anyone arrives** (default on): an arrival (out → home) that holds for a minute switches to
+  Home; a one-tick GPS blip doesn't. Arriving also cancels a pending Away.
+- **Manual wins:** never an automatic Away within 30 min of Away / I'm home being pressed by hand.
+- **Only between HH:MM–HH:MM** (optional, local time): outside those hours nothing switches automatically.
+- Status at the top of the sheet, e.g. *“Auto: everyone out since 18:02, Away in 4 min”*, plus the recent actions.
+- Pushes *“Switched to Away — everyone left”* / *“Welcome home”* (category `presence`: held during quiet hours like
+  the other automation pushes; switch in the bell sheet under *Auto Away*).
+- Safety: decisions run in the automations loop (it wakes when a person changes and right when the delay is up);
+  the action is written to SQLite before it runs, so a restart never replays it; pending state (“out since”) and the
+  last action survive restarts; a failure is retried after 5 min, then 10, … at most hourly.
+- API: `GET /api/presence` → settings + `{mode, now, people: [{entity_id, name, state, home, tracked}], everyone_out,
+  out_since, away_at, blocked: null|"manual"|"hours", manual_until, arrival_at, last, log}` ·
+  `PUT /api/presence/settings` `{"enabled", "people": null|[ids], "away_minutes", "come_home", "only_between",
+  "from", "to", "notify"}` (partial updates).
+
+## Standby saver
+
+Per plug, opt-in (off by default): the plug sheet has **Standby saver**, and ⋯ → **Energy** lists every plug that
+measures power with its switch and the recent saver actions.
+
+- At the **night time** (default 01:00) the plug is turned off **only if its power has stayed below its standby
+  threshold for the previous 15 min** (HA history of its power sensor plus the live reading; unknown counts as in
+  use) — never something in use. Default threshold: the plug's measured overnight standby (⋯ → Energy) + 5 W, at
+  least 2 W; editable (2–500 W), as are both times.
+- At the **morning time** (default 07:00) it is turned back on **only if the saver turned it off** and nobody
+  touched it since: turning it on by hand in between hands it back to you (left alone in the morning).
+- **While Away** it still saves at night, but doesn't switch anything back on in an empty flat: the switch-on
+  waits and happens when you're Home again.
+- **Keep-on plugs and plugs a fridge / freezer is linked to** (layout furniture of type `fridge` with `"plug"`) can
+  never be enabled; a plug that becomes one is switched off in the saver.
+- Shows *“Saves ≈ £X/year”*: overnight standby W × hours off × 365 × unit rate (`settings.energy`).
+- Safety, as for schedules (same timing helpers: local wall-clock times, DST-safe — a time in the spring-forward gap
+  runs an hour later, a repeated autumn time once): each night/morning is handled at most once (written to SQLite
+  before the call), nothing missed is replayed (at most 2 min late, never before the plug was enabled or edited),
+  plugs due together share one call, a failed switch-off isn't retried (the plug just stays on), a failed switch-on
+  is retried after 5 and 10 min, then given up. Every action, skip and failure is in the log.
+- API: `GET /api/standby` → `{rate_p, now, plugs: [{entity_id, name, enabled, threshold_w, off_at, on_at,
+  standby_w, suggested_w, blocked: null|"keep on"|"fridge", owned, owned_since, owed, year_kwh, year_p, next}],
+  log}` · `PUT /api/standby/{entity_id}` `{"enabled", "threshold_w", "off_at", "on_at"}`.
+
 ## Names and hidden devices
 
 Every device sheet ends with **✎ Rename** and **Hide**.
@@ -424,6 +480,7 @@ or the mute end. **Door-open alerts and *Send test notification* always come thr
 "health_unavailable_minutes", "weekly_summary", "quiet_hours", "quiet_from", "quiet_to", "mute_until", "dehumidifier_tank"}` (partial updates) ·
 `GET /api/alerts/quiet` · `POST /api/alerts/mute` · `GET`/`POST /api/schedules` · `PUT`/`DELETE /api/schedules/{id}` ·
 `PUT /api/schedules/settings` · `GET /api/automations/status` (`windows_linked`, `held`) ·
+`GET /api/presence` · `PUT /api/presence/settings` · `GET /api/standby` · `PUT /api/standby/{entity_id}` ·
 `GET /api/summary/latest` (404 until the first one) · `POST /api/summary/preview` ·
 `GET /api/history/{entity_id}?range=24h|7d|30d` (`series` `[{name, unit, points: [[t_ms, v|null]]}]`, `timeline` `[{state, start, end}]`, plugs: `energy_kwh`) ·
 `GET /api/doors/log?range=24h|7d&tz=Europe/London` (per door: `events` `[{t, state, open_ms}]` newest first, `summary`)

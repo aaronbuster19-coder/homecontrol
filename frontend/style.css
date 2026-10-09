@@ -567,3 +567,33 @@ body.wall #furniture { opacity: .5; }
   #addFurniture .lbl { display: none; }
   #editbar { gap: 5px; } #editbar button { padding: 6px 7px; }  /* + Furniture still fits two rows at 390px */
   .fur-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } .fur-item svg { width: 52px; height: 46px; } }
+/* ---------- Auto Away (presence.js), standby saver (standby.js) ---------- */
+.pres-status { font-size: 15px; margin: 0 0 12px; padding: 10px 12px; border-radius: 10px; background: rgba(79,140,255,.12); }
+#presMsg:empty { display: none; }
+#presMsg.warn, #presNone { color: var(--open); }
+.pres-opts.off { opacity: .45; }
+.pres-sheet label.check { display: flex; align-items: center; gap: 8px; margin: 8px 0; font-size: 14px; }
+.pres-check > span { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.pres-sheet input[type=time] { width: 132px; }
+.pres-log .sum-row span:first-child { white-space: normal; }
+.pres-sheet label.check input[type=checkbox] { width: 18px; height: 18px; margin: 0; accent-color: var(--accent); flex: none; }
+.pres-line { display: block; margin: 10px 0; font-size: 14px; }
+.pres-sheet input[type=number] { width: 64px; }
+.pres-sheet input[type=number], .pres-sheet input[type=time] { background: var(--bg); color: var(--text); border: 1px solid var(--line);
+  border-radius: 8px; padding: 6px 8px; min-height: 36px; }
+.pres-person .pres-state { margin-left: auto; font-size: 13px; color: var(--muted); }
+.pres-person .pres-state.home { color: var(--closed); }
+#modeAuto { display: block; margin: -4px 0 10px; }
+.sb-row { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 2px; }
+.sb-row .sub { margin-bottom: 4px; }
+.sb-owned { color: var(--on) !important; }
+.sb-opts label { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 8px 0; font-size: 14px; }
+.sb-opts input { background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; min-height: 36px; }
+.sb-opts input[type=number] { width: 70px; }
+.sb-list { list-style: none; margin: 0; padding: 0; }
+.sb-list li { border-bottom: 1px solid var(--line); padding: 2px 0 6px; }
+.sb-list .keep-on { margin-top: 8px; }
+.sb-list .sub { margin: 2px 0 0 30px; }
+.sb-log { margin-top: 8px; font-size: 14px; }
+.sb-log summary { cursor: pointer; padding: 6px 0; color: var(--muted); }
+.sb-log .sum-row span:first-child { white-space: normal; }

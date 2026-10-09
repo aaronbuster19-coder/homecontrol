@@ -49,6 +49,8 @@ rel|humidifier.dehumidifier|sensor.dehumidifier_humidity|humidity|%|measurement|
 rel|humidifier.dehumidifier|sensor.dehumidifier_temperature|temperature|°C|measurement|Dehumidifier Temperature
 rel|humidifier.dehumidifier|binary_sensor.dehumidifier_tank_full|problem|||Dehumidifier Tank full
 switch|switch.dehumidifier_child_lock|Dehumidifier|Tuya|CS-20L
+person|person.alex|Alex||
+person|person.sam|Sam||
 """
 
 
@@ -81,6 +83,9 @@ def initial_states():
         s("sensor.dehumidifier_temperature", "21.5", unit_of_measurement="°C"),
         s("binary_sensor.dehumidifier_tank_full", "off"),
         s("switch.dehumidifier_child_lock", "off"),
+        # presence for Auto Away (HA person entities; the companion app's zone: home / not_home / a zone name)
+        s("person.alex", "home", friendly_name="Alex", source="device_tracker.alex_phone"),
+        s("person.sam", "home", friendly_name="Sam", source="device_tracker.sam_phone"),
     ]}
 
 
