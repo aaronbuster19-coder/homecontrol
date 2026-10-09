@@ -66,3 +66,7 @@ class HAClient:
 
     async def call_service(self, domain: str, service: str, data: dict) -> None:
         await self._request("POST", f"/api/services/{domain}/{service}", json=data)
+
+    async def call_service_response(self, domain: str, service: str, data: dict):
+        """A service that returns data (e.g. weather.get_forecasts): ?return_response, HA 2023.9+."""
+        return (await self._request("POST", f"/api/services/{domain}/{service}", params={"return_response": ""}, json=data)).json()

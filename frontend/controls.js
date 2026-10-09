@@ -125,11 +125,11 @@ function plugExtras(d, c) {
 }
 
 // ---------- bulk on/off ----------
-async function bulk(action, devs) {
+async function bulk(action, devs, source) {
   const prev = devs.map((d) => [d, d.state]);
   for (const d of devs) d.state = action === "turn_on" ? "on" : "off";
   render(); if (st.sheetFor) renderSheet();
-  try { await api("/api/bulk", { method: "POST", body: JSON.stringify({ action, entity_ids: devs.map((d) => d.entity_id) }) }); }
+  try { await api("/api/bulk", { method: "POST", body: JSON.stringify({ action, entity_ids: devs.map((d) => d.entity_id), ...(source ? { source } : {}) }) }); }
   catch (e) { for (const [d, s] of prev) d.state = s; render(); setStatus(`Failed: ${e.message}`, true); return false; }
   if (!st.live) setTimeout(loadDevices, 800);
   return true;
@@ -143,7 +143,7 @@ async function allOff() {
   const hid = on.filter((d) => d.hidden).length;
   if (!confirm(`Turn off ${on.length} device${on.length > 1 ? "s" : ""}?` + (hid ? `\nIncludes ${hid} hidden device${hid > 1 ? "s" : ""}.` : "")
     + (kept ? `\n${kept} “keep on” plug${kept > 1 ? "s" : ""} stay on.` : ""))) return;
-  if (await bulk("turn_off", devs)) setStatus(`Turned off ${on.length}`);
+  if (await bulk("turn_off", devs, "all_off")) setStatus(`Turned off ${on.length}`);
 }
 
 // ---------- room name toggles ----------

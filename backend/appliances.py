@@ -244,6 +244,7 @@ class Appliances:
         self.left: dict[str, dict] = {k: {"since": v.get("since"), "sent": bool(v.get("sent")), "low_since": None}
                                       for k, v in (store.get("appliance_left_on", {}) or {}).items() if isinstance(v, dict)}
         self.pending: list[tuple[dict, str]] = []
+        self.on_event = None  # fn(furniture, "started"|"finished"|"aborted", cycle): the activity log
 
     @staticmethod
     def key(f: dict) -> str:
@@ -282,6 +283,8 @@ class Appliances:
         if ev is None:
             return False
         log.info("appliance %s (%s): %s", f["id"], f["plug"], ev)
+        if self.on_event:
+            self.on_event(f, ev, c)
         if ev == "finished" and not c.get("notified"):
             c["notified"] = True  # marked (and saved below) before the push goes out: never twice
             if self.settings().get("appliance_done", True):

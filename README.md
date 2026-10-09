@@ -258,7 +258,7 @@ API: `POST /api/devices/{id}/toggle` (`humidifier.toggle` or `switch.toggle`), `
 
 ## More menu (⋯), temperatures, Away/Home, backup
 
-The ⋯ button at the right of the header holds: Away / I'm home, *Auto Away…* (see *Auto Away*), Wall mode, *Schedules…* (see *Schedules*), *Show temperature & humidity on plan*, *Show furniture* (see *Furniture*), Energy, Hidden devices, Export layout,
+The ⋯ button at the right of the header holds: Away / I'm home, *Auto Away…* (see *Auto Away*), Wall mode, *Schedules…* (see *Schedules*), *Activity* and *Weather settings…* (see *Activity*, *Weather*), *Show temperature & humidity on plan*, *Show furniture* (see *Furniture*), Energy, Hidden devices, Export layout,
 Import layout, Units (m/ft), Refresh devices and Sign out. It closes on a tap outside or Escape.
 
 - **Temperatures on the plan:** every room with a radiator valve in it (L-shapes respected) is tinted by the
@@ -535,6 +535,62 @@ always come through.**
   `POST /api/alerts/mute` `{"for": "1h"|"morning"|"off"}`; `/api/alerts/settings` has `quiet_hours`, `quiet_from`,
   `quiet_to` (`HH:MM`) and `mute_until` (epoch seconds or `null`, at most 48 h ahead).
 
+## Activity
+
+⋯ → *Activity*: one feed of what happened at home, newest first, grouped by day (Today / Yesterday / Wed 7 Oct).
+Older days load as you scroll (or *Load older*), up to 7 days. Filter by **room** (from the plan) and **type** (doors &
+windows, lights & plugs, heating, appliances, people, alerts, security). Tap an entry of a device to open its sheet.
+
+What's in it, merged and de-duplicated on the server:
+
+- **From Home Assistant's history** (one `/api/history/period` call per day, with attributes, for every discovered
+  device that isn't hidden): doors and windows opened / closed, lights and plugs on / off, radiator targets
+  (“Lounge radiator set to 21°”) and on / off, the dehumidifier (on / off, target), media players (kind `media`) on /
+  off, and people coming home / leaving / at a zone. A change straight out of `unavailable` isn't shown (HA restart).
+- **From the app's own log** (SQLite table `activity_log`, 9 days kept): every service call the app makes, with who
+  or what made it — *by you* (a signed-in request), *schedule “Name”*, *Away mode* / *Home mode*, *Auto Away*, *window
+  heating*, *standby saver*, *All off*. Also sign-ins and failed attempts (form and Basic; a burst from one address
+  within 10 min is one entry, “4 failed sign-in attempts · from 1.2.3.4”), pushes sent (“no devices subscribed” when
+  nobody gets them) and pushes held for the quiet-hours digest, washer / dryer / dishwasher cycles (“Washing finished
+  · 1 h 12 min”) and kettle boils (a linked kettle over its threshold for 20 s or more).
+- **From existing logs:** Auto Away's log, standby saver failures, and schedule runs that were skipped or failed.
+
+**Attribution:** an HA change follows an app call for the same device within 5 s → it shows who/what made it
+(“Kitchen light turned on — by you”). Any other change of a light, plug, radiator, dehumidifier or media player
+shows “— manually / other” (a wall switch, the Tapo app, HA automations). An app call whose change isn't in HA's
+history yet (the recorder lags a few seconds) shows on its own for a minute; a call that changed nothing (light
+already off) doesn't. If HA's history is unavailable, the app's own log still shows, with a note.
+
+Efficient: today's page is cached 20 s (dropped when the app makes a call), past days 1 h; filters are applied to the
+cached data. API: `GET /api/activity?before=<ms>&days=1&room=<room id>&type=<type>` → `{"start", "end", "today",
+"days": [{"date", "label"}], "entries": [{"t", "day", "type", "icon", "text", "by", "detail", "entity_id", "room",
+"room_name"}], "next_before"}` (`next_before` is `before` for the next older page, `null` after 7 days).
+
+## Weather
+
+Outdoor weather from Home Assistant's `weather.*` entities — by default `weather.forecast_home`, which the **Met.no**
+integration HA sets up on install creates; otherwise the first one. Choose another in ⋯ → *Weather settings…*.
+
+- **Status line:** a compact “⛅ 12°” chip (hidden when there's no weather entity). Tap it for the **weather sheet**:
+  now (condition, temperature, *feels like* when the entity has `apparent_temperature`, humidity, wind in mph with
+  direction), today's high / low, the next 12 hours and the next 5 days (low–high bars on a shared scale).
+- **Cold night:** when tonight's low (18:00–08:00, from the hourly forecast; else tomorrow's daily low) is under 3°,
+  the sheet and wall mode show “Cold night ahead (1°)”, plus “— heating comes on at 06:30” when an enabled heating
+  schedule (radiator temperature) runs within 36 h.
+- **Frost push** (off by default, in *Weather settings*): “Frost tonight — Low of 1° tonight. Heating comes on at
+  06:30.”, at most once a day, checked every 10 min from 17:00. It's a quiet-hours category: during quiet hours or a
+  mute it waits for the morning digest. Tapping it opens the weather sheet (`/?weather`).
+- **Wall mode:** a weather panel in the top bar (icon, temperature, condition, high / low, the cold-night hint; tap
+  for the sheet), and the outdoor temperature with its icon on the dim screen.
+- Current conditions come from the entity's state (live, no extra calls). Forecasts come from the service
+  `weather.get_forecasts` (`POST /api/services/weather/get_forecasts?return_response`, `type` hourly and daily —
+  twice_daily as a fallback for daily; **HA 2023.9+**, REST responses 2024.8+), cached 15 min (5 min after an
+  error). Older HA: the legacy `forecast` attribute if there is one. If HA can't forecast, the sheet says so and still
+  shows the current conditions. °F / K and m/s, km/h, kn are converted (°C, mph).
+- API: `GET /api/weather` → `{"available", "entity_id", "entities", "settings", "current", "today": {"high", "low"},
+  "hourly", "daily", "tonight": {"low", "cold", "heating"?, "text"?}, "forecast_error"}`, `PUT /api/weather/settings`
+  `{"entity_id": "weather.x"|null, "frost_push": bool}`, `POST /api/weather/refresh` (drops the forecast cache).
+
 ## API
 
 `GET /healthz` · `POST /api/login` `{"username","password"}` · `POST /api/logout` · `GET /api/me` · `GET /api/devices` · `GET /api/events` (SSE: `snapshot`, `status` `{"ws": bool}`, then `device` events) · `POST /api/devices/refresh` · `POST /api/devices/{entity_id}/toggle` ·
@@ -551,7 +607,8 @@ always come through.**
 `GET /api/presence` · `PUT /api/presence/settings` · `GET /api/standby` · `PUT /api/standby/{entity_id}` ·
 `GET /api/summary/latest` (404 until the first one) · `POST /api/summary/preview` ·
 `GET /api/history/{entity_id}?range=24h|7d|30d` (`series` `[{name, unit, points: [[t_ms, v|null]]}]`, `timeline` `[{state, start, end}]`, plugs: `energy_kwh`) ·
-`GET /api/doors/log?range=24h|7d&tz=Europe/London` (per door: `events` `[{t, state, open_ms}]` newest first, `summary`)
+`GET /api/doors/log?range=24h|7d&tz=Europe/London` (per door: `events` `[{t, state, open_ms}]` newest first, `summary`) ·
+`GET /api/activity` (see *Activity*) · `GET /api/weather` · `PUT /api/weather/settings` · `POST /api/weather/refresh` (see *Weather*)
 
 Devices carry `power` (W), `energy_today` (kWh), `battery` (%) and `battery_low` (bool) when HA knows them.
 
@@ -578,7 +635,7 @@ HA_URL=… HA_TOKEN=… APP_USER=u APP_PASSWORD=p DB_PATH=./data/layout.db \
 ```
 
 **Browser tests** (`e2e/`, Python Playwright + pytest): each test module starts `e2e/fake_ha.py` (a fake Home
-Assistant: states, discovery template, service calls with a call log, generated history, websocket) and the app with
+Assistant: states, discovery template, service calls with a call log, generated history plus the real changes, a weather entity with `get_forecasts`, websocket) and the app with
 a temp database on free ports, signs in through `/login.html` and loads a plan; tests assert the exact service calls
 HA receives, on a 1280×800 desktop and a 390×844 touch phone, and fail on any uncaught page error. They also run the
 Node unit tests. One command runs everything:

@@ -249,6 +249,8 @@ function renderSheet() {
   if (st.sheetFor === DOORS) return renderDoors(c);
   if (st.sheetFor === ENERGY) return renderEnergy(c);
   if (st.sheetFor === HIDDEN) return renderHidden(c);
+  if (st.sheetFor === ACTIVITY) return renderActivity(c);
+  if (st.sheetFor === WEATHER) return renderWeather(c);
   if (!d) { c.textContent = "Device not found in Home Assistant."; return; }
   const h = document.createElement("h3"); h.textContent = d.name; c.appendChild(h);
   const sub = document.createElement("div"); sub.className = "sub"; sub.textContent = `${d.model || d.kind} · ${d.entity_id}`; c.appendChild(sub);
