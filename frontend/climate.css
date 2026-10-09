@@ -44,3 +44,7 @@
 .cm-sensor span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cm-sensor select { width: 100%; }
 .cm-log .sum-row span:first-child { white-space: normal; }
+
+/* ⋯ menu: with Climate… added it no longer fits an 800px-high window; scroll inside it rather than off-screen.
+   (Belongs next to .more-menu in style.css once the v9 branches are merged.) The menu's top is set by modes.js. */
+.more-menu { max-height: calc(100vh - 72px); max-height: calc(100dvh - 72px); overflow-y: auto; overscroll-behavior: contain; }
