@@ -255,3 +255,41 @@ def test_wall_mode_dark_at_night(stack, ha, open_page):
     page.clock.set_system_time("2026-10-10T07:05:00+01:00")
     page.clock.run_for(2_000)
     page.wait_for_function("document.documentElement.dataset.theme === 'light'")
+
+
+@pytest.mark.parametrize("scheme", ["light", "dark"])
+def test_hoover_and_tv_follow_the_theme(appliance_stack, tv_stack, open_page, scheme):
+    """Colours added with the hoover / desktop PC / home server drawings and the TV sheet are theme variables."""
+    from test_appliances import GADGETS
+    from test_tv import LINKED, open_tv, sheet
+    appliance_stack.ha.reset()
+    page = open_page(appliance_stack, "desktop", layout=GADGETS, color_scheme=scheme)
+    hoover = page.locator('#appliances .appl[data-appl="hoover"]')
+    expect(hoover).to_be_visible()
+    # Force the charged look (the charge sequence itself is test_appliances.py's job).
+    page.evaluate("""() => { const a = document.querySelector('#appliances .appl[data-appl="hoover"]');
+      a.classList.add('on', 'charged'); document.querySelector('#applTags [data-tag="hoover"]').classList.add('on', 'charged'); }""")
+    cs = page.evaluate("""() => ({
+      bolt: getComputedStyle(document.querySelector('#appliances .appl[data-appl="hoover"] .fu-bolt')).fill,
+      tag: getComputedStyle(document.querySelector('#applTags [data-tag="hoover"] .s') || document.querySelector('#applTags [data-tag="hoover"] text')).fill })""")
+    green = {"light": ("rgb(46, 168, 98)", "rgb(22, 115, 62)"), "dark": ("rgb(95, 212, 122)", "rgb(155, 230, 173)")}[scheme]
+    assert cs["bolt"] == green[0], cs
+    if page.locator('#applTags [data-tag="hoover"] .s').count():
+        assert cs["tag"] == green[1], cs
+        if scheme == "light":
+            assert contrast(page, '#applTags [data-tag="hoover"] .s', '#applTags [data-tag="hoover"] .bg', "fill") >= 4.5
+    shot(page, f"theme-gadgets-{scheme}-desktop")
+    # TV sheet: playing/state chip text readable, buttons' text on the accent.
+    tv_stack.ha.reset()
+    page = open_page(tv_stack, "desktop", layout=LINKED, color_scheme=scheme)
+    open_tv(page)
+    s = sheet(page)
+    expect(s.locator(".tv-title")).to_have_text("The Crown")
+    if scheme == "light":
+        for sel in ("#sheet .tv-title", "#sheet .tv-subtitle", "#sheet .tv-state"):
+            assert contrast(page, sel) >= 4.5, sel
+    play = page.evaluate("getComputedStyle(document.documentElement).getPropertyValue('--tv-play').trim()")
+    assert play == ("#5b45d6" if scheme == "light" else "#8b7bff")
+    shot(page, f"theme-tv-sheet-{scheme}-desktop")
+    page.click("#sheetClose")
+    shot(page, f"theme-tv-plan-{scheme}-desktop")

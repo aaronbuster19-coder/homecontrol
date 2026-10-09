@@ -1,5 +1,5 @@
 /* ---------- TVs and media players (tv.js) — colours from style.css variables ---------- */
-:root { --tv-on: var(--accent); --tv-play: #8b7bff; --tv-glow: #6fa4ff; }
+:root { --tv-on: var(--accent); }  /* --tv-play, --tv-glow: per theme in style.css */
 
 /* plan: a TV piece showing a media player */
 #appliances .tvp { pointer-events: auto; cursor: pointer; -webkit-tap-highlight-color: transparent; }
@@ -9,7 +9,7 @@
 .tv-spill-a { stop-color: var(--tv-glow); stop-opacity: .38; }
 .tv-spill-b { stop-color: var(--tv-glow); stop-opacity: 0; }
 .tvp.playing .tv-spill { animation: tvFlicker 3.2s ease-in-out infinite; }
-.tv-lit { fill: var(--tv-glow); stroke: color-mix(in srgb, var(--tv-glow) 60%, #fff); vector-effect: non-scaling-stroke; stroke-width: 1; }
+.tv-lit { fill: var(--tv-glow); stroke: color-mix(in srgb, var(--tv-glow) 60%, var(--on-accent)); vector-effect: non-scaling-stroke; stroke-width: 1; }
 .tvp.playing .tv-lit { fill: color-mix(in srgb, var(--tv-play) 70%, var(--tv-glow)); }
 @keyframes tvFlicker { 0%, 100% { opacity: .9; } 40% { opacity: .6; } 70% { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .tvp.playing .tv-spill { animation: none; } }
@@ -36,15 +36,15 @@
   padding: 2px 8px; border-radius: 99px; background: color-mix(in srgb, var(--off) 35%, transparent); color: var(--muted); }
 .tv-state.on, .tv-state.idle, .tv-state.paused, .tv-state.buffering { background: color-mix(in srgb, var(--tv-on) 22%, transparent); color: var(--tv-on); }
 .tv-state.playing { background: color-mix(in srgb, var(--tv-play) 24%, transparent); color: var(--tv-play); }
-.tv-state.unavail { background: color-mix(in srgb, var(--open) 18%, transparent); color: var(--open); }
+.tv-state.unavail { background: color-mix(in srgb, var(--open) 18%, transparent); color: var(--open-ink); }
 
 .tv-power { display: flex; }
 .tv-pwr { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-height: 52px; font-size: 17px;
   border-radius: 12px; }
 .tv-pwr svg { width: 20px; height: 20px; }
-.tv-pwr:not(.is-on) { background: var(--tv-on); border-color: var(--tv-on); color: #fff; }
+.tv-pwr:not(.is-on) { background: var(--tv-on); border-color: var(--tv-on); color: var(--on-accent); }
 .tv-pwr.is-on { color: var(--text); }
-.tv-pwr.is-on svg { color: var(--open); }
+.tv-pwr.is-on svg { color: var(--open-ink); }
 .tv-hint { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border-radius: 12px; font-size: 13.5px;
   border: 1px dashed var(--line); color: var(--muted); }
 .tv-hint b { color: var(--text); font-size: 14.5px; }
@@ -52,7 +52,7 @@
 .tv-round { display: inline-grid; place-items: center; width: 48px; height: 48px; min-height: 0; padding: 0; border-radius: 50%; flex: none; }
 .tv-round svg { width: 22px; height: 22px; }
 .tv-transport { display: flex; justify-content: center; align-items: center; gap: 22px; }
-.tv-transport .main { width: 62px; height: 62px; background: var(--tv-on); border-color: var(--tv-on); color: #fff; }
+.tv-transport .main { width: 62px; height: 62px; background: var(--tv-on); border-color: var(--tv-on); color: var(--on-accent); }
 .tv-transport .main svg { width: 28px; height: 28px; }
 
 .tv-vol { display: flex; align-items: center; gap: 10px; padding-top: 8px; }
