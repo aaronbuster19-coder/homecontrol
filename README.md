@@ -59,22 +59,26 @@ The last loaded plan and device states are cached, so it opens offline ("Offline
 
 ### Dockge
 
-`dockge/compose.yaml` builds the image straight from GitHub. Paste it into a new Dockge stack and set
-`HA_URL` (e.g. `http://host.docker.internal:8123`), `HA_TOKEN`, `APP_USER`, `APP_PASSWORD` in the stack's `.env`.
-It listens on `127.0.0.1:8078` (override with `WEB_PORT`), so point a host Caddy at it:
-`reverse_proxy 127.0.0.1:8078`. To pick up new code: `docker compose build --no-cache && docker compose up -d`.
+`dockge/compose.yaml` runs the image CI publishes to `ghcr.io/aaronbuster19-coder/homecontrol`. Paste it into a new
+Dockge stack and set `HA_URL` (e.g. `http://host.docker.internal:8123`), `HA_TOKEN`, `APP_USER`, `APP_PASSWORD` in the
+stack's `.env`. It listens on `127.0.0.1:8078` (override with `WEB_PORT`), so point a host Caddy at it:
+`reverse_proxy 127.0.0.1:8078`.
+
+While the package is private, log in once on dockerbox so Docker and Watchtower can pull it:
+`docker login ghcr.io -u <github user>` with a GitHub token that has `read:packages`.
+(Or make the package public: GitHub → your profile → Packages → homecontrol → Package settings.)
 
 ### Auto deploy
 
-When a push to `main` passes the tests, the `deploy` job in `.github/workflows/test.yml` (same self-hosted runner, which must
-run on dockerbox) builds that exact commit, tags it `homecontrol:latest`, and recreates the stack with
-`docker compose up -d --no-build` in `/opt/stacks/homecontrol`. It waits for the container's healthcheck; if the new
-container isn't healthy within ~2.5 min it puts the previous image (`homecontrol:previous`) back and fails the job.
+When a push to `main` passes the tests, the `publish` job in `.github/workflows/test.yml` (on the Hyper-V CI runners)
+builds that exact commit and pushes it to ghcr.io as `:latest` and `:<commit sha>`. The stack's Watchtower container
+checks every 5 minutes, pulls a new `:latest` and recreates the app. No runner is needed on dockerbox.
 
-- The runner's user needs Docker access and read access to the stack folder (including its `.env`).
-- Different folder: set the repository variable `DEPLOY_DIR`. Switch auto deploy off: repository variable `AUTO_DEPLOY=false`
-  (GitHub → Settings → Secrets and variables → Actions → Variables).
-- Manual rollback: `docker tag homecontrol:previous homecontrol:latest && docker compose up -d --no-build --force-recreate`.
+- Switch auto deploy off: repository variable `AUTO_DEPLOY=false`
+  (GitHub → Settings → Secrets and variables → Actions → Variables), or stop the Watchtower container.
+- Roll back: set `image: ghcr.io/aaronbuster19-coder/homecontrol:<older commit sha>` in the stack, stop Watchtower,
+  and redeploy; put `:latest` back (and start Watchtower) when fixed.
+- Watchtower doesn't roll back by itself: if a new version is unhealthy, `docker ps` shows it as unhealthy.
 
 ## Using it
 
@@ -757,14 +761,14 @@ The layout is a single JSON document in SQLite (`DB_PATH`, default `/data/layout
 
 CI: `.github/workflows/test.yml` runs on every push and same-repo PR on **self-hosted** runners. Fork PRs are skipped.
 `test` and `e2e` run on `[self-hosted, homecontrol-ci]`: the Hyper-V VMs built by `ci-runner/` (see `ci-runner/README.md`).
-`deploy` runs on `[self-hosted, dockerbox]`: the runner on dockerbox, which needs the custom label `dockerbox` and Docker
-access (the runner user in the `docker` group).
+`publish` also runs on `[self-hosted, homecontrol-ci]` and pushes the tested image to ghcr.io; Watchtower on dockerbox
+deploys it.
 - `test`: pytest via `docker build --target test`, then the production image build.
 - `e2e`: the browser suite and the Node unit tests, via `e2e/docker.sh` in `mcr.microsoft.com/playwright/python`
   (from Microsoft's registry, not Docker Hub) with its own network namespace, so the test servers on 127.0.0.1 inside
   the container never meet the live app. On failure, screenshots and Playwright traces are uploaded as an artifact
   (`e2e-failure-…`, kept 7 days; open a trace with `playwright show-trace <file>.zip` or at trace.playwright.dev).
-- `deploy` (main only) needs both.
+- `publish` (main only) needs both.
 
 ```sh
 pip install -r requirements-dev.txt

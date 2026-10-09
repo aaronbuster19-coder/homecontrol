@@ -1,10 +1,10 @@
-# Dockge stack: builds straight from GitHub, no local clone needed.
+# Dockge stack: runs the image CI publishes after the tests pass on main; Watchtower pulls new versions.
 # Set HA_URL, HA_TOKEN, APP_USER, APP_PASSWORD (and optionally WEB_PORT) in the stack's .env.
+# While the ghcr.io package is private, run `docker login ghcr.io` on this host once (GitHub user + a token with
+# read:packages); Watchtower uses those credentials.
 services:
   homecontrol:
-    build:
-      context: https://github.com/aaronbuster19-coder/homecontrol.git#main
-    image: homecontrol:latest
+    image: ghcr.io/aaronbuster19-coder/homecontrol:latest
     container_name: homecontrol
     restart: unless-stopped
     ports:
@@ -20,6 +20,18 @@ services:
       - homecontrol-data:/data
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+
+  watchtower:
+    image: containrrr/watchtower:1.7.1
+    container_name: homecontrol-watchtower
+    restart: unless-stopped
+    # Only containers labelled above; check every 5 minutes; remove the old image after updating.
+    command: --label-enable --interval 300 --cleanup
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /root/.docker/config.json:/config.json:ro
 
 volumes:
   homecontrol-data:

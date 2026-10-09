@@ -69,53 +69,36 @@ jobs:
           docker rm -f "$E2E_CONTAINER" >/dev/null 2>&1 || true
           rm -rf "$E2E_OUT"
 
-  deploy:
-    # Only main, only after the unit and browser tests pass, and only on the runner that lives on dockerbox.
+  publish:
+    # Only main, only after the unit and browser tests pass: push the tested image to GitHub's container registry.
+    # dockerbox runs no runner; Watchtower there pulls :latest and restarts the app (see dockge/compose.yaml).
     # Set the repository variable AUTO_DEPLOY=false to switch this off.
-    # The dockerbox label is what keeps this off the homecontrol-ci VMs (they carry "self-hosted" too, and can't reach
-    # the LAN): add the custom label "dockerbox" to dockerbox's runner in Settings > Actions > Runners, or this job
-    # waits forever.
     needs: [test, e2e]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.AUTO_DEPLOY != 'false'
-    runs-on: [self-hosted, dockerbox]
+    runs-on: [self-hosted, homecontrol-ci]
     timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
     concurrency:
-      group: deploy
-      cancel-in-progress: false  # never interrupt a deploy half-way
+      group: publish
+      cancel-in-progress: false
     env:
-      DEPLOY_DIR: ${{ vars.DEPLOY_DIR || '/opt/stacks/homecontrol' }}
-      IMAGE: homecontrol:latest
-      CONTAINER: homecontrol
+      IMAGE: ghcr.io/${{ github.repository }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Build the tested commit
-        run: docker build -t homecontrol:deploy-${{ github.sha }} .
+        run: docker build -t "$IMAGE:${{ github.sha }}" -t "$IMAGE:latest" .
 
-      - name: Swap in the new image (keep the old one for rollback)
+      - name: Push to ghcr.io
         run: |
-          test -f "$DEPLOY_DIR/compose.yaml" || test -f "$DEPLOY_DIR/docker-compose.yml" \
-            || { echo "No compose file in $DEPLOY_DIR"; exit 1; }
-          if docker image inspect "$IMAGE" >/dev/null 2>&1; then docker tag "$IMAGE" homecontrol:previous; fi
-          docker tag homecontrol:deploy-${{ github.sha }} "$IMAGE"
-          cd "$DEPLOY_DIR" && docker compose up -d --no-build --force-recreate
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker push "$IMAGE:${{ github.sha }}"
+          docker push "$IMAGE:latest"
 
-      - name: Wait for the container to be healthy (roll back if not)
-        run: |
-          for i in $(seq 1 30); do
-            status=$(docker inspect -f '{{.State.Health.Status}}' "$CONTAINER" 2>/dev/null || echo missing)
-            echo "health: $status"
-            [ "$status" = healthy ] && exit 0
-            sleep 5
-          done
-          echo "New container never became healthy; rolling back"
-          docker logs --tail 50 "$CONTAINER" || true
-          if docker image inspect homecontrol:previous >/dev/null 2>&1; then
-            docker tag homecontrol:previous "$IMAGE"
-            cd "$DEPLOY_DIR" && docker compose up -d --no-build --force-recreate
-          fi
-          exit 1
-
-      - name: Tidy old deploy images
+      - name: Tidy up
         if: always()
-        run: docker image rm -f homecontrol:deploy-${{ github.sha }} || true
+        run: |
+          docker logout ghcr.io || true
+          docker image rm -f "$IMAGE:${{ github.sha }}" "$IMAGE:latest" || true
