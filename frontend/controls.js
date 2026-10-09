@@ -165,15 +165,18 @@ function renderRoomLabels(parent) {
     const t = el("title", {}, g); t.textContent = lights.length ? `${r.name}: tap to turn ${on ? "off" : "on"} ${lights.length} light${lights.length > 1 ? "s" : ""}` : `${r.name}: no lights`;
   }
 }
-svg.addEventListener("click", async (e) => {
+svg.addEventListener("click", (e) => {
   const t = e.target.closest?.("[data-roomtap]"); if (!t || st.editing) return;
-  const r = st.layout.rooms.find((x) => x.id === t.dataset.roomtap); if (!r) return;
+  const r = st.layout.rooms.find((x) => x.id === t.dataset.roomtap); if (r) toggleRoomLights(r);
+});
+// Room name taps and the room view's Lights switch.
+async function toggleRoomLights(r) {
   const lights = roomLights(r);
   if (!lights.length) { setStatus(`No lights in ${r.name}`); return; }
   const action = lights.some((d) => d.state === "on") ? "turn_off" : "turn_on";
   st.flashRoom = r.id; setTimeout(() => { if (st.flashRoom === r.id) { st.flashRoom = null; render(); } }, 600);
   if (await bulk(action, lights)) setStatus(`${r.name}: ${lights.length} light${lights.length > 1 ? "s" : ""} ${action === "turn_on" ? "on" : "off"}`);
-});
+}
 
 // ---------- heating sheet ----------
 const valves = () => [...st.devices.values()].filter((d) => d.kind === "valve" && !d.hidden).sort((a, b) => a.name.localeCompare(b.name));
