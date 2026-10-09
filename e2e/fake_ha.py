@@ -347,17 +347,18 @@ def _rows(eid: str, start: datetime, end: datetime, with_attrs: bool) -> list[di
             if tt >= start:
                 row(tt, state, {"humidity": target, "current_humidity": cur_h})
         return out if with_attrs else [{**r, "attributes": {}} for r in out]
+    quiet = end - timedelta(minutes=5)  # no generated switching in the last minutes: a test's own change is the newest
     if eid.startswith(("light.", "switch.")):
         on = False
-        while t < end:
+        while t < quiet:
             row(t, "on" if on else "off")
             t += timedelta(minutes=rnd.randint(20, 40) if on else rnd.randint(60, 200))
             on = not on
     elif eid.startswith("binary_sensor."):
-        while t < end:
+        while t < quiet:
             row(t, "off")
             t += timedelta(minutes=rnd.randint(50, 240))
-            if t >= end:
+            if t >= quiet:
                 break
             row(t, "on")
             t += timedelta(minutes=rnd.randint(1, 25))
