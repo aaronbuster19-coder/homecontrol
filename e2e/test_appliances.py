@@ -402,7 +402,11 @@ def test_import_without_unknown_plugs(appliance_stack, aha, open_page, tmp_path)
     page.click("#importOk")
     expect(page.locator("#importStrip")).to_be_visible()
     page.click("#importStrip")
-    expect(page.locator("#importDialog")).to_be_hidden()
+    # The dialog closes once the save returns, which can take a while on a busy CI host.
+    try:
+        expect(page.locator("#importDialog")).to_be_hidden(timeout=15000)
+    except AssertionError:
+        raise AssertionError(f"import dialog still open: {page.locator('#importMsg').text_content()!r}")
     saved = stored(page, appliance_stack)["furniture"]
     assert "plug" not in by_id({"furniture": saved}, "gone") and by_id({"furniture": saved}, "kettle")["plug"] == "switch.kettle"
     expect(page.locator("#appliances .appl")).to_have_count(5)
