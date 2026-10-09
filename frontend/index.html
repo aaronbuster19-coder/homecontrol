@@ -88,13 +88,41 @@
   <div class="sheet-body">
     <button class="close" id="alertClose" aria-label="Close">×</button>
     <h3>Alerts</h3>
-    <div class="sub">Push notification when a door or window stays open.</div>
+    <div class="sub">Push notifications and home automations. Settings are shared by all devices.</div>
     <p id="alertMsg" class="hint"></p>
     <div class="row alert-dev"><button id="alertOn" class="primary">Enable on this device</button><button id="alertOff">Disable on this device</button></div>
-    <label class="check"><input type="checkbox" id="alertEnabled"> Alerts on (all devices)</label>
-    <label>Notify after <input type="number" id="alertMins" min="1" max="120" step="1" inputmode="numeric"> min open</label>
-    <label class="check"><input type="checkbox" id="alertOnClose"> Also notify when it closes again</label>
+    <section class="auto-sec">
+      <h4>Doors &amp; windows</h4>
+      <label class="check"><input type="checkbox" id="alertEnabled"> Alert when a door or window stays open</label>
+      <label>Notify after <input type="number" id="alertMins" min="1" max="120" step="1" inputmode="numeric"> min open</label>
+      <label class="check"><input type="checkbox" id="alertOnClose"> Also notify when it closes again</label>
+      <label class="check"><input type="checkbox" id="winHeat"> Radiators down while a window is open</label>
+      <div class="auto-sub" id="winHeatOpts">
+        <label>After <input type="number" id="winMins" min="1" max="30" step="1" inputmode="numeric"> min open, set to <input type="number" id="winTemp" min="5" max="15" step="0.5" inputmode="decimal"> °</label>
+        <label class="check"><input type="checkbox" id="winNotify"> Notify me (“Bedroom window open — radiator off”)</label>
+      </div>
+      <p id="winInfo" class="hint"></p>
+    </section>
+    <section class="auto-sec">
+      <h4>Device health</h4>
+      <label class="check"><input type="checkbox" id="healthBattery"> Low battery (below 15 %, at most weekly)</label>
+      <label class="check"><input type="checkbox" id="healthUnavail"> Offline for <input type="number" id="healthMins" min="10" max="240" step="5" inputmode="numeric"> min, and back online</label>
+    </section>
+    <section class="auto-sec">
+      <h4>Weekly summary</h4>
+      <label class="check"><input type="checkbox" id="weeklySummary"> “Your week at home”, Sundays 19:00</label>
+      <div class="row alert-dev"><button id="summaryPreview">Preview</button><button id="summaryLast">Last summary</button></div>
+    </section>
     <button id="alertTest">Send test notification</button>
+  </div>
+</div>
+
+<div id="summarySheet" class="sheet" hidden>
+  <div class="sheet-body">
+    <button class="close" id="summaryClose" aria-label="Close">×</button>
+    <h3>This week</h3>
+    <div class="sub" id="summarySub"></div>
+    <div id="summaryBody"></div>
   </div>
 </div>
 
@@ -143,6 +171,7 @@
 <script src="alerts.js"></script>
 <script src="modes.js"></script>
 <script src="history.js"></script>
+<script src="automations.js"></script>
 <script>if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});</script>
 </body>
 </html>

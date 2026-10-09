@@ -250,3 +250,26 @@ dialog menu { flex-wrap: wrap; }
 .door-events .t { font-variant-numeric: tabular-nums; color: var(--muted); width: 42px; flex: none; }
 .door-events .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--closed); }
 .door-events .open .dot { background: var(--open); }
+/* ---------- automations: bell sheet sections, weekly summary ---------- */
+#alertSheet .sheet-body, #summarySheet .sheet-body { max-height: 92vh; overflow-y: auto; overscroll-behavior: contain; }
+.auto-sec { border-top: 1px solid var(--line); margin-top: 14px; padding-top: 4px; }
+.auto-sec h4 { margin: 10px 0 0; font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+#alertSheet .auto-sec label { margin: 10px 0; }
+#alertSheet .auto-sec label.check { align-items: flex-start; }
+#alertSheet .auto-sec label.check input[type=checkbox] { margin-top: 3px; flex: none; }
+#alertSheet .auto-sec label.check input[type=number] { margin-top: -4px; }
+.auto-sub { margin-left: 26px; }
+.auto-sub.off { opacity: .45; }
+#alertSheet input[type=number] { width: 58px; }
+#winInfo { margin: 4px 0 0; }
+#winInfo:empty { display: none; }
+#alertTest { margin-top: 14px; }
+.sum-big { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin: 4px 0 12px; }
+.sum-big b { font-size: 30px; }
+.sum-up { color: var(--open); } .sum-down { color: var(--closed); }
+.sum-sec { border-top: 1px solid var(--line); padding: 8px 0; }
+.sum-sec h4 { margin: 4px 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.sum-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; align-items: center; margin-bottom: 8px; font-size: 14px; }
+.sum-row span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sum-bar { grid-column: 1 / -1; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.sum-bar i { display: block; height: 100%; background: var(--on); border-radius: 3px; }

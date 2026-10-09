@@ -66,7 +66,7 @@ def test_settings_validation(tmp_path):
     s = AlertStore(str(tmp_path / "layout.db"))
     assert s.settings() == DEFAULT_SETTINGS
     new = validate_settings({"door_open_minutes": 10, "notify_on_close": True}, s.settings())
-    assert new == {"enabled": True, "door_open_minutes": 10, "notify_on_close": True}
+    assert new == {**DEFAULT_SETTINGS, "enabled": True, "door_open_minutes": 10, "notify_on_close": True}
     for bad in ([], {"door_open_minutes": 0}, {"door_open_minutes": 121}, {"door_open_minutes": 2.5},
                 {"door_open_minutes": True}, {"enabled": "yes"}, {"notify_on_close": 1}):
         with pytest.raises(SettingsError):
@@ -227,5 +227,5 @@ def test_push_api(tmp_path, fake_ha):
         assert c.get("/api/alerts/settings").json() == DEFAULT_SETTINGS
         assert c.put("/api/alerts/settings", json={"door_open_minutes": 500}).status_code == 400
         r = c.put("/api/alerts/settings", json={"door_open_minutes": 2, "enabled": False})
-        assert r.json() == {"enabled": False, "door_open_minutes": 2, "notify_on_close": False}
+        assert r.json() == {**DEFAULT_SETTINGS, "enabled": False, "door_open_minutes": 2, "notify_on_close": False}
         assert c.get("/api/alerts/settings").json()["door_open_minutes"] == 2

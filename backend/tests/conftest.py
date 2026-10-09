@@ -81,6 +81,12 @@ class FakeHA:
         return [(p, b) for m, p, b in self.calls if p.startswith("/api/services/")]
 
 
+@pytest.fixture(autouse=True)
+def quiet_automations(monkeypatch):
+    """The background automation loop stays idle in API tests; automation tests drive tick() themselves."""
+    monkeypatch.setattr("backend.automations.STARTUP_DELAY", 3600)
+
+
 @pytest.fixture
 def fake_ha():
     return FakeHA()

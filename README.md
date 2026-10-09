@@ -163,12 +163,45 @@ Push notification on your phone when a door/window sensor stays open (works with
   `VAPID_SUBJECT` (contact sent to push services, default `mailto:admin@localhost` — set it to your
   `mailto:` address). Changing the key means every device must enable alerts again.
 
+## Automations
+
+These run on the server (every 15 s, sooner after a contact sensor changes), so they work with the app closed.
+Each one has its own switch in the bell sheet, and settings are shared by all devices.
+
+- **Window open → radiators down** (*Doors & windows* → “Radiators down while a window is open”, default on).
+  When a **window** linked to a contact sensor (Edit → select the window → *Link sensor*) has been open for
+  2 min (1–30), every radiator valve placed in that window's room goes to 7° (5–15). The room is the one whose
+  wall (L-shaped inner walls included) the window sits on, within 5 cm; a window on a wall shared by two rooms
+  affects both. Doors never trigger this. When every window affecting a radiator is closed again it goes back to
+  the target it had — or to the away temperature if Away is on. Pressing *I'm home* while the window is still open
+  keeps that radiator low and restores the home target once it closes; changing a held radiator yourself is
+  respected (nothing is sent, and your value is used when the window closes). A sensor that is unavailable counts
+  as still open. Optional push “Bedroom window open — radiator off” (default on). Held radiators survive a
+  restart (SQLite); no temperature is ever sent twice in a row, and a failed call is retried after 5 min, not
+  in a loop. Switching the automation off puts held radiators back straight away.
+- **Device health** (default on): *Low battery* — one push per device when HA reports battery low or below 15 %,
+  repeated at most weekly while it stays low, reset once it reads 20 % or more. *Offline* — one push when a device's
+  main entity has been `unavailable` for 30 min (10–240) without a break, and “back online” once it has been
+  available for 2 min (only if the offline push was sent). Short dropouts restart the timer, so flapping is quiet.
+- **Weekly summary** (default on): Sunday 19:00 local time (`TZ_NAME`, default `Europe/London`; DST-safe) a push
+  “Your week at home”: plug energy this week vs last (kWh, integrated from the plugs' power history), the plug that
+  used most, the door/window opened most and the average temperature of each room with a radiator valve. Tapping it
+  opens the *This week* sheet. If the server was down at 19:00 it is sent on the next start until Monday 12:00,
+  never twice for the same week. *Preview* in the bell sheet builds one for the last 7 days without sending it;
+  *Last summary* shows the last one sent.
+
+To turn everything off: untick the four switches in the bell sheet (radiators down, low battery, offline,
+weekly summary). Disabling alerts on a phone only stops pushes to that phone; the radiator automation still runs.
+
 ## API
 
 `GET /healthz` · `POST /api/login` `{"username","password"}` · `POST /api/logout` · `GET /api/me` · `GET /api/devices` · `GET /api/events` (SSE: `snapshot`, `status` `{"ws": bool}`, then `device` events) · `POST /api/devices/refresh` · `POST /api/devices/{entity_id}/toggle` ·
 `POST /api/devices/{entity_id}/temperature` `{"temperature": 21.0}` · `GET /api/layout` · `PUT /api/layout` ·
 `GET /api/push/key` · `POST /api/push/subscribe` (PushSubscription JSON) · `POST /api/push/unsubscribe` `{"endpoint"}` ·
-`POST /api/push/test` · `GET`/`PUT /api/alerts/settings` `{"enabled", "door_open_minutes", "notify_on_close"}` ·
+`POST /api/push/test` · `GET`/`PUT /api/alerts/settings` `{"enabled", "door_open_minutes", "notify_on_close",
+"window_heating_enabled", "window_open_minutes", "window_off_temp", "window_notify", "health_battery", "health_unavailable",
+"health_unavailable_minutes", "weekly_summary"}` (partial updates) · `GET /api/automations/status` (`windows_linked`, `held`) ·
+`GET /api/summary/latest` (404 until the first one) · `POST /api/summary/preview` ·
 `GET /api/history/{entity_id}?range=24h|7d|30d` (`series` `[{name, unit, points: [[t_ms, v|null]]}]`, `timeline` `[{state, start, end}]`, plugs: `energy_kwh`) ·
 `GET /api/doors/log?range=24h|7d&tz=Europe/London` (per door: `events` `[{t, state, open_ms}]` newest first, `summary`)
 

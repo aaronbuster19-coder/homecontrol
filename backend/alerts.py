@@ -3,6 +3,7 @@ import asyncio
 import base64
 import json
 import logging
+import math
 import os
 import sqlite3
 import threading
@@ -13,7 +14,15 @@ from pathlib import Path
 log = logging.getLogger("homecontrol.alerts")
 CHECK_EVERY = 15
 DEFAULT_SUBJECT = "mailto:admin@localhost"
-DEFAULT_SETTINGS = {"enabled": True, "door_open_minutes": 5, "notify_on_close": False}
+DEFAULT_SETTINGS = {"enabled": True, "door_open_minutes": 5, "notify_on_close": False,
+                    # automations (backend/automations.py)
+                    "window_heating_enabled": True, "window_open_minutes": 2, "window_off_temp": 7.0, "window_notify": True,
+                    "health_battery": True, "health_unavailable": True, "health_unavailable_minutes": 30,
+                    "weekly_summary": True}
+BOOL_SETTINGS = ("enabled", "notify_on_close", "window_heating_enabled", "window_notify", "health_battery",
+                 "health_unavailable", "weekly_summary")
+INT_SETTINGS = {"door_open_minutes": (1, 120), "window_open_minutes": (1, 30), "health_unavailable_minutes": (10, 240)}
+WINDOW_OFF_TEMP = (5, 15)
 GONE = (404, 410)
 NOT_OPEN = ("unavailable", "unknown")
 
@@ -83,16 +92,22 @@ def validate_settings(data, current: dict) -> dict:
     if not isinstance(data, dict):
         raise SettingsError("settings must be an object")
     out = dict(current)
-    for k in ("enabled", "notify_on_close"):
+    for k in BOOL_SETTINGS:
         if k in data:
             if not isinstance(data[k], bool):
                 raise SettingsError(f"{k} must be true or false")
             out[k] = data[k]
-    if "door_open_minutes" in data:
-        m = data["door_open_minutes"]
-        if isinstance(m, bool) or not isinstance(m, int) or not 1 <= m <= 120:
-            raise SettingsError("door_open_minutes must be a whole number from 1 to 120")
-        out["door_open_minutes"] = m
+    for k, (lo, hi) in INT_SETTINGS.items():
+        if k in data:
+            m = data[k]
+            if isinstance(m, bool) or not isinstance(m, int) or not lo <= m <= hi:
+                raise SettingsError(f"{k} must be a whole number from {lo} to {hi}")
+            out[k] = m
+    if "window_off_temp" in data:
+        t, (lo, hi) = data["window_off_temp"], WINDOW_OFF_TEMP
+        if isinstance(t, bool) or not isinstance(t, (int, float)) or not math.isfinite(t) or not lo <= t <= hi:
+            raise SettingsError(f"window_off_temp must be {lo}–{hi}")
+        out["window_off_temp"] = round(float(t) * 2) / 2
     return out
 
 
