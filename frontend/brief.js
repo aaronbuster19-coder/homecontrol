@@ -2,7 +2,7 @@
 // Morning brief (one card: last night's door / window log, today's weather, yesterday's energy cost, what's left on)
 // and the monthly energy report (each appliance's share of the cost, compared with last month).
 // The brief opens by itself once per morning (05:00–12:00, first visit of the day, per device; "Show every morning"
-// turns that off) and from ⋯ → Morning brief. Read-only: rows open the device sheet, nothing is switched from here.
+// turns that off) and from ⋯ → Morning brief; the report opens from the brief's energy card (›). Read-only: rows open the device sheet, nothing is switched from here.
 // Data: GET /api/brief, GET /api/energy/report?month=YYYY-MM. Uses weather.js (wxIcon, WEATHER), energy.js (fmtP).
 // All in one closure (no globals to clash with other scripts) except window.openBrief / window.openReport.
 (() => {
@@ -53,10 +53,9 @@ document.body.insertAdjacentHTML("beforeend", `
 (() => {
   const anchor = $("energyBtn");
   const mk = (id, text) => { const b = be("button", null, text); b.id = id; b.type = "button"; b.setAttribute("role", "menuitem"); return b; };
-  const bb = mk("briefBtn", "Morning brief"), rb = mk("reportBtn", "Energy report");
-  if (anchor) anchor.after(bb, rb); else $("moreMenu").prepend(bb, rb);
+  const bb = mk("briefBtn", "Morning brief");  // one item: the report opens from the brief's energy card
+  if (anchor) anchor.after(bb); else $("moreMenu").prepend(bb);
   bb.onclick = () => openBrief();
-  rb.onclick = () => openReport();
 })();
 
 // ---------- brief ----------

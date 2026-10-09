@@ -51,3 +51,5 @@
 .report-meta .share { color: var(--text); font-weight: 600; }
 .report-meta b { font-weight: 600; }
 body.wall .brief-sheet .sheet-body { max-width: 640px; }
+/* The ⋯ menu scrolls instead of running off a short screen (it grows with every feature). */
+.more-menu { max-height: calc(100vh - 72px); max-height: calc(100dvh - 72px); overflow-y: auto; overscroll-behavior: contain; }

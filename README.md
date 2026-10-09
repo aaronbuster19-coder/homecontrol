@@ -698,9 +698,9 @@ integration HA sets up on install creates; otherwise the first one. Choose anoth
 It opens by itself **once per morning** (05:00–12:00, the first time the app is opened that day, on each device), not
 in wall mode, not over an open sheet, dialog or edit mode, and not when the app was opened from a notification. *Got
 it*, ×, Escape or a tap outside closes it. Untick **Show every morning** in the card to stop that (remembered per
-device; ⋯ → **Morning brief** still opens it any time).
+device; ⋯ → **Morning brief** still opens it any time). The ⋯ menu now scrolls when it's taller than the screen.
 
-**Energy report** (⋯ → *Energy report*, or › on the brief's energy card): each appliance's share of the month's
+**Energy report** (› on the brief's energy card): each appliance's share of the month's
 smart-plug cost, with a bar, kWh, and what it cost last month (▲ / ▼ %). A plug linked to an appliance shows as the
 appliance (“Fridge · Plug 2”). ‹ / › go through the months (up to 12 back).
 

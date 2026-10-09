@@ -107,7 +107,9 @@ def test_brief_not_in_the_afternoon_and_rows_open_the_device(stack, ha, open_pag
 def test_report_months_and_rows(stack, ha, open_page):
     page = open_page(stack, "desktop")
     tariff(page, stack.url)
-    menu(page, "#reportBtn")
+    menu(page, "#briefBtn")
+    page.locator(".brief-energy .brief-go").click()
+    expect(page.locator("#briefSheet")).to_be_hidden()
     sheet = page.locator("#reportSheet")
     expect(sheet).to_be_visible()
     expect(page.locator("#reportTotal")).to_be_visible()
@@ -130,11 +132,6 @@ def test_report_months_and_rows(stack, ha, open_page):
     expect(page.locator("#reportMonth")).to_have_text(d["label"])
     page.keyboard.press("Escape")
     expect(sheet).to_be_hidden()
-    # from the brief's energy card
-    menu(page, "#briefBtn")
-    page.locator(".brief-energy .brief-go").click()
-    expect(page.locator("#briefSheet")).to_be_hidden()
-    expect(sheet).to_be_visible()
 
 
 @pytest.mark.parametrize("scheme", ["dark", "light"])
@@ -154,8 +151,7 @@ def test_looks(stack, ha, open_page, size, scheme):
     if size == "phone":
         page.locator(".brief-foot").scroll_into_view_if_needed()
         shot(page, f"brief-{size}-{scheme}-bottom")
-    page.click("#briefClose")
-    menu(page, "#reportBtn")
+    page.locator(".brief-energy .brief-go").click()
     expect(page.locator("#reportTotal")).to_be_visible()
     no_overflow(page, "#reportSheet")
     shot(page, f"report-{size}-{scheme}")
