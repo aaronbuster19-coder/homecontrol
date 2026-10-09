@@ -104,6 +104,10 @@ async function loadDevices() {
 
 // ---------- geometry ----------
 function computeViewBox() {
+  const vb = baseViewBox();
+  return typeof planZoomBox === "function" ? planZoomBox(vb) : vb; // zoom.js: desktop pinch / Ctrl + wheel
+}
+function baseViewBox() {
   if (typeof roomViewBox === "function") { const vb = roomViewBox(); if (vb) return vb; } // roomview.js
   const L = cur(); const pts = [];
   for (const r of L.rooms) pts.push([r.x, r.y], [r.x + r.w, r.y + r.h]);
@@ -335,6 +339,7 @@ async function setTemp(eid, t) {
 
 // ---------- edit mode ----------
 function setEditing(on) {
+  if (typeof resetPlanZoom === "function") resetPlanZoom(); // zoom.js: edit mode has its own view
   st.editing = on; st.sel = null; st.picked = null; st.drawing = false; st.drawRect = null; st.adding = null;
   $("addRoom").classList.remove("primary"); $("addRoom").textContent = "+ Room"; document.body.classList.remove("drawing");
   st.draft = on ? clone(st.layout) : null;
