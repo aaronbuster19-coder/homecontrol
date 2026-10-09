@@ -6,6 +6,8 @@ import asyncio
 import json
 import sys
 import time
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 import uvicorn
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
@@ -20,6 +22,7 @@ switch|switch.kettle|Kettle|TP-Link|P110
 rel|switch.kettle|sensor.kettle_power|power|W|measurement|Kettle Current consumption
 switch|switch.tv|TV|TP-Link|P110
 rel|switch.tv|sensor.tv_power|power|W|measurement|TV Current consumption
+rel|switch.tv|sensor.tv_today|energy|kWh|total_increasing|TV Today's consumption
 climate|climate.lounge_valve|Lounge radiator|TP-Link|KE100
 climate|climate.bedroom_valve|Bedroom radiator|TP-Link|KE100
 binary|binary_sensor.contact_sensor_door|Front door|TP-Link|T110
@@ -37,6 +40,7 @@ def initial_states():
         s("light.strip", "on", brightness=120, supported_color_modes=["hs"], color_mode="hs", hs_color=[275, 90]),
         s("switch.kettle", "off"), s("sensor.kettle_power", "0", unit_of_measurement="W"),
         s("switch.tv", "on"), s("sensor.tv_power", "86.4", unit_of_measurement="W"),
+        s("sensor.tv_today", "0.42", unit_of_measurement="kWh"),
         s("climate.lounge_valve", "heat", current_temperature=20.5, temperature=21, min_temp=5, max_temp=30),
         s("climate.bedroom_valve", "heat", current_temperature=18.0, temperature=19, min_temp=5, max_temp=30),
         s("binary_sensor.contact_sensor_door", "off"),
@@ -75,9 +79,31 @@ async def template(request: Request):
     return PlainTextResponse(TEMPLATE)
 
 
+# Power history for the plugs, in 15-minute steps: TV 86.4 W 18:00–23:00 local, 4 W standby otherwise;
+# kettle 2000 W 08:00–08:15, else 0. Other entities have no history.
+LONDON = ZoneInfo("Europe/London")
+POWER = {"sensor.tv_power": lambda h: 86.4 if 18 <= h < 23 else 4.0,
+         "sensor.kettle_power": lambda h: 2000.0 if h == 8 else 0.0}
+
+
 @app.get("/api/history/period/{start}")
-async def history(start: str):
-    return []
+async def history(start: str, request: Request):
+    t0 = datetime.fromisoformat(start).timestamp()
+    end = request.query_params.get("end_time")
+    t1 = datetime.fromisoformat(end).timestamp() if end else time.time()
+    out = []
+    for eid in request.query_params.get("filter_entity_id", "").split(","):
+        if eid not in POWER:
+            continue
+        rows, t = [], t0 - t0 % 900
+        while t < t1:
+            loc = datetime.fromtimestamp(t, LONDON)
+            on = POWER[eid](loc.hour) if eid != "sensor.kettle_power" or loc.minute < 15 else 0.0
+            rows.append({"entity_id": eid, "state": str(on),
+                         "last_changed": datetime.fromtimestamp(max(t, t0), timezone.utc).isoformat()})
+            t += 900
+        out.append(rows)
+    return out
 
 
 @app.post("/api/services/{domain}/{service}")

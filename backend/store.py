@@ -57,7 +57,57 @@ def _openings(items, known_entities: set[str]) -> list[dict]:
     return out
 
 
-def _settings(data, known_plugs: set[str] | None) -> dict | None:
+NAME_MAX = 40
+RATE_MAX, STANDING_MAX = 200, 500  # pence per kWh / pence per day
+SETTINGS_CARRIED = ("names", "hidden", "energy")  # kept by a PUT that leaves them out (older clients, imports)
+
+
+def _names(v, known: set[str]) -> dict:
+    if not isinstance(v, dict):
+        raise LayoutError("settings.names must be an object {entity_id: name}")
+    out = {}
+    for eid, name in v.items():
+        if eid not in known:
+            raise LayoutError(f"settings.names: unknown entity {eid!r}")
+        if name is None:
+            continue
+        if not isinstance(name, str):
+            raise LayoutError(f"settings.names: name for {eid} must be text")
+        name = " ".join(name.split())
+        if len(name) > NAME_MAX:
+            raise LayoutError(f"settings.names: name for {eid} is longer than {NAME_MAX} characters")
+        if name:
+            out[eid] = name
+    return dict(sorted(out.items()))
+
+
+def _hidden(v, known: set[str]) -> list[str]:
+    if not isinstance(v, list) or not all(isinstance(e, str) for e in v):
+        raise LayoutError("settings.hidden must be a list of entity ids")
+    bad = [e for e in v if e not in known]
+    if bad:
+        raise LayoutError(f"settings.hidden: unknown entity {bad[0]!r}")
+    return sorted(set(v))
+
+
+def _pence(v, what: str, hi: float) -> float | None:
+    if v is None or v == "":
+        return None
+    f = _num(v, what)
+    if not 0 <= f <= hi:
+        raise LayoutError(f"{what} must be 0–{hi}")
+    return round(f, 2)
+
+
+def validate_energy(v) -> dict:
+    """Tariff: {"rate_p": pence per kWh, "standing_p": pence per day}; either may be None (not set)."""
+    if not isinstance(v, dict):
+        raise LayoutError("settings.energy must be an object")
+    return {"rate_p": _pence(v.get("rate_p"), "unit rate (p/kWh)", RATE_MAX),
+            "standing_p": _pence(v.get("standing_p"), "standing charge (p/day)", STANDING_MAX)}
+
+
+def _settings(data, known_plugs: set[str] | None, known_entities: set[str] | None = None) -> dict | None:
     s = data.get("settings")
     if s is None:
         return None
@@ -70,7 +120,33 @@ def _settings(data, known_plugs: set[str] | None) -> dict | None:
         bad = [e for e in keep if e not in known_plugs]
         if bad:
             raise LayoutError(f"settings.keep_on: unknown plug {bad[0]!r}")
-    return {"keep_on": sorted(set(keep))}
+    out = {"keep_on": sorted(set(keep))}
+    known = known_entities if known_entities is not None else set(known_plugs or ())
+    if s.get("names") is not None:
+        out["names"] = _names(s["names"], known)
+    if s.get("hidden") is not None:
+        out["hidden"] = _hidden(s["hidden"], known)
+    if s.get("energy") is not None:
+        out["energy"] = validate_energy(s["energy"])
+    return out
+
+
+def carry_settings(new: dict, old: dict, raw) -> dict:
+    """Settings a PUT didn't mention (names, hidden, energy) stay as stored: an older cached app or an older export
+    must not wipe them. Send e.g. "names": {} to clear."""
+    sent = raw.get("settings") if isinstance(raw, dict) and isinstance(raw.get("settings"), dict) else {}
+    kept = {k: v for k, v in (old.get("settings") or {}).items() if k in SETTINGS_CARRIED and k not in sent}
+    if kept:
+        new["settings"] = {"keep_on": [], **new.get("settings", {}), **kept}
+    return new
+
+
+def stored_refs(layout: dict) -> set[str]:
+    """Entity ids a stored layout refers to: they stay valid even while HA is briefly missing them."""
+    s = layout.get("settings") or {}
+    return ({p["entity_id"] for p in layout.get("placements", [])}
+            | {o["entity_id"] for o in layout.get("openings", []) if o.get("entity_id")}
+            | set(s.get("names") or {}) | set(s.get("hidden") or []))
 
 
 def validate_layout(data, known_entities: set[str], known_plugs: set[str] | None = None) -> dict:
@@ -116,7 +192,7 @@ def validate_layout(data, known_entities: set[str], known_plugs: set[str] | None
                        "y": _num(p.get("y"), f"placement {i} y")})
     openings = _openings(data.get("openings", []), known_entities)
     out = {"unit": unit, "rooms": rooms, "placements": places, "openings": openings}
-    settings = _settings(data, known_plugs if known_plugs is not None else known_entities)
+    settings = _settings(data, known_plugs if known_plugs is not None else known_entities, known_entities)
     if settings is not None:
         out["settings"] = settings
     return out

@@ -363,3 +363,17 @@ body.wall dialog { width: min(440px, 92vw); padding: 22px; }
 .sel-outline { stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; }
 .snap-guide { stroke: var(--accent); stroke-width: 1; stroke-dasharray: 5 4; opacity: .85; }
 .tidy-ghost { stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 4 4; opacity: .7; }
+
+/* ---- energy sheet, names / hidden ---- */
+.dev-meta { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); }
+.dev-meta .hide-toggle { margin-top: 0; }
+.sub.ha-name { margin: 6px 0 0 !important; font-size: 12px; }
+.energy-tariff { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+  margin: 12px 0; font-size: 13px; color: var(--muted); }
+.energy-body .sub.standing { margin: -4px 0 10px; }
+.sum-sec.standby .sub { margin: 0 0 10px; }
+.energy-hidden summary { cursor: pointer; color: var(--muted); font-size: 13px; padding: 4px 0 8px; }
+.hidden-list { list-style: none; margin: 0; padding: 0; }
+.hidden-list li { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 0; border-top: 1px solid var(--line); }
+.hidden-list .sub { margin: 0; }
+dialog .hint.warn { color: var(--open); }

@@ -149,6 +149,7 @@ function render() {
   const R = 0.26 * (st.markerScale || 1); // wall mode draws bigger markers
   for (const p of L.placements) {
     const d = st.devices.get(p.entity_id);
+    if (d?.hidden) continue; // placement kept: unhiding brings the marker back
     const kind = d?.kind || "light";
     const g = el("g", { class: "marker" + (st.sel?.type === "dev" && st.sel.id === p.entity_id ? " sel" : ""), "data-dev": p.entity_id }, markersG);
     el("circle", { cx: p.x, cy: p.y, r: R, fill: deviceColor(d) }, g);
@@ -198,7 +199,7 @@ function icon(kind, color) {
 function renderSide() {
   const list = $("list"); list.replaceChildren();
   const placed = new Set(cur().placements.map((p) => p.entity_id));
-  let devs = [...st.devices.values()];
+  let devs = [...st.devices.values()].filter((d) => !d.hidden);
   if (st.editing) {
     devs = devs.filter((d) => !placed.has(d.entity_id));
     $("sideTitle").textContent = "Unplaced devices";
@@ -231,6 +232,8 @@ function renderSheet() {
   const d = st.devices.get(st.sheetFor); const c = $("sheetContent"); c.replaceChildren();
   if (st.sheetFor === HEATING) return renderHeating(c);
   if (st.sheetFor === DOORS) return renderDoors(c);
+  if (st.sheetFor === ENERGY) return renderEnergy(c);
+  if (st.sheetFor === HIDDEN) return renderHidden(c);
   if (!d) { c.textContent = "Device not found in Home Assistant."; return; }
   const h = document.createElement("h3"); h.textContent = d.name; c.appendChild(h);
   const sub = document.createElement("div"); sub.className = "sub"; sub.textContent = `${d.model || d.kind} · ${d.entity_id}`; c.appendChild(sub);
@@ -245,7 +248,7 @@ function renderSheet() {
     extraSheet(d, c, unavailable);
     if (d.kind === "plug" && (d.power != null || d.energy_today != null)) {
       const pw = document.createElement("div"); pw.className = "sub"; pw.style.marginTop = "12px";
-      pw.textContent = [d.power != null ? `Now ${fmtW(d.power)}` : "", d.energy_today != null ? `Today ${d.energy_today.toFixed(2)} kWh` : ""]
+      pw.textContent = [d.power != null ? `Now ${fmtW(d.power)}` : "", d.energy_today != null ? `Today ${d.energy_today.toFixed(2)} kWh${costText(d.energy_today)}` : ""]
         .filter(Boolean).join(" · ");
       c.appendChild(pw);
     }
@@ -279,6 +282,7 @@ function renderSheet() {
     bt.textContent = `🔋 ${batteryText(d)}`; c.appendChild(bt);
   }
   historySection(d, c);
+  deviceMeta(d, c);
 }
 // Lights and plugs toggle straight away; valves and sensors open their sheet.
 function tapDevice(eid) {
@@ -490,7 +494,9 @@ $("deleteSel").onclick = () => {
 };
 $("save").onclick = async () => {
   $("save").disabled = true;
-  try { st.layout = await api("/api/layout", { method: "PUT", body: JSON.stringify(st.draft) }); setEditing(false); setStatus("Saved"); }
+  // Settings (keep on, names, hidden, tariff) may have changed since the draft was taken: send the current ones.
+  const body = st.layout.settings ? { ...st.draft, settings: st.layout.settings } : st.draft;
+  try { st.layout = await api("/api/layout", { method: "PUT", body: JSON.stringify(body) }); setEditing(false); setStatus("Saved"); }
   catch (e) { setStatus(`Save failed: ${e.message}`, true); }
   finally { $("save").disabled = false; }
 };

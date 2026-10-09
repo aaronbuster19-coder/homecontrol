@@ -140,14 +140,16 @@ async function allOff() {
   const on = devs.filter((d) => d.state === "on");
   if (!on.length) { setStatus("Everything is already off" + (keep.size ? ` (${keep.size} kept on)` : "")); return; }
   const kept = [...keep].filter((e) => st.devices.get(e)?.state === "on").length;
-  if (!confirm(`Turn off ${on.length} device${on.length > 1 ? "s" : ""}?` + (kept ? `\n${kept} “keep on” plug${kept > 1 ? "s" : ""} stay on.` : ""))) return;
+  const hid = on.filter((d) => d.hidden).length;
+  if (!confirm(`Turn off ${on.length} device${on.length > 1 ? "s" : ""}?` + (hid ? `\nIncludes ${hid} hidden device${hid > 1 ? "s" : ""}.` : "")
+    + (kept ? `\n${kept} “keep on” plug${kept > 1 ? "s" : ""} stay on.` : ""))) return;
   if (await bulk("turn_off", devs)) setStatus(`Turned off ${on.length}`);
 }
 
 // ---------- room name toggles ----------
 function roomLights(r) {
   return st.layout.placements.filter((p) => inRoom(r, p)).map((p) => st.devices.get(p.entity_id))
-    .filter((d) => d?.kind === "light" && usable(d));
+    .filter((d) => d?.kind === "light" && usable(d) && !d.hidden);
 }
 function renderRoomLabels(parent) {
   if (st.editing) return;
@@ -174,7 +176,7 @@ svg.addEventListener("click", async (e) => {
 });
 
 // ---------- heating sheet ----------
-const valves = () => [...st.devices.values()].filter((d) => d.kind === "valve").sort((a, b) => a.name.localeCompare(b.name));
+const valves = () => [...st.devices.values()].filter((d) => d.kind === "valve" && !d.hidden).sort((a, b) => a.name.localeCompare(b.name));
 let allTarget = null;
 const valveTimers = new Map();
 function stepper(value, onStep, disabled) {

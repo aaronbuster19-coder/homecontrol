@@ -99,7 +99,7 @@ const WALL = (() => {
     mb.setAttribute("aria-label", away ? "Away — tap if you're home" : "Home — tap to go away");
     if (w.dimmed) {
       $("wallDimTime").textContent = t; $("wallDimDate").textContent = dt;
-      const open = [...st.devices.values()].filter((d) => d.kind === "sensor" && d.state === "on").map((d) => d.name);
+      const open = [...st.devices.values()].filter((d) => d.kind === "sensor" && d.state === "on" && !d.hidden).map((d) => d.name);
       const info = $("wallDimInfo"); info.replaceChildren();
       const part = (icon, text) => { const p = document.createElement("span"); p.innerHTML = icon; p.append(text); info.append(p); };
       if (pw != null) part(BOLT, fmtW(pw));

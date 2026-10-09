@@ -142,8 +142,8 @@ function drawHistory(body, d, data) {
       sv("path", { d: path, class: `line ${cls}` }, s);
     });
     if (data.kind === "plug") {
-      summary = [data.energy_kwh != null ? `${data.energy_kwh.toFixed(2)} kWh in ${data.range}` : "",
-        data.energy_today_kwh != null ? `today ${data.energy_today_kwh.toFixed(2)} kWh` : "", `peak ${fmtW(Math.max(...vals))}`].filter(Boolean).join(" · ");
+      summary = [data.energy_kwh != null ? `${data.range}: ${data.energy_kwh.toFixed(2)} kWh${costText(data.energy_kwh)}` : "",
+        data.energy_today_kwh != null ? `today ${data.energy_today_kwh.toFixed(2)} kWh${costText(data.energy_today_kwh)}` : "", `peak ${fmtW(Math.max(...vals))}`].filter(Boolean).join(" · ");
     } else {
       const cur = series.find((x) => x.name === "Current")?.points.map((p) => p[1]).filter((v) => v != null) || [];
       summary = cur.length ? `Current ${Math.min(...cur)}–${Math.max(...cur)}°` : "";

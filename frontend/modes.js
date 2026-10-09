@@ -126,12 +126,16 @@ $("importLayout").onclick = () => {
   $("importFile").value = ""; $("importFile").click();
 };
 const refsOf = (L) => [...(L.placements || []).map((p) => p.entity_id), ...(L.openings || []).map((o) => o.entity_id).filter(Boolean),
-  ...(L.settings?.keep_on || [])];
+  ...(L.settings?.keep_on || []), ...Object.keys(L.settings?.names || {}), ...(L.settings?.hidden || [])];
 function stripUnknown(L) {
   const ok = (e) => st.devices.has(e);
   const out = { ...L, placements: (L.placements || []).filter((p) => ok(p.entity_id)),
     openings: (L.openings || []).map((o) => { if (!o.entity_id || ok(o.entity_id)) return o; const c = { ...o }; delete c.entity_id; return c; }) };
-  if (L.settings) out.settings = { ...L.settings, keep_on: (L.settings.keep_on || []).filter(ok) };
+  if (L.settings) {
+    out.settings = { ...L.settings, keep_on: (L.settings.keep_on || []).filter(ok) };
+    if (L.settings.names) out.settings.names = Object.fromEntries(Object.entries(L.settings.names).filter(([e]) => ok(e)));
+    if (Array.isArray(L.settings.hidden)) out.settings.hidden = L.settings.hidden.filter(ok);
+  }
   return out;
 }
 $("importFile").onchange = async () => {
