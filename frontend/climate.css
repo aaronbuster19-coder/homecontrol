@@ -1,0 +1,50 @@
+/* ---------- Climate sheet (climate.js): smart preheat + damp — colours from style.css variables ---------- */
+.cm-sheet .sheet-body { max-height: 92vh; overflow-y: auto; overscroll-behavior: contain; }
+.cm-sec { border-top: 1px solid var(--line); margin-top: 14px; padding-top: 4px; font-size: 14px; }
+.cm-sec h4 { margin: 10px 0 6px; font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.cm-sheet label.check { display: flex; align-items: flex-start; gap: 8px; margin: 8px 0; font-size: 14px; cursor: pointer; }
+.cm-sheet label.check input { width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--accent); flex: none; }
+.cm-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 8px 0; font-size: 14px; }
+.cm-sheet .auto-sub .hint { margin: 0 0 6px; }
+.cm-sheet input[type=number] { width: 64px; padding: 6px 8px; min-height: 36px; line-height: 1.2; background: var(--bg); color: var(--text);
+  border: 1px solid var(--line); border-radius: 8px; }
+.cm-label { font-size: 14px; margin: 10px 0 6px; }
+.cm-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.cm-fields label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); min-width: 0; }
+.cm-unit { display: flex; align-items: center; gap: 6px; color: var(--text); font-size: 14px; }
+.cm-fields input[type=number] { width: 100%; min-width: 0; }
+.cm-sheet select { min-height: 36px; }
+.cm-note { margin: 0 0 6px; color: var(--on-ink); }
+.cm-small { padding: 4px 10px; min-height: 32px; font-size: 13px; flex: none; }
+
+.cm-rooms, .cm-damp { list-style: none; margin: 6px 0 0; padding: 0; }
+.cm-rooms li { border-top: 1px solid var(--line); padding: 4px 0 8px; }
+.cm-room-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.cm-room-head label.check { margin: 6px 0; min-width: 0; }
+.cm-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cm-sheet .cm-rooms .sub { margin: 2px 0 0 26px; }
+.cm-sheet .cm-blocked { color: var(--on-ink); }
+
+.cm-damp li { border: 1px solid var(--line); border-left-width: 4px; border-radius: 10px; padding: 8px 10px; margin-bottom: 8px; background: var(--bg); }
+.cm-damp li.ok { border-left-color: var(--closed); }
+.cm-damp li.watch { border-left-color: var(--on); }
+.cm-damp li.risk { border-left-color: var(--open); }
+.cm-damp-top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.cm-vals { font-variant-numeric: tabular-nums; font-weight: 600; flex: none; }
+.cm-state { font-size: 13px; color: var(--muted); margin-top: 2px; }
+.cm-damp li.watch .cm-state { color: var(--on-ink); }
+.cm-damp li.risk .cm-state { color: var(--open-ink); font-weight: 600; }
+.cm-sheet .cm-src { margin: 2px 0 0; font-size: 12px; }
+.cm-dehum { margin-top: 8px; }
+.cm-damp-set { margin-top: 4px; }
+
+.cm-fold { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 6px; font-size: 14px; }
+.cm-fold summary { cursor: pointer; min-height: 32px; display: flex; align-items: center; color: var(--muted); }
+.cm-sensor { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr); align-items: center; gap: 8px; margin: 8px 0; }
+.cm-sensor span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cm-sensor select { width: 100%; }
+.cm-log .sum-row span:first-child { white-space: normal; }
+
+/* ⋯ menu: with Climate… added it no longer fits an 800px-high window; scroll inside it rather than off-screen.
+   (Belongs next to .more-menu in style.css once the v9 branches are merged.) The menu's top is set by modes.js. */
+.more-menu { max-height: calc(100vh - 72px); max-height: calc(100dvh - 72px); overflow-y: auto; overscroll-behavior: contain; }

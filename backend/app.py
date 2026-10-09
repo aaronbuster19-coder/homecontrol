@@ -5,6 +5,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
+from starlette.concurrency import run_in_threadpool
 from fastapi.staticfiles import StaticFiles
 
 
@@ -19,6 +20,7 @@ class RevalidatingStaticFiles(StaticFiles):
 from pydantic import BaseModel
 
 from . import activity as activity_api, weather as weather_api
+from . import brief as brief_api
 from .activity import Activity, ActivityStore, ActorMiddleware, acting
 from .appliances import linked, protected_plugs
 from .appliance_stats import ApplianceStats
@@ -26,6 +28,8 @@ from .alerts import Alerts, AlertStore, Pusher, SettingsError, load_vapid, valid
 from .automations import Automations, AutoStore
 from .auth import COOKIE, SESSION_TTL, AuthMiddleware, RateLimiter, Sessions, check_basic_auth, check_credentials, client_key, is_https, load_secret  # noqa: F401
 from .config import Settings, load_settings
+from . import users as users_api
+from .roles import RoleMiddleware
 from .dehumidifier import DehumError, check_humidity, check_mode
 from .discovery import Device, apply_names, parse_template_output
 from .energy import Energy, EnergyError
@@ -35,8 +39,11 @@ from .live import Live, build_device, ws_url
 from .schedules import ScheduleError, validate_schedule
 from .schedules import validate_settings as validate_schedule_settings
 from . import media, presence as presence_api, standby as standby_api
+from . import underlay as underlay_api
+from . import tiles as tiles_api
 from .modes import ModeError, ModeStore, current_targets, now_iso, public, restore_groups, validate_mode_settings
 from .summary import local_tz
+from . import climate as climate_api
 from .store import NAME_MAX, LayoutError, LayoutStore, carry_settings, stored_media, stored_plugs, stored_refs, validate_energy, validate_layout
 
 CACHE_TTL = 300
@@ -159,6 +166,8 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
     app = FastAPI(title="homecontrol", lifespan=lifespan)
 
     sessions = Sessions(load_secret(settings.db_path), settings.app_password)
+    users = users_api.UserStore(settings.db_path, clock)  # accounts + roles (backend/users.py, backend/roles.py)
+    users.sync_owner(settings.app_user, settings.app_password)  # APP_USER is always an admin
     limiter = RateLimiter()
     count_fail = limiter.fail
 
@@ -166,20 +175,22 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
         count_fail(key)
         activity.record("login_failed", ip=key)
     limiter.fail = logged_fail
+    app.add_middleware(RoleMiddleware)  # every route's least role (backend/roles.py POLICY); unlisted = admin only
     app.add_middleware(ActorMiddleware)  # inside the auth guard: sees the signed-in user
-    app.add_middleware(AuthMiddleware, sessions=sessions, user=settings.app_user, password=settings.app_password, limiter=limiter)
+    app.add_middleware(AuthMiddleware, sessions=sessions, users=users, limiter=limiter)
 
     @app.post("/api/login")
     async def login(body: LoginBody, request: Request):
         key = client_key(request.headers, request.client.host if request.client else None)
         if limiter.blocked(key):
             raise HTTPException(429, "too many attempts, try again later")
-        if not check_credentials(body.username, body.password, settings.app_user, settings.app_password):
+        u = await run_in_threadpool(users.authenticate, body.username, body.password)
+        if u is None:  # same answer for an unknown user, a wrong password and an expired guest
             limiter.fail(key)
             raise HTTPException(401, "wrong username or password")
-        activity.record("login", user=settings.app_user, ip=key)
-        resp = JSONResponse({"user": settings.app_user})
-        resp.set_cookie(COOKIE, sessions.issue(settings.app_user), max_age=SESSION_TTL, path="/",
+        activity.record("login", user=u["username"], ip=key)
+        resp = JSONResponse({"user": u["username"]})
+        resp.set_cookie(COOKIE, sessions.issue(u["username"], u["sid"]), max_age=SESSION_TTL, path="/",
                         httponly=True, samesite="lax", secure=is_https(request))
         return resp
 
@@ -191,7 +202,11 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
 
     @app.get("/api/me")
     async def me(request: Request):
-        return {"user": request.state.user}
+        u = users.get(request.state.user) or {}
+        return {"user": request.state.user, "role": request.state.role, "expires": u.get("expires"),
+                "owner": bool(u.get("owner"))}
+
+    users_api.add_routes(app, users, sessions, limiter, lambda action, **kw: activity.record("users", action=action, **kw))
 
     @app.exception_handler(HAError)
     async def ha_error(request, exc: HAError):
@@ -738,10 +753,20 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
 
     activity_api.add_routes(app, activity)
     weather_api.add_routes(app, weather, ensure_states, json_body)
+    brief_api.add_routes(app, settings.db_path, ha, live, store.get, devices, plug_devices, weather, local_tz(), clock)  # morning brief, monthly report
 
     # ---- Auto Away (backend/presence.py), standby saver (backend/standby.py) ----
     presence_api.add_routes(app, automations.presence, devices, live, ha, json_body, automations.wake.set)
     standby_api.add_routes(app, automations.standby, devices, plug_devices, energy, store.get, live, json_body, automations.wake.set)
+
+    # ---- Smart preheat + damp warnings (backend/climate.py): own loop, own routes ----
+    climate_api.add_routes(app, climate_api.Climate(
+        automations.store, live, ha.call_service, store.get, mode_store.get, automations.schedules, automations.window,
+        lambda p: automations._notify(p, "damp"), automations.lock, devices, clock, local_tz()), ha, ensure_states, json_body)
+    # ---- floor-plan photo underlay (backend/underlay.py) ----
+    app.include_router(underlay_api.router(settings.db_path))
+    # ---- quick tiles: pinned favourites for /?view=tiles (backend/tiles.py) ----
+    tiles_api.add_routes(app, tiles_api.TileStore(settings.db_path), devices, json_body)
 
     @app.get("/sw.js", include_in_schema=False)
     async def service_worker():

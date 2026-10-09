@@ -14,6 +14,10 @@
 <title>homecontrol</title>
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="tv.css">
+<link rel="stylesheet" href="brief.css">
+<link rel="stylesheet" href="climate.css">
+<link rel="stylesheet" href="underlay.css">
+<link rel="stylesheet" href="tiles.css">
 <script>/* theme before first paint: hc.theme = auto | light | dark (⋯ → Theme); theme.js has the menu */
 (function () {
   var d = document.documentElement, q = matchMedia("(prefers-color-scheme: light)"), mode = "auto", force = null;
@@ -70,6 +74,7 @@
   <label class="more-row" role="menuitem">Units <select id="unit" aria-label="Units"><option value="m">m</option><option value="ft">ft</option></select></label>
   <label class="more-row" role="menuitem">Theme <select id="themeSel" aria-label="Theme"><option value="auto">Auto</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
   <button id="refresh" role="menuitem" title="Re-discover devices">↻ Refresh devices</button>
+  <button id="usersBtn" role="menuitem" hidden>Users…</button>
   <button id="signOut" role="menuitem" title="Sign out">Sign out</button>
 </div>
 
@@ -230,7 +235,12 @@
 <script src="tv.js"></script>
 <script src="activity.js"></script>
 <script src="weather.js"></script>
+<script src="climate.js"></script>
 <script src="theme.js"></script>
+<script src="brief.js"></script>
+<script src="underlay.js"></script>
+<script src="tiles.js"></script>
+<script src="users.js"></script>
 <script>if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});</script>
 </body>
 </html>

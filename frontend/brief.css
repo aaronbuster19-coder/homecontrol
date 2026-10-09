@@ -1,0 +1,55 @@
+/* Morning brief and monthly energy report (brief.js). Theme colours only (style.css variables). */
+.brief-sheet .sheet-body, .report-sheet .sheet-body { max-height: 92vh; overflow-y: auto; overscroll-behavior: contain; }
+.brief-sheet .sheet-body { max-width: 560px; }
+.brief-kicker { color: var(--muted); font-size: 13px; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 2px; }
+.brief-sheet h3 { font-size: 21px; margin-bottom: 14px; }
+.brief-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+@media (max-width: 520px) { .brief-grid { grid-template-columns: 1fr; } }
+.brief-card { background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px 12px; min-width: 0; }
+.brief-card h4 { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 0 6px; font-size: 12px;
+  text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.brief-card .sub { margin: 4px 0 0; }
+.brief-go { min-height: 28px; padding: 0 9px; border-radius: 7px; font-size: 16px; line-height: 1; color: var(--muted); background: var(--panel); }
+.brief-line { font-size: 14px; margin-top: 4px; }
+.brief-quiet { font-size: 14px; color: var(--closed-ink); }
+.brief-open { color: var(--open-ink); font-weight: 600; }
+.brief-cold { color: var(--idle-ink); }
+.brief-hint { font-size: 12px !important; }
+.brief-wx-now { display: flex; align-items: center; gap: 10px; }
+.brief-wx-ic svg { width: 44px; height: 44px; display: block; }
+.brief-wx-t { font-size: 28px; font-weight: 600; line-height: 1.1; }
+.brief-wx-c { color: var(--muted); font-size: 13px; }
+.brief-big { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.brief-big b { font-size: 26px; }
+.brief-big span { color: var(--muted); font-size: 13px; }
+.brief-top { color: var(--muted); }
+.brief-events { margin-top: 4px; }
+.brief-events .ev { padding: 3px 0; }
+.brief-more { min-height: 30px; padding: 2px 10px; font-size: 13px; margin-top: 4px; }
+.brief-rows { list-style: none; margin: 0; padding: 0; }
+.brief-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; text-align: left;
+  background: none; border: 0; border-top: 1px solid var(--line); border-radius: 0; padding: 7px 0; min-height: 40px; }
+.brief-rows li:first-child .brief-row { border-top: 0; }
+.brief-row .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+.brief-row .name::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--on);
+  margin-right: 8px; vertical-align: 1px; }
+.brief-row .val { color: var(--muted); font-size: 13px; white-space: nowrap; flex: none; }
+.brief-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 14px; }
+.brief-foot label.check { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--muted); }
+
+.report-nav { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 8px 0 4px; }
+.report-nav b { font-size: 16px; }
+.report-nav button { min-width: 44px; font-size: 18px; line-height: 1; }
+.report-sheet .sub { margin-bottom: 8px; }
+.report-cmp { font-size: 14px; margin: -6px 0 8px; }
+.report-cover { color: var(--on-ink) !important; }
+.report-rows { margin-top: 6px; }
+.report-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 10px; align-items: center; margin-bottom: 12px; font-size: 14px; }
+.report-row .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.report-row .val { font-weight: 600; font-variant-numeric: tabular-nums; }
+.report-meta { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 2px 12px; color: var(--muted); font-size: 12px; }
+.report-meta .share { color: var(--text); font-weight: 600; }
+.report-meta b { font-weight: 600; }
+body.wall .brief-sheet .sheet-body { max-width: 640px; }
+/* The ⋯ menu scrolls instead of running off a short screen (it grows with every feature). */
+.more-menu { max-height: calc(100vh - 72px); max-height: calc(100dvh - 72px); overflow-y: auto; overscroll-behavior: contain; }

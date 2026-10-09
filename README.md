@@ -38,11 +38,12 @@ docker compose up -d --build
 
 ### Login
 
-Sign in on `/login.html` with `APP_USER` / `APP_PASSWORD` (if either is empty, nobody can sign in). You then stay
+Sign in on `/login.html` with `APP_USER` / `APP_PASSWORD`, which is always an admin; more people get their own logins
+(see [Users and roles](#users-and-roles)). If either is empty, only those other accounts can sign in. You then stay
 signed in for 90 days (an HttpOnly cookie, `Secure` when served over https). Sign out from the ⋯ menu in the header.
 - `SESSION_SECRET` (optional) signs the cookie. If unset, a random one is generated once and kept in `session_secret`
   next to `DB_PATH` (e.g. `/data/session_secret`), so sessions survive restarts.
-- Changing `APP_PASSWORD` (or `SESSION_SECRET`) signs everyone out.
+- Changing `APP_PASSWORD` signs that account out everywhere; changing `SESSION_SECRET` signs everyone out.
 - 10 wrong passwords from one client within 10 minutes → locked out for the rest of that window (HTTP 429).
 - `curl -u user:pass` (HTTP Basic) still works for the API; the browser never gets a Basic popup.
 - Public without login: `/healthz`, the login page, manifest, icons, service worker.
@@ -681,6 +682,53 @@ integration HA sets up on install creates; otherwise the first one. Choose anoth
   "hourly", "daily", "tonight": {"low", "cold", "heating"?, "text"?}, "forecast_error"}`, `PUT /api/weather/settings`
   `{"entity_id": "weather.x"|null, "frost_push": bool}`, `POST /api/weather/refresh` (drops the forecast cache).
 
+## Morning brief and monthly energy report
+
+**Morning brief** — one card with what you want to know first thing:
+
+- **Last night (22:00–07:00):** every door / window opened and closed, with times (the latest 6, *Show all* for the
+  rest), how often each opened, and anything still open now (in red).
+- **Weather:** now, today's high / low, “Rain likely from 15:00 (70 %)” (the first hour today at 50 % or more) and the
+  cold-night hint — from the same `weather.*` entity as the *Weather* sheet. › opens the weather sheet.
+- **Yesterday's energy:** what the smart plugs cost yesterday (kWh without a tariff), compared with the day before,
+  the three biggest users (by their linked appliance's name) and the daily standing charge. › opens the monthly report.
+- **Left on:** lights, plugs, TVs and the dehumidifier that are on now, oldest first, with watts and “since 19:02”.
+  Keep-on plugs and linked fridges / freezers / home servers are meant to be on and aren't listed. Tap a row for its
+  device sheet; **the brief never switches anything itself**.
+
+It opens by itself **once per morning** (05:00–12:00, the first time the app is opened that day, on each device), not
+in wall mode, not over an open sheet, dialog or edit mode, and not when the app was opened from a notification. *Got
+it*, ×, Escape or a tap outside closes it. Untick **Show every morning** in the card to stop that (remembered per
+device; ⋯ → **Morning brief** still opens it any time). The ⋯ menu now scrolls when it's taller than the screen.
+
+**Energy report** (› on the brief's energy card): each appliance's share of the month's
+smart-plug cost, with a bar, kWh, and what it cost last month (▲ / ▼ %). A plug linked to an appliance shows as the
+appliance (“Fridge · Plug 2”). ‹ / › go through the months (up to 12 back).
+
+- **This month** covers its finished days (1st to yesterday) and is compared with **the same days of last month**
+  (“vs £7.20 on 1–8 Sep”); a finished month is compared with the whole of the month before. On the 1st it opens on
+  last month. The standing charge is shown on its own (days × charge), never split across appliances. Costs use
+  today's unit rate (see *Energy costs*); without one, kWh.
+- **Daily totals are kept by homecontrol**, because Home Assistant's recorder only keeps about 10 days of history by
+  default: each finished day's kWh per plug is integrated once from the plugs' power history (local midnight to
+  midnight, DST days are 23 / 25 h) and stored in SQLite (`energy_daily`, 400 days kept). This runs in the background
+  every hour (at most 7 days per HA call, newest first; after an HA error it waits 5 min) and when the report or brief
+  is opened (up to 14 missing days per month shown). Days HA no longer has are stored as “no data”, and the report says
+  “Data for 23 of 30 days” when a month is incomplete — so a month before homecontrol started keeping totals can't be
+  complete. A plug added later gets its days filled in without touching the other plugs' stored days. Read-only:
+  nothing is ever switched.
+- API: `GET /api/brief` → `{"date", "label", "generated_at", "night": {"from", "to", "label", "sensors", "events":
+  [{"t", "entity_id", "name", "state": "open"|"closed"}], "more", "doors": [{"entity_id", "name", "opens"}]},
+  "weather": {"available", "condition", "text", "temperature", "high", "low", "tonight", "rain_from"?, "rain_pct"?},
+  "energy": {"date", "available", "plugs", "kwh", "cost_p", "rate_p", "standing_p", "prev_kwh", "prev_cost_p", "top":
+  [{"entity_id", "name", "kwh", "cost_p"}]}, "left_on": [{"entity_id", "name", "kind", "power", "since"}], "open_now":
+  [{"entity_id", "name"}], "errors": {part: message}}` (a part that failed is `null`, the rest still comes) ·
+  `GET /api/energy/report?month=YYYY-MM` → `{"month", "label", "from", "to", "days", "days_with_data", "current",
+  "total_kwh", "total_p", "standing_total_p", "rate_p", "standing_p", "change_pct", "previous": {"month", "label",
+  "from", "to", "days", "days_with_data", "total_kwh", "total_p", "full"}, "rows": [{"entity_id", "name", "plug_name",
+  "appliance": {"id", "type", "name"}|null, "hidden", "kwh", "cost_p", "share_pct", "last_kwh", "last_cost_p",
+  "change_pct"}], "prev_month", "next_month", "collecting_since"}` (400 for a bad or out-of-range month).
+
 ## API
 
 `GET /healthz` · `POST /api/login` `{"username","password"}` · `POST /api/logout` · `GET /api/me` · `GET /api/devices` · `GET /api/events` (SSE: `snapshot`, `status` `{"ws": bool}`, then `device` events) · `POST /api/devices/refresh` · `POST /api/devices/{entity_id}/toggle` ·
@@ -740,3 +788,111 @@ e2e/docker.sh                           # the same in the Playwright image, exac
 Screenshots the tests take go to `e2e/screenshots` (`SHOTS=dir` to change). Failures save a screenshot of every open
 page to `e2e/artifacts` (`E2E_ARTIFACTS`), plus a trace with `E2E_TRACE=1` (on by default in `e2e/docker.sh`).
 The Playwright version is pinned twice — `requirements-e2e.txt` and the image tag in `e2e/docker.sh` — keep them equal.
+
+## Climate: smart preheat and damp warnings
+
+⋯ → *Climate…* opens the climate sheet (a damp push opens it too, via `/?climate`). Everything is run by the server
+(`backend/climate.py`, its own loop every 60 s), and settings are shared by all devices.
+
+**Smart preheat** — off by default: switch on *Smart preheat*, then tick each room that should use it.
+- Each room learns how fast it warms up (°C per hour) from its radiator valves: a *warm-up* is a target raised at
+  least 1° above the room's temperature, until the room gets within 0.3° of it (warm-ups under 10 min or 0.5° are
+  ignored; a valve going offline drops one; the result is clamped to 0.2–8 °/h and averaged with the earlier ones).
+  It learns live all the time, and from the last 7 days of HA history the first time preheat is ticked for a room
+  (and on *Re-learn*). Until a room has learnt its rate, 1 °/h is assumed.
+- Before a **heating schedule** (⋯ → *Schedules…*, a radiator temperature) that sets the room's valves, preheat sets
+  those valves to the schedule's temperature early: *(setpoint − room now) ÷ rate × 1.15*, at most *Start at most*
+  (default 2 h, 15 min–4 h). The schedule still runs at its time as usual. The sheet shows each room's rate, its next
+  heating schedule and when preheat would start.
+- Safety: one `climate.set_temperature` per schedule occurrence and room, recorded in SQLite before the call and
+  never repeated (also not after a restart; a failed call is logged, not retried). Never while **Away**, while a
+  window in the room is open (or window heating holds one of its valves), when the room is already within 0.3° of the
+  setpoint, when its valves are already set to it, or with under 5 min to go. Only valves placed in an opted-in room
+  are touched. It takes the automations' lock, so it never interleaves with Away/Home, schedules or window heating;
+  activity entries say “smart preheat”.
+
+**Damp & mould** — each room's humidity (a dehumidifier placed in it, a valve that reports humidity, or a HA humidity
+sensor chosen under *Humidity sensors*) and temperature (its valves, else the dehumidifier). Humidity ≥ 70 % with
+the temperature ≤ 16° (both adjustable) means *humid and cool*; after 2 h (15 min–12 h) it's a **damp risk**. Once at
+risk a room stays at risk until humidity drops 3 % below the limit or it warms 0.5° above it (no flapping); readings
+going missing pause the timer rather than reset it. The sheet shows every room with a reading (green / amber / red)
+and, at risk, a button to the dehumidifier's sheet — it only suggests, it never switches the dehumidifier.
+*Push a damp warning* (off by default): “Damp risk: Bedroom — Humidity 78 % at 15.2° for 2 h. Run the Dehumidifier —
+it's off.”, once per room per 12 h (1–72 h; marked before sending, survives restarts). It's a quiet-hours category
+(`damp`): at night it waits for the morning digest.
+
+API: `GET /api/climate` → `{"settings", "rooms": [{"id", "name", "preheat", "humidity_entity", "valves", "rate",
+"rate_n", "learned_at", "next": {"name", "at", "setpoint", "start", "lead_min", "started"}|null, "blocked", "damp":
+{"humidity", "temperature", "humidity_source", "at_risk", "since", "sustained", "pushed", "dehumidifier"}}],
+"humidity_sensors", "default_rate", "mode", "now", "log"}` · `PUT /api/climate/settings` (partial) `{"preheat_enabled",
+"max_lead_min", "damp_push", "damp_humidity", "damp_temp", "damp_minutes", "damp_cooldown_h"}` ·
+`PUT /api/climate/rooms/{room_id}` `{"preheat": bool, "humidity_entity": "sensor.x"|null}` (the first switch-on also
+returns `learn`) · `POST /api/climate/rooms/{room_id}/learn` (re-learn from 7 days of history).
+## Floor-plan photo
+Trace the flat from an estate-agent plan or a photo of one: **Edit → Photo**, *Upload photo…* (PNG, JPEG or WebP,
+up to 10 MB; big phone photos are shrunk to 4000 px in the browser and their EXIF rotation baked in). A first photo is
+laid over the rooms drawn so far (or the visible plan) with *Move on plan* on: drag to move, pinch or scroll to scale,
+two fingers or Shift+scroll to rotate. The panel also has opacity, rotation and width (m / ft), *Fit to plan*,
+*Replace…* and *Remove*. While a photo shows, rooms go see-through so its walls show; then draw rooms over it as usual.
+- Saved as you go and kept apart from the layout: *Save* / *Cancel* only affect the rooms, layout PUTs and exports
+  never touch it, and the layout JSON is unchanged.
+- Shown in edit mode (*Show while editing* turns it off on this device). Outside edit mode it's hidden unless
+  *Also show outside edit mode* is ticked (everyone); never in wall mode. *Invert colours in the dark theme* (default
+  on) turns a black-on-white scan into white-on-dark.
+- Stored next to the database: the image as `underlay.img` beside `DB_PATH`, its placement in the `underlay` table.
+  Not part of *Export layout*; back up the data folder to keep it.
+- The file's bytes decide its type (SVG, HTML, HEIC and anything else are refused, whatever the Content-Type says), and
+  it is only ever served to signed-in users, with `X-Content-Type-Options: nosniff`.
+API (signed in): `GET /api/underlay` (`{"image": null}`, or `image {type, w, h, bytes, version}` plus `x`, `y`
+(centre, m), `width` (m), `rot` (°, −180–180), `opacity` (0.05–1), `show_view`, `invert_dark`) ·
+`PUT /api/underlay` (any of those placement fields; the rest stay) · `POST /api/underlay/image` (raw image body,
+`Content-Type: image/png|jpeg|webp`; 413 over 10 MB, 415 not an image) · `GET /api/underlay/image?v=<version>` ·
+`DELETE /api/underlay`. `backend/underlay.py`'s `router(db_path, admin=…)` takes a dependency that guards PUT, upload
+and delete.
+## Quick tiles (favourites)
+A compact grid of the devices you use most, for a phone's home screen: **/?view=tiles**, or ⋯ → *Favourites*. An
+installed app offers it as a shortcut too: long-press the app icon → *Favourites* (Android Chrome; the manifest's
+`shortcuts`). *Plan* goes back to the floor plan.
+- **Pin:** open any light, plug, radiator, dehumidifier, TV or door sensor's sheet and tap **☆ Add to favourites**
+  (tap again to remove), or in the tiles view *Edit* → **+ Add** for a list of every device. Up to 24 tiles.
+- **Tiles** show the device's colour, name and state (“20.5° → 21°”, “on · 35 W”; a linked appliance shows its drawing,
+  name and status, e.g. *Fridge · Idle · 2.1 W*), live over the same event stream as the plan.
+- **Tap** does exactly what a tap on the plan does: lights and plugs toggle; radiators, dehumidifiers, TVs and sensors
+  open their sheet; a **fridge / freezer, home server or *Keep on* plug opens its sheet** and switching it off there asks
+  first. **Long-press** opens any tile's sheet. Nothing is ever switched by pinning or by opening the view.
+- **Edit:** ‹ › move a tile, × removes it, *Done* to finish (taps don't switch anything while editing).
+- Pins are stored on the server (own SQLite table `tiles`, not in the layout), so every signed-in device shows the same
+  tiles; a pinned device that's missing from Home Assistant for a while keeps its place. Hidden devices aren't shown.
+- API: `GET /api/tiles` → `{"pins": [entity ids]}`; `PUT /api/tiles` `{"pins": [...]}` (reorder / replace; each a
+  known light, plug, valve, dehumidifier, media player or door sensor, or one already pinned); `POST /api/tiles/{id}`
+  pins (appended, idempotent); `DELETE /api/tiles/{id}` unpins. 400 for unknown devices or more than 24.
+## Users and roles
+Everyone gets their own login, with one of three roles:
+| Role | Can |
+|---|---|
+| **Admin** | everything: settings, layout (Edit), schedules, Auto Away, standby saver, names, users |
+| **Member** | control every device, Heating / All off, Away / I'm home, mute pushes, alerts on their own phone; read history, energy, activity. No settings, layout or user changes |
+| **Guest** | see the plan and switch / dim the **lights**; nothing else. Optional expiry (1 day … 1 month) |
+- **Upgrading needs nothing:** the `APP_USER` / `APP_PASSWORD` login becomes the first admin on start (its existing
+  cookies stay valid). That account is always an admin and can't be removed or demoted from the app; its password stays
+  in `.env`. Renaming `APP_USER` replaces it.
+- **⋯ → Users…** (admins): add someone (a random password is suggested; the sheet shows it once so you can pass it on),
+  change a role, give a guest an expiry or extend it, *Reset password*, *Remove*. You can't remove or demote yourself, and
+  there is always at least one admin. Everyone else gets **⋯ → Account…** to change their own password.
+- Removing someone, resetting their password or them changing it signs that account out everywhere at once (each
+  account has a session id in its cookies). A role change or a guest's expiry applies to open sessions immediately.
+- Passwords are stored as salted scrypt hashes (N=2¹⁵, r=8). Wrong password, unknown user and expired guest all get the
+  same answer after the same work, so sign-in doesn't reveal who has an account. The 10-attempts lock-out applies to
+  the login form, Basic auth and password changes. Usernames are case-insensitive.
+- The UI hides what a role can't use, but every route is enforced on the server (HTTP 403 with a short reason).
+  Additions and changes to accounts show in *Activity* under *Security*.
+**For developers — classifying routes.** `backend/roles.py` has one `POLICY` table: `(METHOD, path template) -> least
+role` (`GUEST`, `MEMBER`, `ADMIN`, or `LIGHTS` = guests only for a `light.*` `{entity_id}`). `RoleMiddleware` (inside the
+auth guard) finds the route a request will hit and checks it, so **a route missing from the table is admin-only**.
+`backend/tests/test_roles.py::test_every_route_is_classified` fails until each new route has a line, e.g.
+`("GET", "/api/brief"): MEMBER,` — and it calls every listed route as each role to check the 403s.
+API: `GET /api/me` → `{user, role, expires, owner}` · `POST /api/me/password` `{current, password}` (any role; returns a
+fresh cookie) · admin: `GET /api/users` · `POST /api/users` `{username, password, role, expires?}` (`expires`: epoch
+seconds, guests only, within a year) · `PATCH /api/users/{username}` `{role?, expires?}` ·
+`PUT /api/users/{username}/password` `{password}` · `DELETE /api/users/{username}`. Writes need
+`Content-Type: application/json`. Passwords: 8–256 characters; usernames: 1–32 of letters, digits, `. _ @ -`.

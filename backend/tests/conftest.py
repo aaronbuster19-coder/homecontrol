@@ -87,6 +87,12 @@ def quiet_automations(monkeypatch):
     monkeypatch.setattr("backend.automations.STARTUP_DELAY", 3600)
 
 
+@pytest.fixture(autouse=True)
+def cheap_password_hashes(monkeypatch):
+    """scrypt at full strength costs ~0.1 s a hash; the tests make thousands of apps and logins."""
+    monkeypatch.setattr("backend.users.SCRYPT_N", 2 ** 8)
+
+
 @pytest.fixture
 def fake_ha():
     return FakeHA()
