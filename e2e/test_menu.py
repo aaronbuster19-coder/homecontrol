@@ -152,7 +152,10 @@ def test_menu_closes_on_outside_tap_and_escape(stack, ha, open_page):
     page.tap("#moreBtn")
     expect(page.locator("#moreMenu")).to_be_visible()
     expect(page.locator("#moreBtn")).to_have_attribute("aria-expanded", "true")
-    page.touchscreen.tap(200, 700)
+    # Tap outside the menu (it grows as entries are added, so don't hard-code a spot it may cover).
+    box = page.locator("#moreMenu").bounding_box()
+    vp = page.viewport_size
+    page.touchscreen.tap(5 if box["x"] > 20 else vp["width"] - 5, min(box["y"] + box["height"] + 20, vp["height"] - 5))
     expect(page.locator("#moreMenu")).to_be_hidden()
     page.tap("#moreBtn")
     page.keyboard.press("Escape")
