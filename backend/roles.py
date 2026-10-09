@@ -114,6 +114,12 @@ POLICY: dict[tuple[str, str], str] = {
     ("GET", "/api/disco"): GUEST,
     ("POST", "/api/disco/start"): GUEST,
     ("POST", "/api/disco/stop"): GUEST,
+    # Octopus tariff + appliance run log (backend/tariff.py, backend/runlog.py): reading and notes for members
+    ("GET", "/api/tariff"): MEMBER,
+    ("POST", "/api/tariff/refresh"): MEMBER,
+    ("PUT", "/api/tariff/settings"): ADMIN,
+    ("GET", "/api/appliances/{fid}/runs"): MEMBER,
+    ("PUT", "/api/appliances/{fid}/runs/{rid}"): MEMBER,  # a note on a run, not a setting
     ("GET", "/openapi.json"): ADMIN,
     ("GET", "/docs"): ADMIN,
     ("GET", "/docs/oauth2-redirect"): ADMIN,
