@@ -183,6 +183,22 @@ def test_several_windows_on_one_valve(tmp_path):
     assert (V_BED, 21.0) in r.calls and r.w.holds == {}
 
 
+
+def test_unavailable_sensor_releases_after_grace(tmp_path):
+    # A window sensor whose battery dies while the window is open must not hold the radiator at 7° for days.
+    r = Rig(tmp_path)
+    r.set(W_BED, "on")
+    r.tick(120)
+    assert r.calls == [(V_BED, 7.0)]
+    r.set(W_BED, "unavailable")
+    r.tick(30 * 60)
+    assert V_BED in r.w.holds and r.calls == [(V_BED, 7.0)]  # still held inside the grace period
+    r.tick(31 * 60)
+    assert r.calls == [(V_BED, 7.0), (V_BED, 21.0)] and r.w.holds == {}
+    r.tick(15)
+    assert len(r.calls) == 2  # and nothing more while it stays unavailable
+
+
 def test_away_interplay(tmp_path):
     r = Rig(tmp_path)
     r.set(W_BED, "on")

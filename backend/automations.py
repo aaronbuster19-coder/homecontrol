@@ -26,7 +26,7 @@ RESEND_GUARD = 120      # never send the same temperature to the same valve twic
 WEEK = 7 * 24 * 3600
 BATTERY_LOW, BATTERY_OK = 15, 20  # alert below 15 %, consider it replaced at 20 % (no flapping around 15)
 RECOVER_SECS = 120      # "back online" only once a device has stayed available this long
-KEEP_HOLD = ("on", "unavailable", "unknown", None)  # window states that keep a radiator held down
+UNAVAILABLE_GRACE = 3600  # a window sensor that drops out keeps the hold this long, then the radiator is released
 
 
 class AutoStore:
@@ -94,6 +94,7 @@ class WindowHeating:
         self.holds: dict[str, dict] = store.get("window_holds", {}) or {}
         self.notified: set[str] = set(store.get("window_notified", []) or [])
         self.first_on: dict = {}
+        self.first_gone: dict = {}                        # window sensor -> when it went unavailable
         self.sent: dict[str, tuple[float, float]] = {}    # valve -> (temp, when) of our last command
         self.failed: dict[str, float] = {}                # valve -> when a call last failed
 
@@ -134,6 +135,20 @@ class WindowHeating:
             self.first_on.pop(eid, None)
             return None
         return _since(self.first_on, eid, raw, now)
+
+    def _keeps(self, o: dict, states: dict, now: float) -> bool:
+        """Does this window still hold its radiators down? Open: yes. Sensor unavailable/unknown/missing: only for
+        UNAVAILABLE_GRACE, so a sensor with a flat battery can't leave a room at the window temperature for days."""
+        eid = o["entity_id"]
+        raw = states.get(eid) or {}
+        st = raw.get("state")
+        if st == "on":
+            self.first_gone.pop(eid, None)
+            return True
+        if st in ("unavailable", "unknown", None):
+            return now - _since(self.first_gone, eid, raw, now) < UNAVAILABLE_GRACE
+        self.first_gone.pop(eid, None)
+        return False
 
     async def tick(self, layout: dict, devices: dict, states: dict) -> None:
         s, now = self.settings(), self.clock()
@@ -189,7 +204,7 @@ class WindowHeating:
                 if o["id"] not in h["windows"] and (states.get(o["entity_id"]) or {}).get("state") == "on":
                     h["windows"].append(o["id"])
                     changed = True
-            if enabled and any((states.get(o["entity_id"]) or {}).get("state") in KEEP_HOLD for o in ws):
+            if enabled and any(self._keeps(o, states, now) for o in ws):
                 # still open: owe the low target, or follow the user's own change
                 if h.get("pending"):
                     if await self._send(v, h["temp"], states):
