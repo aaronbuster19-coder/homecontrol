@@ -638,3 +638,10 @@ body.wall .appl-tag text { font-weight: 700; }
 .appl-offer .t { font-size: 14px; color: var(--muted); }
 .appl-offer .x { min-width: 38px; padding: 7px 10px; }
 #furLink { max-width: min(60vw, 260px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.appl-remind { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.appl-remind .keep-on { margin-top: 10px; }
+.appl-remind select { margin-top: 10px; min-height: 34px; padding: 4px 8px; }
+.appl-remind-box .hint { margin: 4px 0 0 30px; }
+.appl-stats { margin-top: 12px; }
+.appl-stats .sum-row { font-size: 14px; }
+.appl.busy .fu-plate { fill: #ff7a3d; } .appl.busy .fu-dial { fill: var(--on); }

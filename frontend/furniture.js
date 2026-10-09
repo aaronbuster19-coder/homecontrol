@@ -296,6 +296,21 @@ function drawFreezer(g, w, h) {
   const s = Math.min(w, h) * 0.18;
   for (let i = 0; i < 3; i++) { const a = i * Math.PI / 3; fL(g, -Math.cos(a) * s, -0.04 - Math.sin(a) * s, Math.cos(a) * s, -0.04 + Math.sin(a) * s, "fu-l fu-snow"); }
 }
+function drawIron(g, w, h) { // sole plate pointing forward (down), handle and temperature dial on top
+  const x0 = -w / 2, y0 = -h / 2;
+  fP(g, `M${x0} ${y0 + h * 0.12}Q${x0} ${y0} ${x0 + w * 0.15} ${y0}H${x0 + w * 0.85}Q${x0 + w} ${y0} ${x0 + w} ${y0 + h * 0.12}`
+    + `V${y0 + h * 0.45}Q${x0 + w} ${y0 + h * 0.8} 0 ${y0 + h}Q${x0} ${y0 + h * 0.8} ${x0} ${y0 + h * 0.45}Z`, "fu-b");
+  fR(g, -w * 0.18, y0 + h * 0.1, w * 0.36, h * 0.5, "fu-s", w * 0.15);
+  fC(g, 0, y0 + h * 0.72, Math.min(w, h) * 0.12, "fu-d fu-dial");
+}
+function drawStraightener(g, w, h) { // two arms side by side: hinge and cable at the left, heated plates at the right
+  const x0 = -w / 2, y0 = -h / 2, aw = h * 0.46;
+  fR(g, x0, y0, w, aw, "fu-b", aw / 2);
+  fR(g, x0, y0 + h - aw, w, aw, "fu-b", aw / 2);
+  fR(g, x0 + w * 0.5, y0 + aw * 0.25, w * 0.45, aw * 0.5, "fu-d fu-plate", aw * 0.2);
+  fR(g, x0 + w * 0.5, y0 + h - aw * 0.75, w * 0.45, aw * 0.5, "fu-d fu-plate", aw * 0.2);
+  fC(g, x0 + h * 0.5, 0, h * 0.3, "fu-s");
+}
 
 const FURNITURE = {
   bed: { name: "Double bed", group: "Bedroom", w: 1.4, h: 2.0, draw: drawBed },
@@ -336,6 +351,8 @@ const FURNITURE = {
   dishwasher: { name: "Dishwasher", group: "Appliances", w: 0.6, h: 0.6, draw: drawDishwasher },
   dryer: { name: "Tumble dryer", group: "Appliances", w: 0.6, h: 0.6, draw: drawDryer },
   freezer: { name: "Freezer", group: "Appliances", w: 0.6, h: 0.65, draw: drawFreezer },
+  iron: { name: "Iron", group: "Appliances", w: 0.14, h: 0.27, draw: drawIron },
+  hair_straightener: { name: "Hair straightener", group: "Appliances", w: 0.3, h: 0.08, draw: drawStraightener },
 };
 
 // ---------- geometry ----------

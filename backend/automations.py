@@ -297,7 +297,7 @@ class Automations:
         self.window = WindowHeating(store, settings, self._set_temp, lambda p: self._notify(p, "window"), mode, clock)
         self.health = Health(store, settings, lambda p: self._notify(p, "health"), clock)
         self.tank = TankAlert(store, settings, lambda p: self._notify(p, "health"))
-        self.appliances = Appliances(store, settings, layout_store.get, lambda p: self._notify(p, "appliance"),
+        self.appliances = Appliances(store, settings, layout_store.get, self._notify,
                                      lambda data: live.broadcast("appliances", data), clock)
         self.summary = WeeklySummary(store, settings, ha, lambda: self.live.devices, layout_store.get,
                                      lambda p: self._notify(p, "summary"), clock, tz)

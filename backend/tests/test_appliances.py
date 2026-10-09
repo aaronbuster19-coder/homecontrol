@@ -30,7 +30,8 @@ def check(*furniture, plugs=PLUGS):
 
 # ---------------- validation ----------------
 def test_new_types_are_furniture_and_appliances():
-    for t in ("fan", "kettle", "microwave", "dishwasher", "dryer", "tv", "floor_lamp", "heater", "coffee_machine", "toaster"):
+    for t in ("fan", "kettle", "microwave", "dishwasher", "dryer", "tv", "floor_lamp", "heater", "coffee_machine", "toaster",
+              "iron", "hair_straightener"):
         assert t in FURNITURE_TYPES and t in APPLIANCE_TYPES, t
     assert {"fridge", "washer"} <= set(APPLIANCE_TYPES) and set(APPLIANCE_TYPES) <= set(FURNITURE_TYPES)
     assert check(piece(type="toaster"))[0]["type"] == "toaster"
@@ -165,7 +166,7 @@ class Rig:
     """Appliances with a washer on switch.fan; feed() sets the power and advances the clock like the live loop would."""
 
     def __init__(self, tmp_path, t=DAY, store=None, furniture=None, **settings):
-        self.clock, self.pushes, self.events = Clock(t), [], []
+        self.clock, self.pushes, self.events, self.categories = Clock(t), [], [], []
         self.settings = {**DEFAULT_SETTINGS, **settings}
         self.store = store or AutoStore(str(tmp_path / "a.db"))
         self.layout = lay(*(furniture or [piece(plug="switch.fan", label="Washer")]))
@@ -173,8 +174,9 @@ class Rig:
         self.make()
 
     def make(self):
-        async def notify(p):
+        async def notify(p, category="appliance"):
             self.pushes.append(p)
+            self.categories.append(category)
         self.app = Appliances(self.store, lambda: self.settings, lambda: self.layout, notify, self.events.append, self.clock)
 
     def feed(self, power, mins=0.0, state="on"):
@@ -325,8 +327,8 @@ def test_finished_push_is_held_in_quiet_hours(tmp_path):
     r = Rig(tmp_path, t=NIGHT)
     quiet = Quiet(HeldStore(str(tmp_path / "a.db")), lambda: r.settings, Pusher(), r.clock, LON)
 
-    async def notify(p):
-        await quiet.notify(p, "appliance")
+    async def notify(p, category):
+        await quiet.notify(p, category)
     r.app.notify = notify
     r.feed(500, 5)
     r.feed(0.5, 4)
@@ -371,3 +373,203 @@ def test_rules_match_the_frontend():
         got[m.group(1)] = (m.group(2), m.group(3), m.group(4), {k: float(v) for k, v in th.items()})
     assert got == {t: (r, b, i, {k: float(v) for k, v in th.items()}) for t, (r, b, i, th) in APPLIANCES.items()}
     assert list(got) == list(APPLIANCE_TYPES)
+
+
+# ---------------- left-on reminders ----------------
+def heater(**kw):
+    return piece(type="heater", plug="switch.fan", **kw)
+
+
+def test_remind_validation_and_defaults():
+    from backend.appliances import remind_minutes
+    assert "remind" not in check(heater())[0]
+    assert check(heater(remind=False))[0]["remind"] is False
+    assert check(heater(remind=90))[0]["remind"] == 90
+    for bad in (10, 1441, True, "60", 60.5):
+        with pytest.raises(LayoutError, match="remind"):
+            check(heater(remind=bad))
+    with pytest.raises(LayoutError, match="no left-on"):
+        check(piece(plug="switch.fan", remind=60))            # a washer has cycles, not reminders
+    with pytest.raises(LayoutError, match="no left-on"):
+        check(piece(type="fridge", plug="switch.fan", remind=60))
+    assert remind_minutes(heater()) == 180 and remind_minutes(piece(type="fan")) == 180
+    assert remind_minutes(piece(type="iron")) == 60 and remind_minutes(piece(type="hair_straightener")) == 60
+    assert remind_minutes(piece(type="kettle")) is None and remind_minutes(piece(type="kettle", remind=30)) == 30
+    assert remind_minutes(heater(remind=False)) is None
+
+
+def test_heater_left_on_reminds_once_and_bypasses_quiet(tmp_path):
+    r = Rig(tmp_path, furniture=[heater(label="Bedroom heater")])
+    r.feed(1500, 179)
+    assert r.pushes == []
+    r.feed(1500, 1.5)
+    assert len(r.pushes) == 1 and r.categories == ["safety"]
+    p = r.pushes[0]
+    assert p["title"] == "Bedroom heater has been on for 3 h" and p["entity_id"] == "switch.fan"
+    assert p["actions"] == [{"action": "off", "title": "Turn off"}] and p["url"] == "/?dev=switch.fan"
+    r.feed(1500, 300)
+    r.feed(0.5, 30)                  # thermostat satisfied for a long time: still no second push
+    r.feed(1500, 300)
+    assert len(r.pushes) == 1
+    r.feed(0, 1, state="off")        # off re-arms
+    r.feed(1500, 181)
+    assert len(r.pushes) == 2
+
+
+def test_thermostat_dips_dont_reset_but_a_long_quiet_does(tmp_path):
+    r = Rig(tmp_path, furniture=[heater(remind=60)])
+    for _ in range(6):               # 6 × (8 min heating + 2 min thermostat off) = 60 min
+        r.feed(1500, 8)
+        r.feed(0.4, 2)
+    r.feed(1500, 0.5)
+    assert len(r.pushes) == 1
+    r2 = Rig(tmp_path / "b", furniture=[heater(remind=60)])
+    r2.feed(1500, 40)
+    r2.feed(0.4, 11)                 # quiet for over 10 min: the run is over
+    r2.feed(1500, 40)
+    assert r2.pushes == []
+
+
+def test_left_on_survives_restart_without_double_send(tmp_path):
+    r = Rig(tmp_path, furniture=[piece(type="iron", plug="switch.fan")])
+    r.feed(1200, 40)
+    r.make()                         # restart after 40 min: the timer carries on
+    r.feed(1200, 21)
+    assert len(r.pushes) == 1 and r.categories == ["safety"] and r.pushes[0]["title"] == "Iron has been on for 1 h"
+    r.make()
+    r.feed(1200, 120)
+    assert len(r.pushes) == 1
+
+
+def test_fan_reminder_goes_through_quiet_hours_and_can_be_off(tmp_path):
+    r = Rig(tmp_path, furniture=[piece(type="fan", plug="switch.fan")])
+    r.feed(35, 181)
+    assert r.categories == ["appliance"] and r.pushes[0]["title"] == "Fan has been on for 3 h"
+    r = Rig(tmp_path / "b", furniture=[piece(type="fan", plug="switch.fan", remind=False)])
+    r.feed(35, 600)
+    assert r.pushes == [] and r.app.left == {}
+
+
+def test_safety_category_bypasses_quiet_hours(tmp_path):
+    from backend.quiet import BYPASS
+    assert "safety" in BYPASS and "appliance" not in BYPASS
+
+
+def test_turn_off_endpoint_only_turns_off(client, fake_ha):
+    r = client.post("/api/devices/switch.fan/turn_off")
+    assert r.status_code == 200
+    assert fake_ha.service_calls()[-1] == ("/api/services/switch/turn_off", {"entity_id": "switch.fan"})
+    assert client.post("/api/devices/switch.nope/turn_off").status_code == 404
+    assert client.post("/api/devices/climate.lounge_valve/turn_off").status_code == 400
+    import base64
+    from fastapi.testclient import TestClient
+    anon = TestClient(client.app)
+    assert anon.post("/api/devices/switch.fan/turn_off").status_code == 401
+
+
+# ---------------- stats from history ----------------
+from datetime import timedelta, timezone  # noqa: E402
+
+from backend.appliance_stats import ApplianceStats, compute, find_cycles  # noqa: E402
+
+UTC = timezone.utc
+NOW = datetime(2026, 10, 14, 12, 0, tzinfo=LON)  # Wednesday; this week from Mon 12 Oct, last week from Mon 5 Oct
+
+
+def segs_from(points, end=NOW):
+    """[(datetime, W)] -> power segments in ms."""
+    out = []
+    for i, (t, v) in enumerate(points):
+        t1 = points[i + 1][0] if i + 1 < len(points) else end
+        out.append((int(t.timestamp() * 1000), int(t1.timestamp() * 1000), v))
+    return out
+
+
+def wash(day, hour, mins=90, kw=1.0):
+    """A cycle: 10 min at 2 kW, a 2 min soak at 2 W (under the 3 min that would end it), then at kw kW, then 1 W."""
+    t = datetime(2026, 10, day, hour, tzinfo=LON)
+    return [(t, 2000.0), (t + timedelta(minutes=10), 2.0), (t + timedelta(minutes=12), kw * 1000),
+            (t + timedelta(minutes=mins), 1.0)]
+
+
+def test_cycle_stats_this_and_last_week():
+    pts = [(datetime(2026, 10, 5, 0, tzinfo=LON), 1.0)]
+    for d, h in ((6, 9), (8, 18), (10, 10)):        # last week: 3 cycles
+        pts += wash(d, h)
+    for d, h in ((12, 8), (13, 20)):                # this week: 2
+        pts += wash(d, h)
+    pts += [(datetime(2026, 10, 14, 11, 50, tzinfo=LON), 500.0)]  # running now: not counted
+    segs = segs_from(pts)
+    assert len(find_cycles(segs, APPLIANCES["washer"][3])) == 5
+    out = compute(piece(plug="switch.fan"), segs, NOW, LON, 25.0)
+    c = out["cycles"]
+    assert (c["this_week"], c["last_week"], c["avg_min"]) == (2, 3, 90)
+    # 10 min × 2 kW + 2 min × 2 W + 78 min × 1 kW = 0.3333 + 0.0001 + 1.3
+    assert c["kwh_per_cycle"] == pytest.approx(1.633, abs=0.001) and c["cost_per_cycle_p"] == pytest.approx(40.84, abs=0.01)
+    assert compute(piece(plug="switch.fan"), segs, NOW, LON, None)["cycles"]["cost_per_cycle_p"] is None
+
+
+def test_kettle_boils_today_and_week():
+    pts = [(datetime(2026, 10, 11, 0, tzinfo=LON), 0.0)]
+    for d, h in ((11, 8), (12, 7), (12, 17), (13, 7), (14, 7), (14, 10)):   # Sunday's is last week
+        t = datetime(2026, 10, d, h, tzinfo=LON)
+        pts += [(t, 2100.0), (t + timedelta(minutes=3), 0.0)]
+    pts.insert(5, (datetime(2026, 10, 12, 17, 1, tzinfo=LON), None))         # a gap mid-boil is still one boil
+    out = compute(piece(type="kettle", plug="switch.fan"), segs_from(pts), NOW, LON, 25.0)
+    assert out["uses"] == {"label": "Boils", "today": 2, "week": 5}
+
+
+def test_heater_hours_and_cost():
+    pts = [(datetime(2026, 10, 11, 0, tzinfo=LON), 0.0), (datetime(2026, 10, 12, 18, tzinfo=LON), 1000.0),
+           (datetime(2026, 10, 12, 21, tzinfo=LON), 0.0), (datetime(2026, 10, 14, 9, tzinfo=LON), 1000.0),
+           (datetime(2026, 10, 14, 9, 30, tzinfo=LON), 0.0)]
+    out = compute(heater(), segs_from(pts), NOW, LON, 30.0)
+    assert out["hours_week"] == 3.5 and out["week"] == {"kwh": 3.5, "cost_p": 105.0}
+
+
+def test_fridge_average_per_day():
+    pts, t = [], datetime(2026, 10, 7, 0, tzinfo=LON)
+    while t < NOW:                                    # 15 min an hour at 80 W, else 2 W: 0.5 + 0.036 kWh a day
+        pts += [(t, 80.0), (t + timedelta(minutes=15), 2.0)]
+        t += timedelta(hours=1)
+    out = compute(piece(type="fridge", plug="switch.fan"), segs_from(pts), NOW, LON, 20.0)
+    assert out["daily"]["days"] == 7.0 and out["daily"]["kwh"] == pytest.approx(0.516, abs=0.001)
+    assert out["daily"]["cost_p"] == pytest.approx(10.32, abs=0.01)
+
+
+def test_stats_fetch_and_cache():
+    class HA:
+        calls = []
+
+        async def history(self, start, end, ids):
+            self.calls.append((start, end, ids))
+            t = datetime(2026, 10, 13, 7, tzinfo=LON)
+            return [[{"entity_id": "sensor.k_power", "state": "0", "last_changed": datetime(2026, 10, 5, tzinfo=LON).isoformat()},
+                     {"state": "2100", "last_changed": t.isoformat()},
+                     {"state": "0", "last_changed": (t + timedelta(minutes=3)).isoformat()}]]
+    from backend.discovery import Device
+    ha, mono = HA(), Clock(0.0)
+    s = ApplianceStats(ha, LON, mono, lambda: NOW)
+    dev = Device("switch.k", "plug", "Kettle", "P110", related={"power": "sensor.k_power"})
+    f = piece(type="kettle", plug="switch.k")
+    out = asyncio.run(s.stats(f, dev, {"settings": {"energy": {"rate_p": 24.0}}}))
+    assert out["uses"] == {"label": "Boils", "today": 0, "week": 1} and out["rate_p"] == 24.0
+    assert ha.calls[0][0] == datetime(2026, 10, 5, tzinfo=LON).astimezone(UTC) and ha.calls[0][2] == ["sensor.k_power"]
+    asyncio.run(s.stats(f, dev, {"settings": {"energy": {"rate_p": 24.0}}}))
+    assert len(ha.calls) == 1                         # cached
+    mono.t = 121
+    asyncio.run(s.stats(f, dev, {"settings": {"energy": {"rate_p": 24.0}}}))
+    assert len(ha.calls) == 2
+    nop = asyncio.run(s.stats(f, Device("switch.x", "plug", "X", "TP11"), {}))
+    assert nop["no_power"] is True
+
+
+def test_stats_api(client, fake_ha):
+    base = {"unit": "m", "rooms": [], "placements": []}
+    assert client.put("/api/layout", json={**base, "furniture": [piece("k", "kettle", plug="switch.kettle")]}).status_code == 200
+    fake_ha.history = [[{"entity_id": "sensor.kettle_current_consumption", "state": "0",
+                         "last_changed": "2020-01-01T00:00:00+00:00"}]]
+    r = client.get("/api/appliances/k/stats")
+    assert r.status_code == 200, r.text
+    assert r.json()["uses"] == {"label": "Boils", "today": 0, "week": 0}
+    assert client.get("/api/appliances/nope/stats").status_code == 404

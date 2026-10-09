@@ -8,7 +8,8 @@ from fastapi.responses import FileResponse, JSONResponse, Response, StreamingRes
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from .appliances import protected_plugs
+from .appliances import linked, protected_plugs
+from .appliance_stats import ApplianceStats
 from .alerts import Alerts, AlertStore, Pusher, SettingsError, load_vapid, validate_settings, validate_subscription, webpush_sender
 from .automations import Automations, AutoStore
 from .auth import COOKIE, SESSION_TTL, AuthMiddleware, RateLimiter, Sessions, check_basic_auth, check_credentials, client_key, is_https, load_secret  # noqa: F401
@@ -182,6 +183,7 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
                               clock=clock)
     app.state.automations = automations
     history = History(ha)
+    appliance_stats = ApplianceStats(ha)
 
     @app.get("/api/history/{entity_id}")
     async def get_history(entity_id: str, range: str = "24h"):
@@ -326,6 +328,18 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
         items = {e: build_device(d, live.states) for e, d in live.devices.items() if d.kind == "plug"}
         return automations.appliances.public(items)
 
+    @app.get("/api/appliances/{fid}/stats")
+    async def appliance_stats_api(fid: str):
+        """Usage from HA history for one linked appliance: cycles, boils, hours on, kWh and cost."""
+        layout = store.get()
+        f = next((x for x in linked(layout) if x["id"] == fid), None)
+        if f is None:
+            raise HTTPException(404, "no linked appliance with that id")
+        dev = (await devices()).get(f["plug"])
+        if dev is None:
+            raise HTTPException(404, "its plug isn't in Home Assistant right now")
+        return await appliance_stats.stats(f, dev, layout)
+
     @app.get("/api/summary/latest")
     async def summary_latest():
         s = automations.store.latest_summary()
@@ -368,6 +382,13 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
         await require(entity_id, ("light", "plug", "dehumidifier"))
         # light.* / switch.* (plugs, switch-only dehumidifiers) / humidifier.*
         await ha.call_service(entity_id.split(".", 1)[0], "toggle", {"entity_id": entity_id})
+        return {"ok": True}
+
+    @app.post("/api/devices/{entity_id}/turn_off")
+    async def turn_off(entity_id: str):
+        """Only ever switches OFF (the "Turn off" button on a left-on reminder push; session cookie as everywhere)."""
+        await require(entity_id, ("light", "plug"))
+        await ha.call_service(entity_id.split(".", 1)[0], "turn_off", {"entity_id": entity_id})
         return {"ok": True}
 
     async def dehum_item(entity_id: str) -> dict:

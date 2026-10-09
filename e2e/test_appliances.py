@@ -100,6 +100,8 @@ def test_add_link_rename_save(appliance_stack, aha, open_page, size):
         expect(page.locator("#furSheet")).to_be_visible()
         item = page.locator(f'#furGrid .fur-item[data-type="{t}"]')
         expect(item.locator(".appl-badge")).to_have_count(1)  # appliance-capable
+        expect(page.locator('#furGrid .fur-item[data-type="iron"] .appl-badge')).to_have_count(1)
+        expect(page.locator('#furGrid .fur-item[data-type="hair_straightener"] .appl-badge')).to_have_count(1)
         item.scroll_into_view_if_needed()
         press(page, f'#furGrid .fur-item[data-type="{t}"]')
         expect(page.locator("#furSheet")).to_be_hidden()
@@ -421,3 +423,64 @@ def test_room_view_and_wall_mode(appliance_stack, aha, open_page, size):
     shot(page, f"appliances-wall-{size}")
     tap(page, *appl_center(page, "fan"))
     aha.wait_call(lambda c: c["data"] == {"entity_id": "switch.plug_3"})
+
+
+# ---------------- left-on reminders, Turn off, usage stats ----------------
+def test_remind_setting_in_sheet(appliance_stack, aha, open_page):
+    page = open_page(appliance_stack, layout=LINKED)
+    hold(page, appl(page, "fan").locator(".appl-hit"), 700)
+    cb, sel = page.locator("#applRemind"), page.locator("#applRemindFor")
+    expect(cb).to_be_checked()                       # fans remind after 3 h by default
+    expect(sel).to_have_value("180")
+    sel.select_option("60")
+    page.wait_for_function("st.layout.furniture.find((f) => f.id === 'fan').remind === 60")
+    assert by_id(stored(page, appliance_stack), "fan")["remind"] == 60
+    page.locator("#applRemind").uncheck()
+    page.wait_for_function("st.layout.furniture.find((f) => f.id === 'fan').remind === false")
+    expect(page.locator("#applRemindFor")).to_be_disabled()
+    page.locator("#applRemind").check()              # back to the default: stored as no setting
+    page.locator("#applRemindFor").select_option("180")
+    page.wait_for_function("!('remind' in st.layout.furniture.find((f) => f.id === 'fan'))")
+    page.click("#sheetClose")
+    # Washers have cycles instead, fridges are always on: no reminder there.
+    hold(page, page.locator('#appliances .appl[data-appl="fridge"] .appl-hit'), 700)
+    expect(page.locator("#sheetContent .appl-sec")).to_be_visible()
+    expect(page.locator("#applRemind")).to_have_count(0)
+
+
+def test_turn_off_endpoint_and_dev_deep_link(appliance_stack, aha, open_page):
+    page = open_page(appliance_stack, layout=LINKED)
+    r = page.request.post(appliance_stack.url + "/api/devices/switch.tv/turn_off")
+    assert r.ok
+    call = aha.wait_call(lambda c: c["data"] == {"entity_id": "switch.tv"})[0]
+    assert (call["domain"], call["service"]) == ("switch", "turn_off")
+    assert page.request.post(appliance_stack.url + "/api/devices/climate.lounge_valve/turn_off").status == 400
+    # Tapping the reminder (or Turn off while signed out) opens the app on that plug's sheet.
+    page.goto(appliance_stack.url + "/?dev=switch.plug_3")
+    expect(page.locator("#sheet")).to_be_visible()
+    expect(page.locator("#sheetContent h3")).to_have_text(re.compile("Plug 3|Fan"))
+    assert "dev=" not in page.url
+    assert toggles(aha, "switch.plug_3") == []
+
+
+@pytest.mark.parametrize("size", ["desktop", "mobile"])
+def test_usage_stats_in_sheet(appliance_stack, aha, open_page, size):
+    layout = {**LINKED, "settings": {"keep_on": [], "energy": {"rate_p": 25.0, "standing_p": None}}}
+    page = open_page(appliance_stack, size, layout=layout)
+    long_press(page, *plan_xy(page, 6.5, 1.6))       # washer
+    stats = page.locator("#sheetContent .appl-stats")
+    expect(stats).to_contain_text(re.compile(r"Cycles\s*\d+ this week · \d+ last week"))
+    expect(stats).to_contain_text("Average cycle")
+    expect(stats).to_contain_text("2 h · 2.50 kWh · 63p")  # 1 h at 2 kW + 1 h at 500 W, at 25p
+    shot(page, f"appliances-stats-washer-{size}")
+    no_hscroll(page)
+    page.click("#sheetClose") if size == "desktop" else page.tap("#sheetClose")
+    expect(page.locator("#sheet")).to_be_hidden()
+    long_press(page, *appl_center(page, "kettle"))
+    expect(page.locator("#sheetContent .appl-stats")).to_contain_text(re.compile(r"Boils\s*\d+ today · \d+ this week"))
+    page.click("#sheetClose") if size == "desktop" else page.tap("#sheetClose")
+    long_press(page, *appl_center(page, "fridge"))
+    expect(page.locator("#sheetContent .appl-stats")).to_contain_text(re.compile(r"Per day\s*\d+\.\d\d kWh · \d+p \(7-day average\)"))
+    page.click("#sheetClose") if size == "desktop" else page.tap("#sheetClose")
+    long_press(page, *appl_center(page, "fan"))
+    expect(page.locator("#sheetContent .appl-stats")).to_contain_text("On this week")

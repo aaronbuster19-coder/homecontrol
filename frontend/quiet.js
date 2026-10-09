@@ -10,7 +10,7 @@
       <label class="quiet-times">From <input type="time" id="quietFrom" step="60"> to <input type="time" id="quietTo" step="60"></label>
     </div>
     <p class="hint">Battery, offline, window, appliance and weekly-summary pushes wait and arrive as one “While you were asleep” push
-      when quiet hours end. Door alerts and the test always come through.</p>
+      when quiet hours end. Door alerts, the test and heater / iron left-on reminders always come through.</p>
     <div class="row alert-dev"><button type="button" id="mute1h">Mute 1 h</button><button type="button" id="muteMorning">Mute until morning</button></div>
     <p class="hint quiet-state" id="quietState"><span id="quietText"></span> <button type="button" id="muteCancel" class="linkish" hidden>Cancel mute</button></p>`;
   el("alertTest").before(sec);

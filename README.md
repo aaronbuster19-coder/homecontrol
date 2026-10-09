@@ -154,8 +154,8 @@ A fan, kettle, washing machine or fridge on the plan can be **linked to the smar
 then becomes the control and shows what the appliance is doing, read from the plug's power. Nothing is ever switched
 automatically — the status is read-only inference, and only your taps switch plugs.
 
-- **Types:** fan, floor lamp, TV, heater, kettle, microwave, coffee machine, toaster, dishwasher, tumble dryer and
-  freezer (in the catalogue's *Appliances* group), plus the fridge and washing machine. Appliance-capable pieces carry a
+- **Types:** fan, floor lamp, TV, heater, kettle, microwave, coffee machine, toaster, dishwasher, tumble dryer,
+  freezer, iron and hair straightener (in the catalogue's *Appliances* group), plus the fridge and washing machine. Appliance-capable pieces carry a
   small plug badge in the catalogue.
 - **Link:** in edit mode select the piece → **Link plug** → pick a plug (its name, current watts, and which appliance
   it's already linked to — one plug links to one appliance, so picking a taken plug moves the link) or *None*. If the
@@ -174,6 +174,7 @@ automatically — the status is read-only inference, and only your taps switch p
   |---|---|
   | Kettle | *Boiling…* over 1000 W, else *Idle* |
   | Microwave / coffee machine / toaster | *Heating… / Brewing… / Toasting…* over 300 W |
+  | Iron / hair straightener | *Heating* over 100 W / 15 W, else *Ready* |
   | Heater | *Heating* over 100 W · TV: *On* over 15 W, else *Standby* |
   | Fridge / freezer | *Cooling* while the compressor draws over 30 W, else *Idle* |
   | Fan / floor lamp | *On · 35 W* |
@@ -185,13 +186,31 @@ automatically — the status is read-only inference, and only your taps switch p
   timer starts again from what it sees after the restart); switching the plug off mid-cycle ends the cycle without a
   push. It's held during quiet hours / mute and arrives in the morning digest. Toggle: bell sheet → *Appliances*
   (default on).
+- **Left on too long:** *Remind me if on longer than …* in the appliance section (15 min – 24 h). On by default for
+  heaters and fans (3 h) and irons and hair straighteners (1 h), off for the rest (cycle appliances and fridges have
+  none). When the plug has been on and drawing power (over 3 W; thermostat pauses under 10 min don't break the run)
+  that long, **one** push: “Heater has been on for 3 h”, with a **Turn off** button. Heater, iron and straightener
+  reminders are safety pushes and come through quiet hours like door alerts; the others are held. It reminds again
+  only after the plug has been off. Timers live in SQLite and carry on across a restart. *Turn off* calls
+  `POST /api/devices/{id}/turn_off` (only ever off, with the app's sign-in cookie); signed out, or if that fails, it
+  opens the app on the plug's sheet (`/?dev=switch.heater`, also what tapping the push itself does). Nothing is
+  switched without that tap.
+- **Usage** in the appliance section, from Home Assistant's power history (cached 2 min; costs only with a unit rate,
+  see *Energy costs*): washer / dryer / dishwasher — cycles this week and last week, average cycle length, kWh and cost
+  per cycle (the same cycle rules, replayed over the history); kettle — boils today and this week (microwave, coffee
+  machine, toaster, iron, straightener: uses); fan, heater, floor lamp, TV — hours on this week; fridge / freezer —
+  average kWh and cost per day over the last 7 full days; every appliance — kWh and cost this week. Weeks start on
+  Monday.
 - “All off” and Away leave the plugs of linked fridges and freezers on, like *Keep on* plugs.
 - **Layout JSON:** furniture items gain `"plug": "switch.washer"`, `"hide_marker": true` (default) and optional
-  `"thresholds"` (`on_w`, or `run_w`/`run_min`/`idle_w`/`idle_min`). The plug must be a known plug (or one the stored
+  `"thresholds"` (`on_w`, or `run_w`/`run_min`/`idle_w`/`idle_min`) and `"remind"` (minutes, or `false`; absent = the
+  type's default). The plug must be a known plug (or one the stored
   layout already links) and unique; an older app that saves furniture without `plug` keeps the stored links (send
   `"plug": null` to unlink). *Import without unknown devices* drops links to unknown plugs and keeps the pieces.
 - API: `GET /api/appliances` → `{"now", "appliances": {furniture id: {"plug", "type", "status", "phase"?,
-  "run_start"?, "finished_at"?}}}`; the SSE stream sends `appliances` events when a cycle changes.
+  "run_start"?, "finished_at"?}}}`; the SSE stream sends `appliances` events when a cycle changes;
+  `GET /api/appliances/{furniture id}/stats` → `{"week": {"kwh", "cost_p"}, "cycles"? | "uses"? | "hours_week"? |
+  "daily"?}`; `POST /api/devices/{entity_id}/turn_off`.
 
 ## Dehumidifier
 
@@ -451,7 +470,8 @@ so they work with the app closed.
 In the bell sheet. During quiet hours (default on, 23:00–07:00, set *From*/*To*) or a mute, the automations' pushes
 — low battery, offline/back online, window open → radiator off, weekly summary, “Washing finished” — are held (in SQLite, so they survive
 a restart; the same message twice is kept once) and arrive as **one** push, “While you were asleep”, when quiet hours
-or the mute end. **Door-open alerts and *Send test notification* always come through.**
+or the mute end. **Door-open alerts, *Send test notification* and heater / iron / straightener left-on reminders
+always come through.**
 
 - *Mute 1 h* / *Mute until morning* (until the quiet-hours end time) hold the same pushes outside quiet hours; the
   active mute is shown with *Cancel mute*. The automations themselves (e.g. radiators down) keep running.
@@ -468,7 +488,8 @@ or the mute end. **Door-open alerts and *Send test notification* always come thr
 `POST /api/push/test` · `GET`/`PUT /api/alerts/settings` `{"enabled", "door_open_minutes", "notify_on_close",
 "window_heating_enabled", "window_open_minutes", "window_off_temp", "window_notify", "health_battery", "health_unavailable",
 "health_unavailable_minutes", "weekly_summary", "quiet_hours", "quiet_from", "quiet_to", "mute_until", "dehumidifier_tank",
-"appliance_done"}` (partial updates) · `GET /api/appliances` ·
+"appliance_done"}` (partial updates) · `GET /api/appliances` · `GET /api/appliances/{id}/stats` ·
+`POST /api/devices/{entity_id}/turn_off` ·
 `GET /api/alerts/quiet` · `POST /api/alerts/mute` · `GET`/`POST /api/schedules` · `PUT`/`DELETE /api/schedules/{id}` ·
 `PUT /api/schedules/settings` · `GET /api/automations/status` (`windows_linked`, `held`) ·
 `GET /api/summary/latest` (404 until the first one) · `POST /api/summary/preview` ·

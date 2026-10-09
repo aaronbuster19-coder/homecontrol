@@ -185,6 +185,10 @@ async def service(domain: str, service: str, request: Request):
 LONDON = ZoneInfo("Europe/London")
 POWER = {"sensor.tv_power": lambda h: 86.4 if 18 <= h < 23 else 4.0,
          "sensor.kettle_power": lambda h: 2000.0 if h == 8 else 0.0}
+if APPLIANCE_PLUGS:  # a 2 h wash every day (09:00 2 kW, 10:00 500 W), a fridge compressor every third hour, a fan 13–16
+    POWER.update({"sensor.washer_power": lambda h: 2000.0 if h == 9 else 500.0 if h == 10 else 1.0,
+                  "sensor.fridge_power": lambda h: 80.0 if h % 3 == 0 else 2.0,
+                  "sensor.plug_3_power": lambda h: 35.0 if 13 <= h < 16 else 0.0})
 
 
 def _rows(eid: str, start: datetime, end: datetime, with_attrs: bool) -> list[dict]:

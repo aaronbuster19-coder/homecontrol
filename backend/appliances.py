@@ -27,6 +27,8 @@ APPLIANCES = {
     "microwave": ("busy", "Heating…", "Idle", {"on_w": 300.0}),
     "coffee_machine": ("busy", "Brewing…", "Idle", {"on_w": 300.0}),
     "toaster": ("busy", "Toasting…", "Idle", {"on_w": 300.0}),
+    "iron": ("busy", "Heating", "Ready", {"on_w": 100.0}),
+    "hair_straightener": ("busy", "Heating", "Ready", {"on_w": 15.0}),
     "fridge": ("busy", "Cooling", "Idle", {"on_w": 30.0}),
     "freezer": ("busy", "Cooling", "Idle", {"on_w": 30.0}),
     "washer": ("cycle", None, None, CYCLE_DEFAULTS),
@@ -40,6 +42,14 @@ TYPE_NAME = {"washer": "Washing machine", "dryer": "Tumble dryer", "dishwasher":
 THRESHOLD_RANGE = {"on_w": (0.5, 5000.0), "run_w": (0.5, 5000.0), "idle_w": (0.1, 5000.0),
                    "run_min": (0.5, 60.0), "idle_min": (0.5, 120.0)}
 FINISHED_FOR = 2 * 3600  # "Finished 12 min ago" this long, then "Idle"
+
+# Left-on reminders: types that remind by default and after how long (minutes); every other non-cycle, non-fridge
+# appliance can be switched on per link (layout "remind": minutes, or false for off).
+REMIND_DEFAULT = {"heater": 180, "fan": 180, "iron": 60, "hair_straightener": 60}
+REMIND_RANGE = (15, 24 * 60)
+SAFETY = ("heater", "iron", "hair_straightener")  # their reminders bypass quiet hours, like door alerts
+LEFT_W = 3.0       # "drawing": above this; a heater or iron thermostat dropping below it for a while doesn't count…
+LEFT_GRACE = 600   # …unless it stays below for 10 min, which ends the run (re-armed only once the plug is off)
 
 
 class ThresholdError(ValueError):
@@ -71,6 +81,33 @@ def validate_thresholds(t, ftype: str) -> dict:
     return out
 
 
+def remind_ok(ftype: str) -> bool:
+    return ftype in APPLIANCES and APPLIANCES[ftype][0] != "cycle" and ftype not in PROTECTED
+
+
+def validate_remind(v, ftype: str):
+    """Layout "remind": absent/None = the type's default, false = off, minutes (15–1440) = on."""
+    if v is None:
+        return None
+    if not remind_ok(ftype):
+        raise ThresholdError(f"a {ftype} has no left-on reminder")
+    if v is False:
+        return False
+    if isinstance(v, bool) or not isinstance(v, int) or not REMIND_RANGE[0] <= v <= REMIND_RANGE[1]:
+        raise ThresholdError(f"remind must be false or {REMIND_RANGE[0]}–{REMIND_RANGE[1]} minutes")
+    return v
+
+
+def remind_minutes(f: dict) -> int | None:
+    """Effective left-on reminder for a linked piece, None when off."""
+    if not remind_ok(f["type"]):
+        return None
+    v = f.get("remind")
+    if v is False:
+        return None
+    return v if isinstance(v, int) and not isinstance(v, bool) else REMIND_DEFAULT.get(f["type"])
+
+
 def thresholds(f: dict) -> dict:
     return {**APPLIANCES[f["type"]][3], **(f.get("thresholds") or {})}
 
@@ -87,6 +124,13 @@ def protected_plugs(layout: dict) -> set[str]:
 
 def fmt_w(w: float) -> str:
     return f"{round(w)} W" if w >= 100 else f"{round(w * 10) / 10:g} W"
+
+
+def fmt_hm(mins: int) -> str:
+    """180 -> "3 h", 90 -> "1 h 30 min", 45 -> "45 min"."""
+    if mins < 60:
+        return f"{mins} min"
+    return f"{mins // 60} h {mins % 60} min" if mins % 60 else f"{mins // 60} h"
 
 
 def fmt_dur(secs: float) -> str:
@@ -160,11 +204,34 @@ def step(c: dict, item: dict | None, th: dict, now: float) -> str | None:
 PERSISTED = ("phase", "run_start", "finished_at", "notified")
 
 
+def left_step(c: dict, item: dict | None, now: float, minutes: int) -> bool:
+    """Advance a left-on timer. c: {"since": start of the drawing run, "low_since", "sent"}. True = remind now."""
+    state = (item or {}).get("state")
+    if state == "off":  # switched off: re-armed
+        c.update(since=None, low_since=None, sent=False)
+        return False
+    p = (item or {}).get("power")
+    if state != "on" or p is None:
+        return False  # offline / no reading: hold
+    if p > LEFT_W:
+        c["low_since"] = None
+        c["since"] = c.get("since") or now
+    else:
+        c["low_since"] = c.get("low_since") or now
+        if now - c["low_since"] >= LEFT_GRACE:
+            c["since"] = None  # it stopped drawing; still needs an off before it can remind again
+    if c.get("since") is not None and not c.get("sent") and now - c["since"] >= minutes * 60:
+        c["sent"] = True
+        return True
+    return False
+
+
 class Appliances:
     """Cycle trackers for linked washers / dryers / dishwashers, keyed "<furniture id>|<plug>".
 
     store: AutoStore; layout: callable -> layout; items: callable -> {plug entity id: device item};
-    notify: async fn(payload) (quiet hours apply); publish: fn(public state) for the SSE stream."""
+    notify: async fn(payload, category) — "appliance" goes through quiet hours, "safety" (heater / iron left on) doesn't;
+    publish: fn(public state) for the SSE stream. Also runs the left-on reminders."""
 
     def __init__(self, store, settings, layout, notify, publish=None, clock=None):
         self.store, self.settings, self.layout, self.notify, self.publish = store, settings, layout, notify, publish
@@ -173,7 +240,10 @@ class Appliances:
         # Busy / quiet timers start afresh: what happened while we were down is unknown.
         self.cycles: dict[str, dict] = {k: {**{p: v.get(p) for p in PERSISTED}, "high_since": None, "low_since": None}
                                         for k, v in saved.items() if isinstance(v, dict) and v.get("phase") in ("idle", "running", "finished")}
-        self.pending: list[dict] = []
+        # Left-on timers survive a restart: a heater on for 2 h before it is still on for 2 h after.
+        self.left: dict[str, dict] = {k: {"since": v.get("since"), "sent": bool(v.get("sent")), "low_since": None}
+                                      for k, v in (store.get("appliance_left_on", {}) or {}).items() if isinstance(v, dict)}
+        self.pending: list[tuple[dict, str]] = []
 
     @staticmethod
     def key(f: dict) -> str:
@@ -181,6 +251,26 @@ class Appliances:
 
     def _save(self) -> None:
         self.store.put("appliance_cycles", {k: {p: c.get(p) for p in PERSISTED} for k, c in self.cycles.items()})
+
+    def _save_left(self) -> None:
+        self.store.put("appliance_left_on", {k: {"since": c.get("since"), "sent": c.get("sent", False)} for k, c in self.left.items()})
+
+    def _left_pieces(self, layout=None) -> list[dict]:
+        return [f for f in linked(layout or self.layout()) if remind_minutes(f)]
+
+    def _advance_left(self, f: dict, item: dict | None, now: float) -> bool:
+        c = self.left.setdefault(self.key(f), {"since": None, "low_since": None, "sent": False})
+        before = (c.get("since"), c.get("sent"))
+        mins = remind_minutes(f)
+        if left_step(c, item, now, mins):
+            name = f.get("label") or TYPE_NAME.get(f["type"]) or f["type"].replace("_", " ").capitalize()
+            log.info("appliance %s (%s) left on for %s", f["id"], f["plug"], fmt_hm(mins))
+            self.pending.append(({"title": f"{name} has been on for {fmt_hm(mins)}",
+                                  "body": "Still on and drawing power. Turn it off?",
+                                  "tag": f"lefton-{f['id']}", "url": f"/?dev={f['plug']}", "entity_id": f["plug"],
+                                  "actions": [{"action": "off", "title": "Turn off"}]},
+                                 "safety" if f["type"] in SAFETY else "appliance"))
+        return before != (c.get("since"), c.get("sent"))
 
     def _cycle_pieces(self, layout=None) -> list[dict]:
         return [f for f in linked(layout or self.layout()) if APPLIANCES[f["type"]][0] == "cycle"]
@@ -197,8 +287,8 @@ class Appliances:
             if self.settings().get("appliance_done", True):
                 mins = fmt_dur(c["finished_at"] - c["run_start"])
                 name = f.get("label") or TYPE_NAME[f["type"]]
-                self.pending.append({"title": DONE_TITLE[f["type"]], "body": f"{name} ran {mins}.",
-                                     "tag": f"appliance-{f['id']}", "url": "/"})
+                self.pending.append(({"title": DONE_TITLE[f["type"]], "body": f"{name} ran {mins}.",
+                                      "tag": f"appliance-{f['id']}", "url": "/"}, "appliance"))
         return True
 
     def observe(self, item: dict) -> bool:
@@ -206,13 +296,15 @@ class Appliances:
         Returns True when the automations loop should run (a push is waiting)."""
         if item.get("kind") != "plug":
             return False
-        pieces = [f for f in self._cycle_pieces() if f["plug"] == item["entity_id"]]
-        if not pieces:
-            return False
-        now = self.clock()
-        if [f for f in pieces if self._advance(f, item, now)]:
-            self._save()
-        self._publish()  # with every new reading: browsers keep the server's clock for "Running 47 min"
+        layout, now = self.layout(), self.clock()
+        left = [f for f in self._left_pieces(layout) if f["plug"] == item["entity_id"]]
+        if [f for f in left if self._advance_left(f, item, now)]:
+            self._save_left()
+        pieces = [f for f in self._cycle_pieces(layout) if f["plug"] == item["entity_id"]]
+        if pieces:
+            if [f for f in pieces if self._advance(f, item, now)]:
+                self._save()
+            self._publish()  # with every new reading: browsers keep the server's clock for "Running 47 min"
         return bool(self.pending)
 
     async def tick(self, items: dict) -> None:
@@ -230,9 +322,19 @@ class Appliances:
             self._save()
         if changed:
             self._publish()
+        left = self._left_pieces(layout)
+        left_changed = False
+        for f in left:
+            left_changed |= self._advance_left(f, items.get(f["plug"]), now)
+        keep = {self.key(f) for f in left}
+        for k in [k for k in self.left if k not in keep]:  # unlinked, or the reminder switched off: forget the timer
+            del self.left[k]
+            left_changed = True
+        if left_changed:
+            self._save_left()
         pending, self.pending = self.pending, []
-        for p in pending:
-            await self.notify(p)
+        for p, category in pending:
+            await self.notify(p, category)
 
     def public(self, items: dict | None = None) -> dict:
         """GET /api/appliances and the SSE "appliances" event: per furniture id, the cycle and (with items) the status."""

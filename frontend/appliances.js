@@ -4,6 +4,7 @@
 // from the power ("Boiling…", "Running 47 min"). Tap = toggle the plug, except fridges/freezers and keep-on plugs: those
 // open the plug sheet, where switching off asks first. Long-press = plug sheet. The plug's own marker is hidden unless
 // the link says otherwise. Edit mode: "Link plug" for a selected appliance, with a one-tap offer to rename the plug.
+// The sheet also has a left-on reminder (pushed by the server with a "Turn off" action, see sw.js) and usage stats.
 // Washer / dryer / dishwasher cycles are tracked by the server (GET /api/appliances, SSE "appliances"), which also sends
 // the "Washing finished" push. Status rules mirror backend/appliances.py. Nothing here ever switches anything by itself.
 // Hooks: renderAppliances, applianceLinked (furniture.js); applianceHidesMarker, applianceFor, applianceIcon,
@@ -19,6 +20,8 @@ const APPLIANCE = { // keep in step with APPLIANCES in backend/appliances.py
   microwave: { rule: "busy", busy: "Heating…", idle: "Idle", th: { on_w: 300 } },
   coffee_machine: { rule: "busy", busy: "Brewing…", idle: "Idle", th: { on_w: 300 } },
   toaster: { rule: "busy", busy: "Toasting…", idle: "Idle", th: { on_w: 300 } },
+  iron: { rule: "busy", busy: "Heating", idle: "Ready", th: { on_w: 100 } },
+  hair_straightener: { rule: "busy", busy: "Heating", idle: "Ready", th: { on_w: 15 } },
   fridge: { rule: "busy", busy: "Cooling", idle: "Idle", th: { on_w: 30 } },
   freezer: { rule: "busy", busy: "Cooling", idle: "Idle", th: { on_w: 30 } },
   washer: { rule: "cycle", th: CYCLE_TH },
@@ -26,6 +29,16 @@ const APPLIANCE = { // keep in step with APPLIANCES in backend/appliances.py
   dishwasher: { rule: "cycle", th: CYCLE_TH },
 };
 const PROTECTED_TYPES = ["fridge", "freezer"];
+// Left-on reminders (backend/appliances.py REMIND_DEFAULT): on by default for these, minutes.
+const REMIND_DEFAULT = { heater: 180, fan: 180, iron: 60, hair_straightener: 60 };
+const REMIND_CHOICES = [15, 30, 45, 60, 90, 120, 180, 240, 360, 480, 720, 1440];
+const SAFETY_TYPES = ["heater", "iron", "hair_straightener"];
+const remindOk = (f) => APPLIANCE[f.type] && APPLIANCE[f.type].rule !== "cycle" && !PROTECTED_TYPES.includes(f.type);
+function remindMinutes(f) {
+  if (!remindOk(f) || f.remind === false) return null;
+  return Number.isInteger(f.remind) ? f.remind : REMIND_DEFAULT[f.type] ?? null;
+}
+const fmtHM = (m) => m < 60 ? `${m} min` : m % 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${Math.floor(m / 60)} h`;
 const FINISHED_FOR = 2 * 3600;
 const TH_LABEL = { on_w: ["Busy above", "W"], run_w: ["Running above", "W"], run_min: ["for", "min"], idle_w: ["Finished below", "W"], idle_min: ["for", "min"] };
 const ap = { cycles: {}, skew: 0, offer: null };
@@ -84,7 +97,10 @@ function setCycles(data) {
   if (!st.drag) render();
   if (st.sheetFor && !st.holdSheet) renderSheet();
 }
-async function loadAppliances() { try { setCycles(await api("/api/appliances")); } catch {} }
+// A background refresh: never redirects to the login page (the device and layout loads take care of that).
+async function loadAppliances() {
+  try { const r = await fetch("/api/appliances"); if (r.ok) setCycles(await r.json()); } catch {}
+}
 function applianceEvents(es) {
   es.addEventListener("appliances", (e) => { try { setCycles(JSON.parse(e.data)); } catch {} });
   es.addEventListener("snapshot", () => loadAppliances());
@@ -199,6 +215,8 @@ function applianceSheet(d, c) {
   lab.append(cb, an("span", null, "Hide plug marker — the appliance is the control"));
   cb.onchange = async () => { if (!await saveLink(f, { hide_marker: cb.checked })) cb.checked = !cb.checked; else setStatus(cb.checked ? "Plug marker hidden" : "Plug marker shown"); };
   sec.append(lab);
+  if (remindOk(f)) sec.append(remindRow(f));
+  applianceStats(f, sec);
   const keys = Object.keys(APPLIANCE[f.type].th);
   if (!keys.length) return;
   const det = an("details", "appl-th"); det.open = !!ap.thOpen;
@@ -237,6 +255,49 @@ function applianceSheet(d, c) {
     else note.textContent = "Not saved — check the numbers.";
   }
   sec.append(det);
+}
+
+// Left-on reminder: "Remind me if on longer than [3 h]". Heaters, irons and straighteners come through quiet hours.
+function remindRow(f) {
+  const row = an("div", "appl-remind"), lab = an("label", "keep-on"), cb = an("input"), sel = an("select");
+  cb.type = "checkbox"; cb.id = "applRemind"; sel.id = "applRemindFor"; sel.setAttribute("aria-label", "Remind after");
+  const mins = remindMinutes(f), def = REMIND_DEFAULT[f.type];
+  cb.checked = mins != null;
+  for (const m of REMIND_CHOICES) sel.append(new Option(fmtHM(m), m));
+  sel.value = String(mins ?? def ?? 60); sel.disabled = !cb.checked;
+  lab.append(cb, an("span", null, "Remind me if on longer than"));
+  row.append(lab, sel);
+  const save = async () => {
+    const m = Number(sel.value);
+    // The type's default is stored as "no setting", so a later change of default applies.
+    const v = !cb.checked ? (def ? false : undefined) : m === def ? undefined : m;
+    if (await saveLink(f, { remind: v })) setStatus(cb.checked ? `Reminder after ${fmtHM(m)} on` : "Reminder off");
+  };
+  cb.onchange = () => { sel.disabled = !cb.checked; save(); };
+  sel.onchange = save;
+  const hint = an("div", "hint", SAFETY_TYPES.includes(f.type) ? "One push, even during quiet hours, with a Turn off button. Again only after it's been off."
+    : "One push (held in quiet hours) with a Turn off button. Again only after it's been off.");
+  const box = an("div", "appl-remind-box"); box.append(row, hint); return box;
+}
+
+// Usage from Home Assistant's history (GET /api/appliances/{id}/stats, cached).
+function applianceStats(f, sec) {
+  if (typeof hFetch !== "function") return;
+  const key = `appl-stats|${f.id}|${f.plug}|${JSON.stringify(f.thresholds || {})}`;
+  const hit = hFetch(key, `/api/appliances/${encodeURIComponent(f.id)}/stats`, 120e3);
+  const box = an("div", "appl-stats"); sec.append(box);
+  if (!hit) { const err = hCache.get(key)?.error; box.append(an("div", "hint", err && !hPending.has(key) ? `Usage: ${err}` : "Loading usage…")); return; }
+  const s = hit.data, money = (p) => (p != null ? ` · ${fmtP(p)}` : "");
+  const row = (label, value) => { const r = an("div", "sum-row"); r.append(an("span", null, label), an("span", null, value)); box.append(r); };
+  if (s.no_power) { box.append(an("div", "hint", "This plug has no power sensor, so there's no usage to show.")); return; }
+  if (s.cycles) {
+    const c = s.cycles;
+    row("Cycles", `${c.this_week} this week · ${c.last_week} last week`);
+    if (c.avg_min != null) row("Average cycle", `${fmtHM(c.avg_min)} · ${c.kwh_per_cycle.toFixed(2)} kWh${money(c.cost_per_cycle_p)}`);
+  } else if (s.uses) row(s.uses.label, `${s.uses.today} today · ${s.uses.week} this week`);
+  else if (s.hours_week != null) row("On this week", `${fmtHM(Math.round(s.hours_week * 60))}`);
+  else if (s.daily) row("Per day", s.daily.kwh != null ? `${s.daily.kwh.toFixed(2)} kWh${money(s.daily.cost_p)} (7-day average)` : "not enough history yet");
+  row("This week", `${s.week.kwh.toFixed(2)} kWh${money(s.week.cost_p)}`);
 }
 
 // ---------- edit mode: Link plug ----------
@@ -317,7 +378,8 @@ function linkDialog() {
   const sec = an("section", "auto-sec"); sec.id = "applSec";
   sec.innerHTML = `<h4>Appliances</h4>
     <label class="check"><input type="checkbox" id="applDone"> Washing machine, dryer or dishwasher finished</label>
-    <p class="hint">Needs the appliance linked to its plug (Edit → select it → Link plug). Held during quiet hours.</p>`;
+    <p class="hint">Needs the appliance linked to its plug (Edit → select it → Link plug). Held during quiet hours.
+      Left-on reminders (heater, fan, iron…) are set per appliance in its sheet.</p>`;
   const anchor = $("quietSec") || $("alertTest"); anchor.before(sec);
   const msg = (text, warn = false) => { $("alertMsg").textContent = text; $("alertMsg").classList.toggle("warn", warn); };
   $("alertsBtn").addEventListener("click", async () => {
@@ -330,3 +392,16 @@ function linkDialog() {
 })();
 
 document.addEventListener("DOMContentLoaded", loadAppliances);
+
+// "/?dev=<entity id>" (a reminder push tapped, or its Turn off when signed out): open that device's sheet.
+function openDevFromUrl(u) {
+  let eid = null;
+  try { eid = new URL(u, location.origin).searchParams.get("dev"); } catch {}
+  if (!eid) return false;
+  let tries = 0;
+  const go = () => { if (st.devices.has(eid)) openSheet(eid); else if (++tries < 50) setTimeout(go, 200); };
+  go();
+  return true;
+}
+if (openDevFromUrl(location.href)) history.replaceState(null, "", location.pathname);
+navigator.serviceWorker?.addEventListener("message", (e) => { if (e.data?.type === "open") openDevFromUrl(e.data.url); });

@@ -55,16 +55,34 @@ self.addEventListener("push", (e) => {
   try { d = e.data ? e.data.json() : {}; } catch { d = { body: e.data && e.data.text() }; }
   e.waitUntil(self.registration.showNotification(d.title || "homecontrol", {
     body: d.body || "", tag: d.tag || "homecontrol", renotify: !!d.tag,
-    icon: "/icons/icon-192.png", badge: "/icons/icon-192.png", data: { url: d.url || "/" },
+    icon: "/icons/icon-192.png", badge: "/icons/icon-192.png", data: { url: d.url || "/", entity_id: d.entity_id || null },
+    actions: Array.isArray(d.actions) ? d.actions.slice(0, 2) : [], // e.g. "Turn off" on a heater left on
   }));
 });
 
+function openApp(url) {
+  return self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((wins) => {
+    const w = wins.find((c) => new URL(c.url).origin === location.origin);
+    if (w) w.postMessage({ type: "open", url }); // e.g. "/?summary" or "/?dev=switch.heater" in the running app
+    return w ? w.focus() : self.clients.openWindow(url);
+  });
+}
+
+// "Turn off" on a left-on reminder: only ever switches OFF, with the session cookie. Signed out (or failing): open
+// the app on that device's sheet instead. Nothing is switched without this explicit tap.
+function turnOff(n) {
+  const eid = n.data.entity_id, url = new URL(n.data.url || "/", location.origin).href;
+  return fetch(`/api/devices/${encodeURIComponent(eid)}/turn_off`, { method: "POST", credentials: "same-origin" })
+    .then((r) => r.ok
+      ? self.registration.showNotification(n.title.replace(/ has been on for .*$/, "") + " turned off",
+        { tag: n.tag, icon: "/icons/icon-192.png", badge: "/icons/icon-192.png", data: { url } })
+      : openApp(url))
+    .catch(() => openApp(url));
+}
+
 self.addEventListener("notificationclick", (e) => {
   e.notification.close();
-  const url = new URL((e.notification.data && e.notification.data.url) || "/", location.origin).href;
-  e.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((wins) => {
-    const w = wins.find((c) => new URL(c.url).origin === location.origin);
-    if (w) w.postMessage({ type: "open", url }); // e.g. "/?summary" opens the weekly summary in the running app
-    return w ? w.focus() : self.clients.openWindow(url);
-  }));
+  const n = e.notification, data = n.data || {};
+  if (e.action === "off" && data.entity_id) { e.waitUntil(turnOff(n)); return; }
+  e.waitUntil(openApp(new URL(data.url || "/", location.origin).href));
 });
