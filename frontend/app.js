@@ -102,6 +102,7 @@ async function loadDevices() {
 
 // ---------- geometry ----------
 function computeViewBox() {
+  if (typeof roomViewBox === "function") { const vb = roomViewBox(); if (vb) return vb; } // roomview.js
   const L = cur(); const pts = [];
   for (const r of L.rooms) pts.push([r.x, r.y], [r.x + r.w, r.y + r.h]);
   for (const p of L.placements) pts.push([p.x, p.y]);
@@ -150,6 +151,7 @@ function render() {
   renderOpenings();
   if (typeof renderSnap === "function") renderSnap();
   const R = 0.26 * (st.markerScale || 1); // wall mode draws bigger markers
+  const LO = 0.22 * (st.labelScale || 1); // room view sizes marker labels to the zoom
   for (const p of L.placements) {
     const d = st.devices.get(p.entity_id);
     if (d?.hidden) continue; // placement kept: unhiding brings the marker back
@@ -159,13 +161,13 @@ function render() {
     const u = el("use", { href: `#ic-${kind}`, x: p.x - R * 0.65, y: p.y - R * 0.65, width: R * 1.3, height: R * 1.3 }, g);
     if (iconFill(d)) u.style.fill = iconFill(d);
     if (kind === "valve" && d?.current_temperature != null) {
-      const t = el("text", { x: p.x, y: p.y + R + 0.22 }, g); t.textContent = `${d.current_temperature}°`;
+      const t = el("text", { x: p.x, y: p.y + R + LO }, g); t.textContent = `${d.current_temperature}°`;
     }
     if (kind === "dehumidifier" && d?.current_humidity != null) {
-      const t = el("text", { x: p.x, y: p.y + R + 0.22 }, g); t.textContent = `${Math.round(d.current_humidity)} %`;
+      const t = el("text", { x: p.x, y: p.y + R + LO }, g); t.textContent = `${Math.round(d.current_humidity)} %`;
     }
     if (kind === "plug" && d?.state === "on" && d.power != null) {
-      const t = el("text", { x: p.x, y: p.y + R + 0.22 }, g); t.textContent = fmtW(d.power);
+      const t = el("text", { x: p.x, y: p.y + R + LO }, g); t.textContent = fmtW(d.power);
     }
     if (batteryWarn(d)) el("circle", { class: "batwarn", cx: p.x + R * 0.75, cy: p.y - R * 0.75, r: R * 0.3 }, g);
     const title = el("title", {}, g); title.textContent = `${d?.name || p.entity_id} — ${deviceValue(d)}`;
@@ -192,6 +194,7 @@ function render() {
     }
   }
   renderFloorplanHandles(markersG);
+  if (typeof renderRoomView === "function") renderRoomView();
   renderSide();
   $("deleteSel").disabled = !st.sel;
   $("editRoom").disabled = st.sel?.type !== "room";
@@ -213,6 +216,7 @@ function renderSide() {
   } else {
     $("sideTitle").textContent = "Devices";
     $("sideHint").textContent = st.devices.size ? "" : "No devices yet.";
+    if (typeof roomSideFilter === "function") devs = roomSideFilter(devs);
   }
   for (const kind of KIND_ORDER) {
     const group = devs.filter((d) => d.kind === kind);

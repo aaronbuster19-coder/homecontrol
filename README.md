@@ -100,6 +100,7 @@ container isn't healthy within ~2.5 min it puts the previous image (`homecontrol
   brightness, white temperature (if the bulb has it) and colour swatches plus a colour picker (colour bulbs only).
   A lit colour bulb's marker shows its current colour.
 - **Rooms:** in view mode tap a room's name to switch all lights inside it: any on → all off, otherwise all on.
+  Tap a room's ⤢ (or double-tap its floor) to open it in the *Room view* (below).
 - **All off** (power button in the header): turns off every light and plug after a confirmation, except plugs marked
   “Keep on” (long-press a plug to open its sheet and tick it; stored in the layout as `settings.keep_on`).
 - **Heating** (thermometer button in the header): all radiator valves with current/target temperature, +/− per valve,
@@ -182,6 +183,29 @@ Import layout, Units (m/ft), Refresh devices and Sign out. It closes on a tap ou
   reads such a file, shows rooms / placed devices / doors-windows and any devices not in Home Assistant now, and
   replaces the plan on confirm. If the server rejects unknown devices you can *Import without unknown devices*
   (drops their placements, sensor links and keep-on entries).
+
+## Room view
+
+One room up close: the same live plan, zoomed to that room, with everything else dimmed.
+
+- **Open a room:** tap the small **⤢** in a room's corner (it sits in a free corner, clear of markers and doors),
+  **double-tap** (or double-click) or **long-press** an empty spot of the room's floor, or ⋯ → *Rooms…* for a list
+  of rooms (lights on, temperature, open doors). Tapping a room's *name* still switches its lights, and taps on
+  markers work as always, so none of these get in the way of device taps. A link to `/#room=<room id>` opens the
+  room directly (bookmarkable; works offline from the cached layout, and with `/?wall#room=…`).
+- **What you see:** the plan zooms (animated, unless the system asks for reduced motion) to the room's bounding box
+  plus 0.4 m — the whole L for an L-shaped room — with the room outlined and the rest of the flat dimmed; devices
+  outside can't be tapped. Markers and labels are sized for comfortable tapping on a phone. A strip above the plan
+  shows the room's name, temperature (radiator valves) and humidity (dehumidifier) when known, ‹ › for the
+  previous / next room and a **Lights** switch (same as tapping the name: any on → all off, otherwise all on).
+- **Device list:** filtered to the devices placed inside the room's shape, with the same tap / long-press behaviour,
+  plus quick facts: lights on, power of the room's plugs, doors and windows open or closed (sensors in the room or
+  linked to a door/window on its walls), temperature and humidity.
+- **Moving around:** swipe left / right on the plan (or ← / →) for the next / previous room, in the order of the
+  ⋯ → *Rooms…* list (wrapping round). *‹ Home*, the browser's Back (Android back gesture) or Escape return to the
+  whole home; switching rooms doesn't stack up history entries.
+- **Wall mode:** tap a room's ⤢; the wall bar gets a *‹ Home* button, and dimming always returns to the whole home.
+- **Edit:** pressing Edit leaves the room view first; editing always works on the whole plan.
 
 ## Wall tablet mode
 
