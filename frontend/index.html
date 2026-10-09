@@ -13,6 +13,26 @@
 <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
 <title>homecontrol</title>
 <link rel="stylesheet" href="style.css">
+<script>/* theme before first paint: hc.theme = auto | light | dark (⋯ → Theme); theme.js has the menu */
+(function () {
+  var d = document.documentElement, q = matchMedia("(prefers-color-scheme: light)"), mode = "auto", force = null;
+  try { mode = localStorage.getItem("hc.theme") || "auto"; } catch (e) {}
+  if (!/^(auto|light|dark)$/.test(mode)) mode = "auto";
+  function apply() {
+    var t = force || (mode === "auto" ? (q.matches ? "light" : "dark") : mode), was = d.dataset.theme;
+    d.dataset.theme = t; d.dataset.themeMode = mode;
+    var m = document.querySelector('meta[name="theme-color"]'); if (m) m.content = t === "light" ? "#eeebe6" : "#14171c";
+    if (was && was !== t) window.dispatchEvent(new CustomEvent("hc-theme", { detail: t }));
+  }
+  apply();
+  q.addEventListener("change", apply);
+  window.hcTheme = {
+    get mode() { return mode; }, get theme() { return d.dataset.theme; },
+    set: function (v) { mode = v; try { localStorage.setItem("hc.theme", v); } catch (e) {} apply(); },
+    force: function (t) { if (t !== force) { force = t || null; apply(); } },  // wall mode at night: "dark"
+  };
+})();
+</script>
 </head>
 <body>
 <header>
@@ -44,6 +64,7 @@
   <input type="file" id="importFile" accept=".json,application/json" hidden>
   <hr>
   <label class="more-row" role="menuitem">Units <select id="unit" aria-label="Units"><option value="m">m</option><option value="ft">ft</option></select></label>
+  <label class="more-row" role="menuitem">Theme <select id="themeSel" aria-label="Theme"><option value="auto">Auto</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
   <button id="refresh" role="menuitem" title="Re-discover devices">↻ Refresh devices</button>
   <button id="signOut" role="menuitem" title="Sign out">Sign out</button>
 </div>
@@ -199,6 +220,7 @@
 <script src="appliances.js"></script>
 <script src="presence.js"></script>
 <script src="standby.js"></script>
+<script src="theme.js"></script>
 <script>if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});</script>
 </body>
 </html>

@@ -5,9 +5,10 @@
 const TEMP_KEY = "hc.showTemps";
 let showTemps = true;
 try { showTemps = localStorage.getItem(TEMP_KEY) !== "0"; } catch {}
-const TEMP_COLD = [89, 168, 255], TEMP_MID = [150, 156, 168], TEMP_WARM = [255, 138, 61];
-// Blue at <=16°, neutral around 19.5°, orange at >=23°.
+// Blue at <=16°, neutral around 19.5°, orange at >=23° (--temp-* in style.css: tuned per theme).
 function tempColor(t) {
+  const cs = getComputedStyle(document.documentElement), rgb = (n) => cs.getPropertyValue(n).split(",").map(Number);
+  const TEMP_COLD = rgb("--temp-cold"), TEMP_MID = rgb("--temp-mid"), TEMP_WARM = rgb("--temp-warm");
   const mix = (a, b, f) => a.map((v, i) => Math.round(v + (b[i] - v) * f));
   const c = t <= 19.5 ? mix(TEMP_COLD, TEMP_MID, Math.min(1, Math.max(0, (t - 16) / 3.5)))
     : mix(TEMP_MID, TEMP_WARM, Math.min(1, (t - 19.5) / 3.5));

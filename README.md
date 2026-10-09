@@ -259,7 +259,7 @@ API: `POST /api/devices/{id}/toggle` (`humidifier.toggle` or `switch.toggle`), `
 ## More menu (⋯), temperatures, Away/Home, backup
 
 The ⋯ button at the right of the header holds: Away / I'm home, *Auto Away…* (see *Auto Away*), Wall mode, *Schedules…* (see *Schedules*), *Show temperature & humidity on plan*, *Show furniture* (see *Furniture*), Energy, Hidden devices, Export layout,
-Import layout, Units (m/ft), Refresh devices and Sign out. It closes on a tap outside or Escape.
+Import layout, Units (m/ft), Theme (see *Theme*), Refresh devices and Sign out. It closes on a tap outside or Escape.
 
 - **Temperatures on the plan:** every room with a radiator valve in it (L-shapes respected) is tinted by the
   valve's current temperature — blue at 16° or less, neutral around 19–20°, orange at 23° or more — with the
@@ -301,6 +301,26 @@ One room up close: the same live plan, zoomed to that room, with everything else
 - **Wall mode:** tap a room's ⤢; the wall bar gets a *‹ Home* button, and dimming always returns to the whole home.
 - **Edit:** pressing Edit leaves the room view first; editing always works on the whole plan.
 
+## Theme
+
+⋯ → *Theme*: **Auto** (default — follows the system's light/dark setting, live), **Light** or **Dark**. Remembered per
+device (browser storage), applied before the page first paints (no dark flash on a light phone), also on the
+sign-in page, and the browser/status bar colour (`theme-color`) follows it.
+
+- **Dark** is the original look. **Light** is its own design, not an inversion: warm light-grey background, white
+  panels and sheets, near-white rooms with dark-grey walls, line-drawn furniture in warm greys, and device colours
+  tuned for a light background (on amber, off grey, open red, closed green, heating orange, idle blue, drying teal).
+  Text meets WCAG AA (4.5:1) in both; state colours used *as text* or chart lines use darker "ink" shades in light.
+- **Wall mode** follows the theme by day; during its night hours (Wall settings) it is always dark, and the dim
+  screen is always black.
+- **For developers:** every colour is a CSS variable at the top of `frontend/style.css` — dark on `:root`, light under
+  `:root[data-theme=light]` (and a `prefers-color-scheme` block for pages without the script). New UI should only use
+  `var(--…)`: `--bg --panel --line --text --text-muted --accent --on-accent --focus`, state fills `--on --off --open
+  --closed --heat --idle --dry --unavailable` with `--state-text` on top, their text/line shades `--on-ink --open-ink
+  …`, `--room-fill --room-sel --wall --furniture-stroke` (`--fur*`), `--chart-grid --scrim --shadow-color`, and
+  `rgba(var(--hl), .05)` for hover tints. `window.hcTheme` (`mode`, `theme`, `set()`) and the `hc-theme` window event
+  are there for code that draws colours itself.
+
 ## Wall tablet mode
 
 A full-screen, always-on view for a tablet on the wall. Open it from ⋯ → *Wall mode*, or bookmark `/?wall`
@@ -311,7 +331,7 @@ A full-screen, always-on view for a tablet on the wall. Open it from ⋯ → *Wa
   valves, a *Reconnecting…* / *Offline* pill when the live stream is down, a Home/Away button (same confirmation
   as ⋯ → Away) and *All off* (same confirmation as the header button). Taps work exactly as in the normal view:
   tap a light/plug to toggle it, long-press for its sheet, tap a valve or sensor for its sheet, tap a room name.
-- **Dimming:** after 2 min without a touch, and always from 23:00 to 07:00, the screen goes black with a dim clock,
+- **Dimming:** after 2 min without a touch, and always from 23:00 to 07:00, the screen goes black (in either theme; see *Theme*) with a dim clock,
   power and temperature (plus any open door). The first touch only wakes it — it never switches anything. At night
   it dims again after 30 s. The dim clock moves a little every minute to avoid burn-in.
 - **Exit / settings:** hold the clock for about a second → *Exit wall mode* or *Wall settings…* (night start/end,
