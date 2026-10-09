@@ -50,7 +50,7 @@ function lpCancel() { if (lp) clearTimeout(lp.timer); lp = null; }
 document.addEventListener("pointerdown", (e) => {
   lpCancel();
   if (st.editing || e.button > 0) return;
-  const t = e.target.closest?.("#plan .marker, #list li[data-dev]"); if (!t) return;
+  const t = e.target.closest?.("#plan .marker, #plan .appl, #list li[data-dev]"); if (!t) return;
   const eid = t.dataset.dev; if (!isOnOff(st.devices.get(eid))) return;
   lp = { eid, x: e.clientX, y: e.clientY, id: e.pointerId };
   lp.timer = setTimeout(() => { lp = null; lpFired = Date.now(); navigator.vibrate?.(12); openSheet(eid); }, LP_MS);
@@ -65,7 +65,7 @@ document.addEventListener("click", (e) => {
   if (lpFired && Date.now() - lpFired < 1500) { lpFired = 0; e.stopPropagation(); e.preventDefault(); }
 }, true);
 document.addEventListener("contextmenu", (e) => {
-  if (!st.editing && e.target.closest?.("#plan .marker, #list li[data-dev]")) e.preventDefault();
+  if (!st.editing && e.target.closest?.("#plan .marker, #plan .appl, #list li[data-dev]")) e.preventDefault();
 });
 
 // ---------- light / plug sheet extras ----------
@@ -135,7 +135,7 @@ async function bulk(action, devs) {
   return true;
 }
 async function allOff() {
-  const keep = new Set(keepOn());
+  const keep = new Set([...keepOn(), ...(typeof protectedPlugs === "function" ? protectedPlugs() : [])]); // + fridges
   const devs = [...st.devices.values()].filter((d) => (isOnOff(d) || dehumInAllOff(d)) && usable(d) && !keep.has(d.entity_id));
   const on = devs.filter((d) => d.state === "on");
   if (!on.length) { setStatus("Everything is already off" + (keep.size ? ` (${keep.size} kept on)` : "")); return; }

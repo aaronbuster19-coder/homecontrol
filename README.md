@@ -128,7 +128,8 @@ lamp is (“the one by the sofa”) at a glance.
   double bed 1.4 × 2.0 m, single bed 0.9 × 1.9, bedside table 0.45 × 0.4, wardrobe 1.0 × 0.6, sofa 2.0 × 0.9,
   3-seat sofa 2.3 × 0.95, corner sofa 2.5 × 1.6, armchair, coffee table, TV unit / sideboard 1.6 × 0.45, bookcase,
   rug, plant, desk 1.2 × 0.6, desk chair, dining table, table + 4 chairs, chair, kitchen counter, kitchen sink,
-  hob / cooker, fridge, washing machine, bathtub 1.7 × 0.75, shower, toilet and basin.
+  hob / cooker, fridge, washing machine, bathtub 1.7 × 0.75, shower, toilet and basin — and appliances that can be
+  linked to a plug (see *Appliances*).
 - **Move:** drag it. Its edges snap flush to walls and to other furniture when close (the same ~12 px / 0.4 m as
   rooms, with blue guide lines), otherwise to the 5 cm grid; hold **Alt** for grid only.
 - **Rotate:** drag the round handle above a selected piece (15° steps; Alt for 1°) or press **↻ 90°**.
@@ -146,6 +147,51 @@ lamp is (“the one by the sofa”) at a glance.
   `{"id": "f1", "type": "bed", "x": 2.2, "y": 5.2, "w": 1.4, "h": 2.0, "rot": 90, "label": "Our bed"}` — `x`/`y`
   is the centre in metres, `w` × `h` the size before rotating (0.1–10 m), `rot` whole degrees clockwise (stored
   0–359). Known types only, at most 200 pieces. Layouts without the key load and save unchanged.
+
+## Appliances
+
+A fan, kettle, washing machine or fridge on the plan can be **linked to the smart plug it's plugged into**. The drawing
+then becomes the control and shows what the appliance is doing, read from the plug's power. Nothing is ever switched
+automatically — the status is read-only inference, and only your taps switch plugs.
+
+- **Types:** fan, floor lamp, TV, heater, kettle, microwave, coffee machine, toaster, dishwasher, tumble dryer and
+  freezer (in the catalogue's *Appliances* group), plus the fridge and washing machine. Appliance-capable pieces carry a
+  small plug badge in the catalogue.
+- **Link:** in edit mode select the piece → **Link plug** → pick a plug (its name, current watts, and which appliance
+  it's already linked to — one plug links to one appliance, so picking a taken plug moves the link) or *None*. If the
+  plug's name differs, a one-tap offer renames it after the appliance (e.g. “Plug 3” → “Fan”; the app's own names, see
+  *Names and hidden devices* — Home Assistant isn't changed). **Save** stores the link; Copy never copies it.
+- **View mode** (plan, room view, wall mode): a linked appliance glows softly while its plug is on (brighter while
+  busy) and shows a pill with its status and live watts. **Tap** it to toggle the plug — except a **fridge / freezer**
+  or a plug marked *Keep on*: those open the plug sheet, and switching them off there asks first (“Turn off the
+  fridge?”). **Long-press** opens the plug sheet (history, energy, rename) with an *Appliance* section. The plug's own
+  marker is hidden by default (*Hide plug marker* in that section brings it back; both then work), and comes back
+  whenever furniture is hidden (⋯ → *Show furniture* off). Device list rows of linked plugs show the appliance's drawing
+  and status. Markers and room-name taps above an appliance still win; unlinked furniture never takes a tap.
+- **Status from power** (thresholds per link under *Status thresholds* in the sheet; defaults):
+
+  | Appliance | Status |
+  |---|---|
+  | Kettle | *Boiling…* over 1000 W, else *Idle* |
+  | Microwave / coffee machine / toaster | *Heating… / Brewing… / Toasting…* over 300 W |
+  | Heater | *Heating* over 100 W · TV: *On* over 15 W, else *Standby* |
+  | Fridge / freezer | *Cooling* while the compressor draws over 30 W, else *Idle* |
+  | Fan / floor lamp | *On · 35 W* |
+  | Washer / dryer / dishwasher | *Running 47 min* once over 10 W for 2 min; *Finished 12 min ago* once it then stays under 5 W for 3 min (shorter quiet spells mid-cycle, e.g. soaking, don't count); *Idle* 2 h after |
+
+  Off plugs show no pill; an unavailable plug shows *Offline*.
+- **“Washing finished”** (*Dryer finished*, *Dishwasher finished*): one push per cycle, from the server's automations
+  loop, with the cycle state in SQLite — a restart never repeats it or declares a running cycle finished (the quiet
+  timer starts again from what it sees after the restart); switching the plug off mid-cycle ends the cycle without a
+  push. It's held during quiet hours / mute and arrives in the morning digest. Toggle: bell sheet → *Appliances*
+  (default on).
+- “All off” and Away leave the plugs of linked fridges and freezers on, like *Keep on* plugs.
+- **Layout JSON:** furniture items gain `"plug": "switch.washer"`, `"hide_marker": true` (default) and optional
+  `"thresholds"` (`on_w`, or `run_w`/`run_min`/`idle_w`/`idle_min`). The plug must be a known plug (or one the stored
+  layout already links) and unique; an older app that saves furniture without `plug` keeps the stored links (send
+  `"plug": null` to unlink). *Import without unknown devices* drops links to unknown plugs and keeps the pieces.
+- API: `GET /api/appliances` → `{"now", "appliances": {furniture id: {"plug", "type", "status", "phase"?,
+  "run_start"?, "finished_at"?}}}`; the SSE stream sends `appliances` events when a cycle changes.
 
 ## Dehumidifier
 
@@ -403,7 +449,7 @@ so they work with the app closed.
 ## Quiet hours
 
 In the bell sheet. During quiet hours (default on, 23:00–07:00, set *From*/*To*) or a mute, the automations' pushes
-— low battery, offline/back online, window open → radiator off, weekly summary — are held (in SQLite, so they survive
+— low battery, offline/back online, window open → radiator off, weekly summary, “Washing finished” — are held (in SQLite, so they survive
 a restart; the same message twice is kept once) and arrive as **one** push, “While you were asleep”, when quiet hours
 or the mute end. **Door-open alerts and *Send test notification* always come through.**
 
@@ -421,7 +467,8 @@ or the mute end. **Door-open alerts and *Send test notification* always come thr
 `GET /api/push/key` · `POST /api/push/subscribe` (PushSubscription JSON) · `POST /api/push/unsubscribe` `{"endpoint"}` ·
 `POST /api/push/test` · `GET`/`PUT /api/alerts/settings` `{"enabled", "door_open_minutes", "notify_on_close",
 "window_heating_enabled", "window_open_minutes", "window_off_temp", "window_notify", "health_battery", "health_unavailable",
-"health_unavailable_minutes", "weekly_summary", "quiet_hours", "quiet_from", "quiet_to", "mute_until", "dehumidifier_tank"}` (partial updates) ·
+"health_unavailable_minutes", "weekly_summary", "quiet_hours", "quiet_from", "quiet_to", "mute_until", "dehumidifier_tank",
+"appliance_done"}` (partial updates) · `GET /api/appliances` ·
 `GET /api/alerts/quiet` · `POST /api/alerts/mute` · `GET`/`POST /api/schedules` · `PUT`/`DELETE /api/schedules/{id}` ·
 `PUT /api/schedules/settings` · `GET /api/automations/status` (`windows_linked`, `held`) ·
 `GET /api/summary/latest` (404 until the first one) · `POST /api/summary/preview` ·

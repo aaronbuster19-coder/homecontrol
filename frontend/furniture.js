@@ -1,6 +1,6 @@
 "use strict";
 // Furniture on the plan: catalogue + top-down drawings, edit-mode add/move/rotate/resize/duplicate, view-mode toggle.
-// Data: layout.furniture = [{id, type, x, y, w, h, rot, label?}] — x/y is the centre (m), w × h the size before
+// Data: layout.furniture = [{id, type, x, y, w, h, rot, label?, plug?, hide_marker?, thresholds?}] (plug & co: appliances.js) — x/y is the centre (m), w × h the size before
 // rotating, rot whole degrees clockwise. Drawings face "down" (+y): backs, headboards and cisterns are at the top.
 // Hooks called from app.js: renderFurniture(markersG), furniturePointerDown(e, pt), furniturePointerMove(d, pt, dx, dy),
 // furnitureInRoom(r). Uses snap.js (solveSnap, linesOf, snapThr, setGuides, r3) and floorplan.js (inRoom, mpp).
@@ -208,6 +208,95 @@ function drawSink(g, w, h) {
   fC(g, 0, y0 + Math.min(0.07, h * 0.16), 0.022, "fu-d");
 }
 
+// ---------- appliances (can be linked to a plug: appliances.js) ----------
+function drawFan(g, w, h) { // pedestal / desk fan from the front: guard, blades (spin while on), hub
+  const r = Math.min(w, h) / 2;
+  fC(g, 0, 0, r * 0.96, "fu-b");
+  const bl = el("g", { class: "fu-blades" }, g);
+  el("circle", { cx: 0, cy: 0, r: r * 0.86, class: "fu-none" }, bl); // keeps the spinning group's box still
+  for (let i = 0; i < 3; i++) el("ellipse", { cx: 0, cy: -r * 0.44, rx: r * 0.2, ry: r * 0.4, class: "fu-s", transform: `rotate(${i * 120 + 15})` }, bl);
+  for (let i = 0; i < 12; i++) { const a = i * Math.PI / 6; fL(bl, Math.cos(a) * r * 0.18, Math.sin(a) * r * 0.18, Math.cos(a) * r * 0.86, Math.sin(a) * r * 0.86, "fu-l fu-faint fu-guard"); }
+  fC(g, 0, 0, r * 0.86, "fu-l fu-faint");
+  fC(g, 0, 0, r * 0.18, "fu-d");
+}
+function drawFloorLamp(g, w, h) {
+  const r = Math.min(w, h) / 2;
+  fC(g, 0, 0, r * 0.95, "fu-t fu-shade");
+  fC(g, 0, 0, r * 0.62, "fu-l fu-faint");
+  fC(g, 0, 0, r * 0.2, "fu-d fu-bulb");
+}
+function drawTv(g, w, h) { // flat screen from above: a thin panel at the back, its stand in front
+  const x0 = -w / 2, y0 = -h / 2, sh = Math.max(0.03, Math.min(0.07, h * 0.3)), fw = Math.min(w * 0.4, 0.45);
+  fP(g, `M${-fw * 0.3} ${y0 + sh}L${fw * 0.3} ${y0 + sh}L${fw / 2} ${y0 + h}L${-fw / 2} ${y0 + h}Z`, "fu-s");
+  fR(g, x0, y0, w, sh, "fu-d fu-screen", 0.01);
+  fL(g, x0 + 0.03, y0 + sh, x0 + w - 0.03, y0 + sh, "fu-l fu-faint");
+}
+function drawHeater(g, w, h) { // oil-filled radiator: a row of fins on two feet
+  const x0 = -w / 2, y0 = -h / 2;
+  fR(g, x0, y0 + h * 0.15, w, h * 0.7, "fu-b", 0.03);
+  const n = Math.max(3, Math.min(30, Math.round(w / 0.055)));
+  for (let i = 1; i < n; i++) fL(g, x0 + (i * w) / n, y0 + h * 0.15, x0 + (i * w) / n, y0 + h * 0.85, "fu-l fu-faint");
+  fR(g, x0 + w * 0.08, y0, w * 0.12, h, "fu-d", 0.02);
+  fR(g, x0 + w * 0.8, y0, w * 0.12, h, "fu-d", 0.02);
+  fC(g, x0 + w * 0.94, y0 + h * 0.5, Math.min(0.025, h * 0.15), "fu-s");
+}
+function drawKettle(g, w, h) { // jug kettle on its base: handle at the back, spout at the front
+  const r = Math.min(w, h) * 0.38;
+  fR(g, -w / 2, -h / 2, w, h, "fu-d", Math.min(w, h) * 0.18);
+  fR(g, -r * 0.45, -h / 2 + 0.005, r * 0.9, h * 0.22, "fu-s", 0.015);
+  fP(g, `M${-r * 0.35} ${r * 0.7}L0 ${r * 1.35}L${r * 0.35} ${r * 0.7}Z`, "fu-b");
+  fC(g, 0, 0, r, "fu-b");
+  fC(g, 0, 0, r * 0.62, "fu-s");
+  fC(g, 0, -r * 0.2, r * 0.13, "fu-d");
+}
+function drawMicrowave(g, w, h) {
+  const x0 = -w / 2, y0 = -h / 2, pw = Math.min(0.12, w * 0.25);
+  fR(g, x0, y0, w, h, "fu-b", 0.02);
+  fR(g, x0 + 0.03, y0 + 0.03, w - pw - 0.07, h - 0.06, "fu-w fu-window", 0.02);
+  fC(g, x0 + (w - pw - 0.04) / 2, 0, Math.min(w - pw, h) * 0.22, "fu-l fu-faint");
+  fR(g, x0 + w - pw - 0.02, y0 + 0.03, pw, h - 0.06, "fu-d", 0.01);
+  for (let i = 0; i < 3; i++) fC(g, x0 + w - 0.02 - pw / 2, y0 + 0.07 + i * Math.min(0.05, (h - 0.1) / 3), Math.min(0.012, pw * 0.15), "fu-l");
+}
+function drawCoffee(g, w, h) { // water tank at the back, cup on the drip tray in front
+  const x0 = -w / 2, y0 = -h / 2;
+  fR(g, x0, y0, w, h, "fu-b", 0.03);
+  fR(g, x0 + 0.03, y0 + 0.03, w - 0.06, h * 0.3, "fu-w", 0.02);
+  fR(g, x0 + w * 0.15, y0 + h * 0.52, w * 0.7, h * 0.42, "fu-d", 0.02);
+  fC(g, 0, y0 + h * 0.73, Math.min(w, h) * 0.13, "fu-s");
+  fC(g, 0, y0 + h * 0.73, Math.min(w, h) * 0.07, "fu-l");
+}
+function drawToaster(g, w, h) {
+  const x0 = -w / 2, y0 = -h / 2, sw = w * 0.62, sh = Math.min(0.035, h * 0.2);
+  fR(g, x0, y0, w, h, "fu-b", Math.min(w, h) * 0.3);
+  fR(g, -sw / 2, -h * 0.22 - sh / 2, sw, sh, "fu-d fu-slot", sh / 2);
+  fR(g, -sw / 2, h * 0.22 - sh / 2, sw, sh, "fu-d fu-slot", sh / 2);
+  fR(g, x0 + w - 0.012, -0.02, 0.03, 0.04, "fu-s", 0.01);
+}
+function drawDishwasher(g, w, h) { // rack and spray arm, control strip at the front
+  const x0 = -w / 2, y0 = -h / 2, m = Math.min(w, h);
+  fR(g, x0, y0, w, h, "fu-b", 0.03);
+  fR(g, x0 + 0.04, y0 + 0.04, w - 0.08, h - 0.15, "fu-t", 0.02);
+  for (let i = 1; i < 6; i++) { const x = x0 + 0.04 + (i * (w - 0.08)) / 6; fL(g, x, y0 + 0.05, x, y0 + h - 0.12, "fu-l fu-faint"); }
+  el("rect", { x: -m * 0.34, y: -0.025 - 0.04, width: m * 0.68, height: 0.05, rx: 0.025, class: "fu-s", transform: "rotate(-20 0 -0.04)" }, g);
+  fC(g, 0, -0.04, 0.03, "fu-d");
+  fR(g, x0 + 0.03, y0 + h - 0.08, w - 0.06, 0.05, "fu-d", 0.015);
+  fC(g, x0 + w - 0.08, y0 + h - 0.055, 0.012, "fu-l");
+}
+function drawDryer(g, w, h) { // like the washer, with a vented door and the lint filter
+  const x0 = -w / 2, y0 = -h / 2, r = Math.min(w, h) * 0.32;
+  fR(g, x0, y0, w, h, "fu-b", 0.03);
+  fR(g, x0 + 0.03, y0 + 0.03, w - 0.06, Math.min(0.09, h * 0.15), "fu-d", 0.015);
+  fC(g, x0 + 0.08, y0 + 0.075, 0.018, "fu-l");
+  fC(g, 0, 0.05, r, "fu-t");
+  fC(g, 0, 0.05, r * 0.72, "fu-l");
+  for (let i = -2; i <= 2; i++) fL(g, -r * 0.4, 0.05 + i * r * 0.16, r * 0.4, 0.05 + i * r * 0.16, "fu-l fu-faint");
+}
+function drawFreezer(g, w, h) {
+  drawFridge(g, w, h);
+  const s = Math.min(w, h) * 0.18;
+  for (let i = 0; i < 3; i++) { const a = i * Math.PI / 3; fL(g, -Math.cos(a) * s, -0.04 - Math.sin(a) * s, Math.cos(a) * s, -0.04 + Math.sin(a) * s, "fu-l fu-snow"); }
+}
+
 const FURNITURE = {
   bed: { name: "Double bed", group: "Bedroom", w: 1.4, h: 2.0, draw: drawBed },
   bed_single: { name: "Single bed", group: "Bedroom", w: 0.9, h: 1.9, draw: drawBed },
@@ -236,6 +325,17 @@ const FURNITURE = {
   shower: { name: "Shower", group: "Bathroom", w: 0.9, h: 0.9, draw: drawShower },
   toilet: { name: "Toilet", group: "Bathroom", w: 0.4, h: 0.65, draw: drawToilet },
   sink: { name: "Basin", group: "Bathroom", w: 0.6, h: 0.45, draw: drawSink },
+  fan: { name: "Fan", group: "Appliances", w: 0.45, h: 0.45, draw: drawFan },
+  floor_lamp: { name: "Floor lamp", group: "Appliances", w: 0.4, h: 0.4, draw: drawFloorLamp },
+  tv: { name: "TV", group: "Appliances", w: 1.25, h: 0.25, draw: drawTv },
+  heater: { name: "Heater", group: "Appliances", w: 0.6, h: 0.25, draw: drawHeater },
+  kettle: { name: "Kettle", group: "Appliances", w: 0.25, h: 0.25, draw: drawKettle },
+  microwave: { name: "Microwave", group: "Appliances", w: 0.5, h: 0.4, draw: drawMicrowave },
+  coffee_machine: { name: "Coffee machine", group: "Appliances", w: 0.3, h: 0.4, draw: drawCoffee },
+  toaster: { name: "Toaster", group: "Appliances", w: 0.3, h: 0.2, draw: drawToaster },
+  dishwasher: { name: "Dishwasher", group: "Appliances", w: 0.6, h: 0.6, draw: drawDishwasher },
+  dryer: { name: "Tumble dryer", group: "Appliances", w: 0.6, h: 0.6, draw: drawDryer },
+  freezer: { name: "Freezer", group: "Appliances", w: 0.6, h: 0.65, draw: drawFreezer },
 };
 
 // ---------- geometry ----------
@@ -267,18 +367,26 @@ function renderFurniture(handlesParent) {
     g.replaceChildren();
     if (st.editing || showFurniture) for (const f of furList()) {
       const def = FURNITURE[f.type]; if (!def) continue;
+      if (!st.editing && typeof applianceLinked === "function" && applianceLinked(f)) continue; // live: appliances.js
       const sel = st.editing && st.sel?.type === "fur" && st.sel.id === f.id;
       const fg = el("g", { class: `fur fu-${f.type}` + (sel ? " sel" : ""), "data-fur": f.id,
         transform: `translate(${f.x} ${f.y}) rotate(${f.rot || 0})` }, g);
       el("rect", { class: "fu-hit", x: -f.w / 2, y: -f.h / 2, width: f.w, height: f.h }, fg);
       def.draw(fg, f.w, f.h);
+      if (f.plug && st.editing) { // linked to a plug: a small badge in the corner
+        const b = Math.min(0.2, f.w * 0.5, f.h * 0.5);
+        el("circle", { class: "fu-linkdot", cx: f.w / 2 - b * 0.55, cy: -f.h / 2 + b * 0.55, r: b / 2 }, fg);
+        el("use", { href: "#ic-plug", class: "fu-linkic", x: f.w / 2 - b * 0.9, y: -f.h / 2 + b * 0.2, width: b * 0.7, height: b * 0.7 }, fg);
+      }
       const t = el("title", {}, fg); t.textContent = f.label ? `${f.label} (${def.name})` : def.name;
       if (f.label) { const lt = el("text", { class: "fu-label", x: f.x, y: f.y }, g); lt.textContent = f.label; }
     }
     if (g.childElementCount) furRaiseNames(g);
   }
+  if (typeof renderAppliances === "function") renderAppliances();
   const f = furSel();
   for (const id of ["furRot", "furDup", "furEdit"]) if ($(id)) $(id).hidden = !f;
+  if ($("furLink")) $("furLink").hidden = !f || typeof APPLIANCE === "undefined" || !APPLIANCE[f.type];
   if (!f || !handlesParent) return;
   const k = mpp(), hs = 5 * k, hit = 18 * k;
   const hg = el("g", { class: "fur-handles", transform: `translate(${f.x} ${f.y}) rotate(${f.rot || 0})` }, handlesParent);
@@ -379,6 +487,7 @@ function duplicateFurniture() {
   const f = furSel(); if (!f) return;
   if (st.draft.furniture.length >= 200) { setStatus("That's the most furniture a plan can hold (200)", true); return; }
   const c = { ...f, id: furId(), x: r3(f.x + 0.3), y: r3(f.y + 0.3) };
+  delete c.plug; delete c.hide_marker; delete c.thresholds; // a plug links to one appliance only
   st.draft.furniture.push(c); st.sel = { type: "fur", id: c.id }; render();
 }
 function deleteFurniture(id) { st.draft.furniture = (st.draft.furniture || []).filter((f) => f.id !== id); }

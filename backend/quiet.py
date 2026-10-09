@@ -1,7 +1,7 @@
 """Quiet hours and mute for automation pushes.
 
 Every push has a category. Door alerts ("door") and the explicit test ("test") always go straight through; the
-automations' pushes ("health", "summary", "window") are held during quiet hours (default 23:00–07:00) or while
+automations' pushes ("health", "summary", "window", "appliance") are held during quiet hours (default 23:00–07:00) or while
 muted, kept in SQLite (de-duplicated), and delivered as ONE digest push once the quiet time is over.
 """
 import json

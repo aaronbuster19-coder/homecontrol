@@ -72,9 +72,12 @@
         <symbol id="ic-valve" viewBox="0 0 24 24"><path d="M14 14.8V5a2 2 0 0 0-4 0v9.8a4 4 0 1 0 4 0zM12 3a2 2 0 0 1 2 2v1h-4V5a2 2 0 0 1 2-2z"/></symbol>
         <symbol id="ic-dehumidifier" viewBox="0 0 24 24"><path d="M12 2.5S5.5 9.7 5.5 14.3a6.5 6.5 0 0 0 13 0C18.5 9.7 12 2.5 12 2.5zm-3 12a.9.9 0 0 1 1.8 0 2.2 2.2 0 0 0 2.2 2.2.9.9 0 0 1 0 1.8 4 4 0 0 1-4-4z"/></symbol>
         <symbol id="ic-sensor" viewBox="0 0 24 24"><path d="M5 2h11v20H5zm9 9a1 1 0 1 0 0 2 1 1 0 0 0 0-2zM17 4h2v16h-2z"/></symbol>
+        <filter id="applGlow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="0.06"/></filter>
       </defs>
       <g id="rooms"></g>
       <g id="furniture"></g>
+      <g id="appliances"></g>
+      <g id="roomTaps"></g>
       <g id="openings"></g>
       <g id="markers"></g>
     </svg>
@@ -193,6 +196,7 @@
 <script src="roomview.js"></script>
 <script src="wall.js"></script>
 <script src="energy.js"></script>
+<script src="appliances.js"></script>
 <script>if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});</script>
 </body>
 </html>
