@@ -16,7 +16,7 @@ NOT_TANK = re.compile(r"defrost|filter|battery")
 @dataclass
 class Device:
     entity_id: str
-    kind: str  # light | plug | valve | sensor | dehumidifier | person (presence for Auto Away, never on the plan)
+    kind: str  # light | plug | valve | sensor | dehumidifier | media (TV / speaker) | person (presence for Auto Away, never on the plan)
     name: str
     model: str
     # role (power|energy_today|battery|battery_low; dehumidifiers also humidity|temperature|tank) -> entity_id
@@ -74,6 +74,8 @@ def classify(domain: str, entity_id: str, manufacturer: str, model: str, name: s
         if device_class.lower() == "dehumidifier" or _is_tuya(manufacturer) or _says_dehum(entity_id, name, model):
             return "dehumidifier"
         return None
+    if domain == "media" and entity_id.startswith("media_player."):
+        return "media"  # TVs (Samsung via SmartThings / Samsung Smart TV, LG, Android TV, …), speakers, Chromecasts
     if domain == "switch" and _says_dehum(entity_id, name, model) and not DEHUM_FEATURE_SWITCH.search(entity_id):
         return "dehumidifier"  # switch-only dehumidifier (TP-Link switches never get here)
     return None
@@ -151,6 +153,26 @@ def _one_dehumidifier_per_device(devices: list[Device], keys: dict[str, tuple]) 
     return [d for d in devices if d.entity_id not in drop]
 
 
+def _maker_model(manufacturer: str, model: str) -> str:
+    if manufacturer and model.lower().startswith(manufacturer.split()[0].lower()):
+        return model
+    return " ".join(filter(None, (manufacturer, model)))
+
+
+def _one_media_per_device(devices: list[Device], keys: dict[str, tuple], feats: dict[str, int]) -> list[Device]:
+    """One HA device = one media player: when two integrations (SmartThings and Samsung Smart TV) put theirs on the same
+    device, the one that can do the most wins."""
+    groups: dict[tuple, list[Device]] = {}
+    for d in devices:
+        if d.kind == "media" and len(keys[d.entity_id]) > 1:  # only devices with a name group; nameless ones stay apart
+            groups.setdefault(keys[d.entity_id], []).append(d)
+    drop = set()
+    for ds in groups.values():
+        rank = lambda d: (-bin(feats.get(d.entity_id, 0)).count("1"), len(d.entity_id), d.entity_id)
+        drop |= {d.entity_id for d in sorted(ds, key=rank)[1:]}
+    return [d for d in devices if d.entity_id not in drop]
+
+
 def _presence(devices: list[Device], sources: dict[str, str]) -> list[Device]:
     """person.* entities are the presence; GPS / router device_trackers count only when there are none."""
     if any(d.kind == "person" for d in devices):
@@ -166,6 +188,7 @@ def parse_template_output(text: str) -> list[Device]:
     seen: set[str] = set()
     rel: dict[str, list[Related]] = {}
     classes: dict[str, str] = {}
+    feats: dict[str, int] = {}
     primaries = []
     for line in text.splitlines():
         parts = [p.strip() for p in line.strip().split("|")]
@@ -173,6 +196,8 @@ def parse_template_output(text: str) -> list[Device]:
             rel.setdefault(parts[1], []).append(Related(*parts[2:]))
         elif len(parts) == 3 and parts[0] == "dc":
             classes[parts[1]] = parts[2]
+        elif len(parts) == 3 and parts[0] == "sf":
+            feats[parts[1]] = int(parts[2]) if parts[2].isdigit() else 0
         elif len(parts) == 5:
             primaries.append(parts)
     keys = {}
@@ -180,9 +205,12 @@ def parse_template_output(text: str) -> list[Device]:
         kind = classify(domain, entity_id, manufacturer, model, name, classes.get(entity_id, ""))
         if kind and entity_id not in seen:
             seen.add(entity_id)
-            devices.append(Device(entity_id, kind, name or entity_id, "Person" if kind == "person" else model))
+            # media: "Samsung QE55Q80A" — the manufacturer helps tell a TV from a speaker (backend/media.py)
+            shown = "Person" if kind == "person" else _maker_model(manufacturer, model) if kind == "media" else model
+            devices.append(Device(entity_id, kind, name or entity_id, shown))
             keys[entity_id] = (name, manufacturer, model) if name else (entity_id,)
     devices = _one_dehumidifier_per_device(devices, keys)
+    devices = _one_media_per_device(devices, keys, feats)
     devices = _presence(devices, {p[1]: p[3] for p in primaries})
     for d in devices:
         d.related = pick_related(rel.get(d.entity_id, []))

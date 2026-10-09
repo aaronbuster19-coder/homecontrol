@@ -1,7 +1,7 @@
 "use strict";
 const FT = 3.28084;
-const KIND_LABEL = { light: "Lights", plug: "Plugs", valve: "Radiator valves", dehumidifier: "Dehumidifier", sensor: "Door / window sensors" };
-const KIND_ORDER = ["light", "plug", "valve", "dehumidifier", "sensor"];
+const KIND_LABEL = { light: "Lights", plug: "Plugs", valve: "Radiator valves", dehumidifier: "Dehumidifier", media: "TV & media", sensor: "Door / window sensors" };
+const KIND_ORDER = ["light", "plug", "valve", "dehumidifier", "media", "sensor"];
 const SNAP = 0.05;
 const $ = (id) => document.getElementById(id);
 const svg = $("plan");
@@ -56,6 +56,7 @@ function deviceColor(d) {
     case "light": case "plug": return d.state === "on" ? lightColor(d) || "var(--on)" : "var(--off)";
     case "sensor": return d.state === "on" ? "var(--open)" : "var(--closed)";
     case "dehumidifier": return dehumColor(d);
+    case "media": return tvColor(d); // tv.js
     case "valve":
       if (d.state === "off") return "var(--off)";
       return d.current_temperature != null && d.temperature != null && d.current_temperature < d.temperature
@@ -70,6 +71,7 @@ function deviceValue(d) {
   if (d.kind === "valve") return `${d.current_temperature ?? "–"}° → ${d.temperature ?? "–"}°${bat}`;
   if (d.kind === "sensor") return (d.state === "on" ? "open" : "closed") + bat;
   if (d.kind === "dehumidifier") return dehumValue(d);
+  if (d.kind === "media") return tvValue(d);
   if (d.kind === "plug" && d.state === "on" && d.power != null) return `on · ${fmtW(d.power)}`;
   return d.state;
 }
@@ -157,10 +159,11 @@ function render() {
     const d = st.devices.get(p.entity_id);
     if (d?.hidden) continue; // placement kept: unhiding brings the marker back
     if (typeof applianceHidesMarker === "function" && applianceHidesMarker(p.entity_id)) continue; // the appliance is the control
+    if (typeof tvHidesMarker === "function" && tvHidesMarker(p.entity_id)) continue; // so is a linked TV (tv.js)
     const kind = d?.kind || "light";
     const g = el("g", { class: "marker" + (st.sel?.type === "dev" && st.sel.id === p.entity_id ? " sel" : ""), "data-dev": p.entity_id }, markersG);
     el("circle", { cx: p.x, cy: p.y, r: R, fill: deviceColor(d) }, g);
-    const u = el("use", { href: `#ic-${kind}`, x: p.x - R * 0.65, y: p.y - R * 0.65, width: R * 1.3, height: R * 1.3 }, g);
+    const u = el("use", { href: `#ic-${iconKind(d, kind)}`, x: p.x - R * 0.65, y: p.y - R * 0.65, width: R * 1.3, height: R * 1.3 }, g);
     if (iconFill(d)) u.style.fill = iconFill(d);
     if (kind === "valve" && d?.current_temperature != null) {
       const t = el("text", { x: p.x, y: p.y + R + LO }, g); t.textContent = `${d.current_temperature}°`;
@@ -203,6 +206,8 @@ function render() {
   $("editRoom").disabled = st.sel?.type !== "room";
 }
 
+// TVs and speakers share kind "media" but not an icon (tv.js).
+const iconKind = (d, kind) => kind === "media" && typeof mediaIcon === "function" ? mediaIcon(d) : kind;
 function icon(kind, color) {
   const s = document.createElementNS(NS, "svg"); s.setAttribute("viewBox", "0 0 24 24");
   el("use", { href: `#ic-${kind}`, fill: color }, s);
@@ -211,6 +216,7 @@ function icon(kind, color) {
 function renderSide() {
   const list = $("list"); list.replaceChildren();
   const placed = new Set(cur().placements.map((p) => p.entity_id));
+  for (const f of cur().furniture || []) if (f.media) placed.add(f.media); // shown by its TV furniture (tv.js)
   let devs = [...st.devices.values()].filter((d) => !d.hidden);
   if (st.editing) {
     devs = devs.filter((d) => !placed.has(d.entity_id));
@@ -230,7 +236,7 @@ function renderSide() {
       li.dataset.dev = d.entity_id;
       if (st.picked === d.entity_id) li.classList.add("picked");
       const af = !st.editing && typeof applianceFor === "function" ? applianceFor(d.entity_id) : null; // linked appliance
-      li.appendChild(af ? applianceIcon(af, d) : icon(kind, deviceColor(d)));
+      li.appendChild(af ? applianceIcon(af, d) : icon(iconKind(d, kind), deviceColor(d)));
       const n = document.createElement("span"); n.className = "name"; n.textContent = d.name; li.appendChild(n);
       if (af && d.name !== applName(af)) { const a = document.createElement("span"); a.className = "appl-of"; a.textContent = ` · ${applName(af)}`; n.appendChild(a); }
       const v = document.createElement("span"); v.className = "val"; v.textContent = af ? applianceText(af, d) : deviceValue(d); li.appendChild(v);
@@ -291,6 +297,8 @@ function renderSheet() {
     const note = document.createElement("div"); note.className = "sub"; note.style.marginTop = "12px"; note.textContent = "Target temperature"; c.appendChild(note);
   } else if (d.kind === "dehumidifier") {
     dehumSheet(d, c, unavailable);
+  } else if (d.kind === "media") {
+    tvSheet(d, c, unavailable); // tv.js: a tap opens this, never a blind toggle
   } else if (d.kind === "sensor") {
     const b = document.createElement("span"); b.className = "badge";
     b.style.background = deviceColor(d); b.textContent = unavailable ? d.state : d.state === "on" ? "Open" : "Closed";

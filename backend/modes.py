@@ -6,7 +6,7 @@ import sqlite3
 import threading
 import time
 
-DEFAULT_STATE = {"mode": "home", "since": None, "away_temp": 16.0, "targets": {}, "prev_alerts_enabled": None}
+DEFAULT_STATE = {"mode": "home", "since": None, "away_temp": 16.0, "tv_off": True, "targets": {}, "prev_alerts_enabled": None}
 AWAY_TEMP = (5, 25)
 TARGET = (5, 35)
 
@@ -15,13 +15,23 @@ class ModeError(ValueError):
     pass
 
 
-def validate_mode_settings(data) -> float:
-    if not isinstance(data, dict) or "away_temp" not in data:
+def validate_mode_settings(data) -> dict:
+    """Away settings: away_temp (radiators while away) and/or tv_off (Away turns TVs off, default true)."""
+    if not isinstance(data, dict) or not ({"away_temp", "tv_off"} & set(data)):
         raise ModeError("away_temp required")
-    t = data["away_temp"]
-    if isinstance(t, bool) or not isinstance(t, (int, float)) or not math.isfinite(t) or not AWAY_TEMP[0] <= t <= AWAY_TEMP[1]:
-        raise ModeError(f"away_temp must be {AWAY_TEMP[0]}–{AWAY_TEMP[1]}")
-    return round(float(t) * 2) / 2
+    if set(data) - {"away_temp", "tv_off"}:
+        raise ModeError(f"unknown setting {sorted(set(data) - {'away_temp', 'tv_off'})[0]!r}")
+    out = {}
+    if "away_temp" in data:
+        t = data["away_temp"]
+        if isinstance(t, bool) or not isinstance(t, (int, float)) or not math.isfinite(t) or not AWAY_TEMP[0] <= t <= AWAY_TEMP[1]:
+            raise ModeError(f"away_temp must be {AWAY_TEMP[0]}–{AWAY_TEMP[1]}")
+        out["away_temp"] = round(float(t) * 2) / 2
+    if "tv_off" in data:
+        if not isinstance(data["tv_off"], bool):
+            raise ModeError("tv_off must be true or false")
+        out["tv_off"] = data["tv_off"]
+    return out
 
 
 class ModeStore:
@@ -48,7 +58,7 @@ class ModeStore:
 
 
 def public(s: dict) -> dict:
-    return {"mode": s["mode"], "since": s["since"], "away_temp": s["away_temp"]}
+    return {"mode": s["mode"], "since": s["since"], "away_temp": s["away_temp"], "tv_off": s.get("tv_off", True)}
 
 
 def current_targets(valve_ids, states: dict) -> dict[str, float]:

@@ -3,14 +3,17 @@ import httpx
 # One line per record, pipe-separated. Primary lines: domain|entity_id|device name|manufacturer|model.
 # Related lines: rel|primary entity_id|entity_id|device_class|unit|state_class|friendly_name, one for every
 # sensor/binary_sensor on the same HA device (power, energy, battery are picked in discovery.py).
-# Humidifier entities also get dc|entity_id|device_class (HA's dehumidifier/humidifier class).
+# Humidifier entities also get dc|entity_id|device_class (HA's dehumidifier/humidifier class); media players get their
+# device_class (tv / speaker / receiver) the same way plus sf|entity_id|supported_features.
 # Presence (Auto Away): person|person.x|friendly name|| and, as a fallback when HA has no person entities,
 # tracker|device_tracker.x|friendly name|source_type| for GPS / router trackers.
 DISCOVERY_TEMPLATE = """{% macro clean(v) %}{{ (v or '')|string|replace('|','/')|replace('\\n',' ') }}{% endmacro %}
-{%- for domain, key in [('light','light'),('switch','switch'),('climate','climate'),('binary_sensor','binary'),('humidifier','humidifier')] %}{% for s in states[domain] %}{% set d = device_id(s.entity_id) %}
+{%- for domain, key in [('light','light'),('switch','switch'),('climate','climate'),('binary_sensor','binary'),('humidifier','humidifier'),('media_player','media')] %}{% for s in states[domain] %}{% set d = device_id(s.entity_id) %}
 {{ key }}|{{ s.entity_id }}|{{ clean(device_attr(d,'name') if d else '') }}|{{ clean(device_attr(d,'manufacturer') if d else '') }}|{{ clean(device_attr(d,'model') if d else '') }}
-{%- if key == 'humidifier' %}
+{%- if key in ['humidifier','media'] %}
 dc|{{ s.entity_id }}|{{ clean(state_attr(s.entity_id,'device_class')) }}
+{%- endif %}{%- if key == 'media' %}
+sf|{{ s.entity_id }}|{{ state_attr(s.entity_id,'supported_features') or 0 }}
 {%- endif %}
 {%- if d %}{% for e in device_entities(d) if e != s.entity_id and (e.startswith('sensor.') or e.startswith('binary_sensor.')) %}
 rel|{{ s.entity_id }}|{{ e }}|{{ clean(state_attr(e,'device_class')) }}|{{ clean(state_attr(e,'unit_of_measurement')) }}|{{ clean(state_attr(e,'state_class')) }}|{{ clean(state_attr(e,'friendly_name')) }}
@@ -30,6 +33,8 @@ class HAError(Exception):
 
 class HAClient:
     def __init__(self, base_url: str, token: str, transport: httpx.AsyncBaseTransport | None = None):
+        self.base_url = base_url.rstrip("/")
+        self.transport = transport
         self._client = httpx.AsyncClient(
             base_url=base_url,
             headers={"Authorization": f"Bearer {token}"},
@@ -63,6 +68,10 @@ class HAClient:
             params.update(minimal_response="", no_attributes="")
         r = await self._request("GET", f"/api/history/period/{start.isoformat(timespec='seconds')}", params=params, timeout=30.0)
         return r.json()
+
+    async def get_image(self, path: str) -> httpx.Response:
+        """GET an image HA serves (e.g. /api/media_player_proxy/…), with the token; only paths on this HA."""
+        return await self._request("GET", path, timeout=15.0)
 
     async def call_service(self, domain: str, service: str, data: dict) -> None:
         await self._request("POST", f"/api/services/{domain}/{service}", json=data)

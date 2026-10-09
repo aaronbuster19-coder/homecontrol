@@ -68,20 +68,22 @@ FURNITURE_TYPES = (  # keep in step with FURNITURE in frontend/furniture.js
     # appliances: these (and fridge, washer) can be linked to a plug — backend/appliances.py
     "fan", "floor_lamp", "tv", "heater", "kettle", "microwave", "coffee_machine", "toaster", "dishwasher", "dryer", "freezer",
     "iron", "hair_straightener", "hoover")
+MEDIA_FURNITURE = ("tv",)  # pieces that can show a media player (furniture[].media, frontend/tv.js)
 FURNITURE_SIZE = (0.1, 10.0)
 FURNITURE_MAX, FURNITURE_LABEL_MAX = 200, 30
 
 
-def _furniture(items, known_plugs: set[str]) -> list[dict]:
+def _furniture(items, known_plugs: set[str], known_media: set[str] | None = None) -> list[dict]:
     """Furniture: [{id, type, x, y, w, h, rot, label?, plug?, hide_marker?, thresholds?}]; x/y is the centre (m), w/h the
     size before rotating, rot whole degrees clockwise, normalised to 0–359. Appliances may link one plug each
     (plug: entity id or null); hide_marker (default true), thresholds, remind (left-on reminder: minutes, or false) and
-    auto_off (hoover: switch the plug off once charged; stored only when true) only exist while linked."""
+    auto_off (hoover: switch the plug off once charged; stored only when true) only exist while linked. A TV may also link
+    one media player (media: entity id or null), one piece per player."""
     if not isinstance(items, list):
         raise LayoutError("furniture must be a list")
     if len(items) > FURNITURE_MAX:
         raise LayoutError(f"at most {FURNITURE_MAX} pieces of furniture")
-    out, ids, plugs = [], set(), {}
+    out, ids, plugs, players = [], set(), {}, {}
     for i, f in enumerate(items):
         if not isinstance(f, dict):
             raise LayoutError(f"furniture {i} must be an object")
@@ -137,6 +139,16 @@ def _furniture(items, known_plugs: set[str]) -> list[dict]:
                 raise LayoutError(f"furniture {i}: {e}")
             if auto_off:
                 item["auto_off"] = True
+        player = f.get("media")
+        if player is not None:
+            if f["type"] not in MEDIA_FURNITURE:
+                raise LayoutError(f"furniture {i}: a {f['type']} can't be linked to a TV / media player")
+            if not isinstance(player, str) or player not in (known_media if known_media is not None else known_plugs):
+                raise LayoutError(f"furniture {i}: unknown media player {player!r}")
+            if player in players:
+                raise LayoutError(f"furniture {i}: {player} is already linked to furniture {players[player]}")
+            players[player] = i
+            item["media"] = player
         out.append(item)
     return out
 
@@ -146,7 +158,7 @@ LINK_KEYS = ("plug", "hide_marker", "thresholds", "remind", "auto_off")
 
 def _carry_links(new: list[dict], old: list[dict], raw: list) -> None:
     """An app from before appliances sends furniture without "plug": keep each piece's stored link (same id and type).
-    Unlinking sends "plug": null explicitly."""
+    Unlinking sends "plug": null explicitly. The same goes for "media" (a TV's media player)."""
     stored = {f["id"]: f for f in old if f.get("plug")}
     sent = {f.get("id"): f for f in raw if isinstance(f, dict)}
     used = {f["plug"] for f in new if f.get("plug")}
@@ -156,6 +168,15 @@ def _carry_links(new: list[dict], old: list[dict], raw: list) -> None:
             continue
         f.update({k: o[k] for k in LINK_KEYS if k in o})
         used.add(o["plug"])
+    # Same for a TV's media player link: only a PUT that mentions "media" (null to unlink) changes it.
+    stored = {f["id"]: f for f in old if f.get("media")}
+    used = {f["media"] for f in new if f.get("media")}
+    for f in new:
+        o = stored.get(f["id"])
+        if o is None or "media" in sent.get(f["id"], {}) or o["type"] != f["type"] or o["media"] in used:
+            continue
+        f["media"] = o["media"]
+        used.add(o["media"])
 
 
 NAME_MAX = 40
@@ -210,6 +231,7 @@ def validate_energy(v) -> dict:
 
 def _settings(data, known_plugs: set[str] | None, known_entities: set[str] | None = None,
               known_dehums: set[str] | None = None) -> dict | None:
+    """known_dehums: what "All off" may include besides lights and plugs — dehumidifiers and TVs / media players."""
     s = data.get("settings")
     if s is None:
         return None
@@ -223,13 +245,13 @@ def _settings(data, known_plugs: set[str] | None, known_entities: set[str] | Non
         if bad:
             raise LayoutError(f"settings.keep_on: unknown plug {bad[0]!r}")
     out = {"keep_on": sorted(set(keep))}
-    if "all_off_include" in s:  # dehumidifiers that "All off" also switches off (default: none)
+    if "all_off_include" in s:  # dehumidifiers and TVs that "All off" also switches off (default: none)
         inc = s["all_off_include"]
         if not isinstance(inc, list) or not all(isinstance(e, str) for e in inc):
             raise LayoutError("settings.all_off_include must be a list of entity ids")
         bad = [e for e in inc if known_dehums is not None and e not in known_dehums]
         if bad:
-            raise LayoutError(f"settings.all_off_include: unknown dehumidifier {bad[0]!r}")
+            raise LayoutError(f"settings.all_off_include: unknown dehumidifier or TV {bad[0]!r}")
         out["all_off_include"] = sorted(set(inc))
     known = known_entities if known_entities is not None else set(known_plugs or ())
     if s.get("names") is not None:
@@ -262,7 +284,12 @@ def stored_refs(layout: dict) -> set[str]:
     return ({p["entity_id"] for p in layout.get("placements", [])}
             | {o["entity_id"] for o in layout.get("openings", []) if o.get("entity_id")}
             | set(s.get("names") or {}) | set(s.get("hidden") or []) | set(s.get("all_off_include") or [])
-            | stored_plugs(layout))
+            | stored_plugs(layout) | stored_media(layout))
+
+
+def stored_media(layout: dict) -> set[str]:
+    """Media players linked to TV furniture: still media players while HA briefly misses them."""
+    return {f["media"] for f in layout.get("furniture") or [] if f.get("media")}
 
 
 def stored_plugs(layout: dict) -> set[str]:
@@ -271,7 +298,7 @@ def stored_plugs(layout: dict) -> set[str]:
 
 
 def validate_layout(data, known_entities: set[str], known_plugs: set[str] | None = None,
-                    known_dehums: set[str] | None = None) -> dict:
+                    known_dehums: set[str] | None = None, known_media: set[str] | None = None) -> dict:
     if not isinstance(data, dict):
         raise LayoutError("layout must be an object")
     unit = data.get("unit", "m")
@@ -315,7 +342,8 @@ def validate_layout(data, known_entities: set[str], known_plugs: set[str] | None
     openings = _openings(data.get("openings", []), known_entities)
     out = {"unit": unit, "rooms": rooms, "placements": places, "openings": openings}
     if data.get("furniture") is not None:  # optional: layouts from before furniture stay exactly as they were
-        out["furniture"] = _furniture(data["furniture"], known_plugs if known_plugs is not None else known_entities)
+        out["furniture"] = _furniture(data["furniture"], known_plugs if known_plugs is not None else known_entities,
+                                      known_media if known_media is not None else known_entities)
     settings = _settings(data, known_plugs if known_plugs is not None else known_entities, known_entities,
                          known_dehums if known_dehums is not None else known_entities)
     if settings is not None:

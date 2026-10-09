@@ -249,8 +249,8 @@ class Health:
     async def tick(self, devices: dict, states: dict) -> None:
         s, now, changed = self.settings(), self.clock(), False
         for eid, d in sorted(devices.items()):
-            if d.kind == "person":
-                continue  # presence, not a device that can go flat or offline
+            if d.kind in ("person", "media"):
+                continue  # presence, not a device; TVs read "unavailable" whenever they're fully off
             item, m = build_device(d, states), self.marks.setdefault(eid, {})
             bat, low_flag = item.get("battery"), item.get("battery_low")
             low = low_flag is True or (bat is not None and bat < BATTERY_LOW)

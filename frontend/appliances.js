@@ -140,6 +140,7 @@ function renderAppliances() {
   const k = st.labelScale || st.markerScale || 1, m = typeof mpp === "function" ? mpp() : 0.01, tags = [];
   for (const f of st.layout.furniture || []) {
     const def = FURNITURE[f.type]; if (!def || !applianceLinked(f)) continue;
+    if (typeof tvLinked === "function" && tvLinked(f)) continue; // a TV showing a media player: tv.js draws it
     const d = st.devices.get(f.plug), on = d?.state === "on", busy = applianceBusy(f, d), off = !d || !usable(d);
     const done = on && !busy && applianceStatus(f, d) === "Charged";
     const fg = el("g", { class: `fur appl fu-${f.type}` + (on ? " on" : "") + (busy ? " busy" : "") + (off ? " offline" : "") + (done ? " charged" : ""),

@@ -32,9 +32,9 @@ from .history import DOOR_RANGES, History, RangeError, check_range
 from .live import Live, build_device, ws_url
 from .schedules import ScheduleError, validate_schedule
 from .schedules import validate_settings as validate_schedule_settings
-from . import presence as presence_api, standby as standby_api
+from . import media, presence as presence_api, standby as standby_api
 from .modes import ModeError, ModeStore, current_targets, now_iso, public, restore_groups, validate_mode_settings
-from .store import NAME_MAX, LayoutError, LayoutStore, carry_settings, stored_plugs, stored_refs, validate_energy, validate_layout
+from .store import NAME_MAX, LayoutError, LayoutStore, carry_settings, stored_media, stored_plugs, stored_refs, validate_energy, validate_layout
 
 CACHE_TTL = 300
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
@@ -94,11 +94,12 @@ def light_data(b: LightBody) -> dict:
 
 
 def on_off_groups(devs: dict[str, Device], entity_ids) -> dict[str, list[str]]:
-    """Split lights/plugs (and dehumidifiers, for "All off") by HA domain; raises ValueError naming the first id that isn't one."""
+    """Split lights/plugs (and dehumidifiers and TVs, for "All off") by HA domain; raises ValueError naming the first id that
+    isn't one."""
     groups: dict[str, list[str]] = {"light": [], "switch": []}
     for eid in dict.fromkeys(entity_ids):
         d = devs.get(eid)
-        if d is None or d.kind not in ("light", "plug", "dehumidifier"):
+        if d is None or d.kind not in ("light", "plug", "dehumidifier", "media"):
             raise ValueError(eid)
         groups.setdefault(eid.split(".", 1)[0], []).append(eid)
     return groups
@@ -428,6 +429,38 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
         await ha.call_service("humidifier", "set_mode", {"entity_id": entity_id, "mode": m})
         return {"ok": True, "mode": m}
 
+    # ---- TVs / media players (backend/media.py) ----
+    @app.post("/api/devices/{entity_id}/media")
+    async def media_control(entity_id: str, request: Request):
+        dev = await require(entity_id, ("media",))
+        if not live.fresh():
+            live.load_states(await ha.states())
+        item = build_device(dev, live.states)
+        try:
+            service, data = media.command(await json_body(request), item)
+        except media.MediaError as e:
+            raise HTTPException(400, str(e))
+        await ha.call_service("media_player", service, {"entity_id": entity_id, **data})
+        return {"ok": True, "service": service}
+
+    @app.get("/api/media/{entity_id}/artwork")
+    async def media_artwork(entity_id: str, v: str = ""):
+        """Now-playing artwork, fetched by the server (HA's token never reaches the browser). ?v= busts the cache."""
+        await require(entity_id, ("media",))
+        if not live.fresh():
+            live.load_states(await ha.states())
+        url = ((live.states.get(entity_id) or {}).get("attributes") or {}).get("entity_picture")
+        if not url:
+            raise HTTPException(404, "no artwork right now")
+        try:
+            content, ctype = await media.artwork(ha, url)
+        except media.MediaError as e:
+            raise HTTPException(404, str(e))
+        except HAError as e:
+            raise HTTPException(502, "artwork unavailable") from e
+        cache = "private, max-age=86400" if v and v == media.picture_version(url) else "private, no-cache"
+        return Response(content, media_type=ctype, headers={"Cache-Control": cache, "X-Content-Type-Options": "nosniff"})
+
     @app.post("/api/devices/{entity_id}/temperature")
     async def set_temperature(entity_id: str, body: TemperatureBody):
         await require(entity_id, ("valve",))
@@ -450,6 +483,8 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
             groups = on_off_groups(await devices(), body.entity_ids)
         except ValueError as e:
             raise HTTPException(400, f"not a light or plug: {e}")
+        if body.action == "turn_on" and groups.get("media_player"):  # "All off" only: a TV is never switched on in bulk
+            raise HTTPException(400, f"not a light or plug: {groups['media_player'][0]}")
         return {"ok": True, "count": await call_groups(ha, body.action, groups)}
 
     @app.post("/api/valves/temperature")
@@ -482,6 +517,9 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
             s["prev_alerts_enabled"] = alert_store.settings()["enabled"]
             s["since"] = now_iso()
         await call_groups(ha, "turn_off", on_off_groups(devs, off))
+        tvs = media.away_off(devs, live.states) if s.get("tv_off", True) else []
+        if tvs:  # TVs are often left on; Away turns them off unless switched off in the Away settings
+            await ha.call_service("media_player", "turn_off", {"entity_id": tvs})
         held_now = sorted(e for e in valves if e in held)
         valves = [e for e in valves if e not in held]
         if valves:
@@ -490,7 +528,7 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
         alerts.wake.set()
         s["mode"] = "away"
         mode_store.put(s)
-        return {**public(s), "turned_off": sorted(off), "kept_on": kept,
+        return {**public(s), "turned_off": sorted(off + tvs), "kept_on": kept,
                 "valves": {e: s["away_temp"] for e in valves}, "held_by_window": held_now, "alerts_enabled": True}
 
     async def go_home() -> dict:
@@ -536,11 +574,11 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
     @app.put("/api/mode/settings")
     async def put_mode_settings(request: Request):
         try:
-            t = validate_mode_settings(await json_body(request))
+            changes = validate_mode_settings(await json_body(request))
         except ModeError as e:
             raise HTTPException(400, str(e))
         s = mode_store.get()
-        s["away_temp"] = t
+        s.update(changes)
         mode_store.put(s)
         return public(s)
 
@@ -553,16 +591,18 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
         old = store.get()
         known = stored_refs(old)
         plugs = stored_plugs(old)
-        dehums = set(old.get("settings", {}).get("all_off_include", []))
+        players = stored_media(old)
+        dehums = set(old.get("settings", {}).get("all_off_include", []))  # dehumidifiers and TVs
         try:
             devs = await devices()
             known |= set(devs)
             plugs |= {e for e, d in devs.items() if d.kind == "plug"}
-            dehums |= {e for e, d in devs.items() if d.kind == "dehumidifier"}
+            players |= {e for e, d in devs.items() if d.kind == "media"}
+            dehums |= {e for e, d in devs.items() if d.kind in ("dehumidifier", "media")}
         except HAError:
             pass
         try:
-            layout = carry_settings(validate_layout(data, known, plugs, dehums), old, data)
+            layout = carry_settings(validate_layout(data, known, plugs, dehums, players), old, data)
         except LayoutError as e:
             raise HTTPException(400, str(e))
         store.put(layout)

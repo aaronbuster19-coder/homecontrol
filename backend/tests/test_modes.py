@@ -32,7 +32,7 @@ def home(client):
 
 
 def test_default_mode(client):
-    assert client.get("/api/mode").json() == {"mode": "home", "since": None, "away_temp": 16.0}
+    assert client.get("/api/mode").json() == {"mode": "home", "since": None, "away_temp": 16.0, "tv_off": True}
 
 
 def test_away_calls(client, fake_ha):

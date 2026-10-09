@@ -73,12 +73,15 @@ function modeDialog() {
   const devs = [...st.devices.values()], keep = new Set([...(st.layout.settings?.keep_on || []), ...(typeof protectedPlugs === "function" ? protectedPlugs() : [])]);
   const onOff = devs.filter((d) => (d.kind === "light" || d.kind === "plug") && !keep.has(d.entity_id));
   const valves = devs.filter((d) => d.kind === "valve");
+  const tvs = devs.filter((d) => d.kind === "media" && d.supports?.turn_off);
   $("modeTitle").textContent = away ? "Leaving home?" : "Back home?";
   $("awayTempRow").hidden = !away;
   f.away_temp.value = modeSt.away_temp;
+  $("awayTvRow").hidden = !away || !tvs.length; f.tv_off.checked = modeSt.tv_off !== false;
   const items = away ? [
     `Turn off all lights and plugs (${onOff.length})` + (keep.size ? ` (${keep.size} “keep on” stay on)` : ""),
     `Set ${plural(valves.length, "radiator")} to the away temperature (current targets are remembered)`,
+    ...(tvs.length && modeSt.tv_off !== false ? [`Turn off ${tvs.length === 1 ? "the TV" : `${tvs.length} TVs`} if on`] : []),
     "Turn door alerts on",
   ] : [
     `Put ${plural(valves.length, "radiator")} back to their previous targets`,
@@ -95,6 +98,7 @@ function modeDialog() {
         const t = +f.away_temp.value;
         if (!(t >= 5 && t <= 25)) { setStatus("Away temperature must be 5–25°", true); return; }
         if (t !== modeSt.away_temp) applyMode(await api("/api/mode/settings", { method: "PUT", body: JSON.stringify({ away_temp: t }) }));
+        if (tvs.length && f.tv_off.checked !== (modeSt.tv_off !== false)) applyMode(await api("/api/mode/settings", { method: "PUT", body: JSON.stringify({ tv_off: f.tv_off.checked }) }));
       }
       const r = await api("/api/mode", { method: "POST", body: JSON.stringify({ mode: away ? "away" : "home" }) });
       applyMode(r);
@@ -127,15 +131,18 @@ $("importLayout").onclick = () => {
 };
 const refsOf = (L) => [...(L.placements || []).map((p) => p.entity_id), ...(L.openings || []).map((o) => o.entity_id).filter(Boolean),
   ...(L.settings?.keep_on || []), ...Object.keys(L.settings?.names || {}), ...(L.settings?.hidden || []), ...(L.settings?.all_off_include || []),
-  ...(Array.isArray(L.furniture) ? L.furniture.map((f) => f?.plug).filter(Boolean) : [])];
+  ...(Array.isArray(L.furniture) ? L.furniture.flatMap((f) => [f?.plug, f?.media]).filter(Boolean) : [])];
 function stripUnknown(L) {
   const ok = (e) => st.devices.has(e);
   const out = { ...L, placements: (L.placements || []).filter((p) => ok(p.entity_id)),
     openings: (L.openings || []).map((o) => { if (!o.entity_id || ok(o.entity_id)) return o; const c = { ...o }; delete c.entity_id; return c; }) };
   if (Array.isArray(L.furniture)) { // an appliance linked to an unknown plug stays, unlinked
     out.furniture = L.furniture.map((f) => {
-      if (!f?.plug || ok(f.plug)) return f;
-      const c = { ...f }; delete c.plug; delete c.hide_marker; delete c.thresholds; return c;
+      if ((!f?.plug || ok(f.plug)) && (!f?.media || ok(f.media))) return f;
+      const c = { ...f };
+      if (c.plug && !ok(c.plug)) { delete c.plug; delete c.hide_marker; delete c.thresholds; }
+      if (c.media && !ok(c.media)) delete c.media; // a TV linked to an unknown media player stays, unlinked
+      return c;
     });
   }
   if (L.settings) {
