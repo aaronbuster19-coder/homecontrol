@@ -43,14 +43,24 @@ the gateway 192.168.250.1/32. The VM is created off; the guard starts it only af
 
 ## First run (PowerShell **"Run as administrator"**)
 
-Prerequisites are Luna's and already done: Hyper-V, OpenTofu, qemu-img, WinRM on 127.0.0.1:5986, and the local
-admin `luna-tofu` (reused here). Check Luna's network first:
+Hyper-V, OpenTofu, qemu-img and WinRM on 127.0.0.1:5986 are Luna's and already done. This project has its own local
+admin for the provider, `homecontrol-tofu`, which must also be in **Hyper-V Administrators** (without it the provider
+fails with "Hyper-V was unable to find a virtual machine" right after creating one):
+
+```powershell
+$pw = Read-Host -AsSecureString 'Password for homecontrol-tofu'
+New-LocalUser -Name homecontrol-tofu -Password $pw -PasswordNeverExpires -AccountNeverExpires
+Add-LocalGroupMember -Group Administrators -Member homecontrol-tofu
+Add-LocalGroupMember -Group 'Hyper-V Administrators' -Member homecontrol-tofu
+```
+
+Check Luna's network first:
 
 ```powershell
 Get-VMSwitch LunaCI; Get-NetNat LunaCI-NAT; Get-NetFirewallRule -Name LunaCI-Block-VM-To-Host
 git clone https://github.com/aaronbuster19-coder/homecontrol C:\HomecontrolCI\src   # outside Google Drive / OneDrive
 cd C:\HomecontrolCI\src\ci-runner
-copy .env.example .env; notepad .env       # luna-tofu's password, a NEW state passphrase, ...
+copy .env.example .env; notepad .env       # homecontrol-tofu's password, a NEW state passphrase, ...
 New-Item -ItemType Directory -Force C:\Hyper-V\HomecontrolCI\cidata
 tofu init
 # Fetch RUNNER_TOKEN now (below), paste it into .env, then straight away:
@@ -106,4 +116,4 @@ Afterwards check Settings → Actions → Runners: only `homecontrol-ci-hyperv`,
 ## Retiring
 
 `tofu destroy` here (leaves Luna's network alone), delete `C:\Hyper-V\HomecontrolCI` and the clone, remove the
-runners in GitHub. Leave `luna-tofu` and WinRM while Luna uses them.
+runners in GitHub, `Remove-LocalUser homecontrol-tofu`. Leave WinRM while Luna uses it.

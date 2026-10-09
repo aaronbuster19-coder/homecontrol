@@ -45,9 +45,14 @@
 # done; only check them:
 #   1. Windows 11 Pro with Hyper-V.
 #   2. OpenTofu:  winget install --exact --id OpenTofu.Tofu
-#   3. The local admin the provider logs in as: REUSE Luna's "luna-tofu" (HYPERV_USER/HYPERV_PASSWORD in .env). WinRM
-#      already accepts it. Don't make a second account without deciding to (each one is another local admin that
-#      LocalAccountTokenFilterPolicy=1, below, exposes).
+#   3. This project's OWN local admin for the provider, "homecontrol-tofu" (HYPERV_USER/HYPERV_PASSWORD in .env), so
+#      it never shares Luna's luna-tofu password or profile. Also in "Hyper-V Administrators": the provider runs most
+#      steps in a plain (non-elevated) WinRM shell, where an admin without that group can see no VMs ("Hyper-V was
+#      unable to find a virtual machine" right after creating it). WinRM (step 5) needs nothing per account.
+#        $pw = Read-Host -AsSecureString 'Password for homecontrol-tofu'
+#        New-LocalUser -Name homecontrol-tofu -Password $pw -PasswordNeverExpires -AccountNeverExpires
+#        Add-LocalGroupMember -Group Administrators -Member homecontrol-tofu
+#        Add-LocalGroupMember -Group 'Hyper-V Administrators' -Member homecontrol-tofu
 #   4. qemu-img:  winget install --exact --id SoftwareFreedomConservancy.QEMU   (QEMU_IMG in .env points at it).
 #   5. WinRM over HTTPS on 127.0.0.1:5986 with NTLM, set up for Luna (Loyalty-Rewards ci-runner/main.tf, step 5).
 #      That set LocalAccountTokenFilterPolicy=1 (UAC's remote restrictions off for every local admin); it stays until
@@ -90,8 +95,8 @@
 # window. Other VM settings in this file (memory, notes, ...) are changed in place: the provider switches the VM off
 # and back on, and the guard then switches it off again, re-checks the wall and starts it.
 #
-# RETIRING: `tofu destroy` (here), delete VM_DIR and the clone, remove the runners in GitHub. Leave luna-tofu, WinRM
-# and Luna's network alone while Luna still uses them (Luna's main.tf RETIRING undoes those).
+# RETIRING: `tofu destroy` (here), delete VM_DIR and the clone, remove the runners in GitHub,
+# Remove-LocalUser homecontrol-tofu. Leave WinRM and Luna's network alone while Luna still uses them (Luna's main.tf RETIRING undoes those).
 #
 # HONEST LIMITS:
 #   - Anyone who can push a branch or open a same-repo pull request (and every Dependabot update) runs code as root
@@ -478,7 +483,7 @@ resource "terraform_data" "preflight" {
     }
     precondition {
       condition     = length(lookup(local.env, "HYPERV_PASSWORD", "")) > 0 && !startswith(lookup(local.env, "HYPERV_PASSWORD", ""), "change-me")
-      error_message = "Set HYPERV_PASSWORD in .env (the luna-tofu account's password)."
+      error_message = "Set HYPERV_PASSWORD in .env (the homecontrol-tofu account's password)."
     }
     precondition {
       condition     = !startswith(lookup(local.env, "STATE_PASSPHRASE", ""), "change-me")
