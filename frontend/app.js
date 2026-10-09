@@ -1,7 +1,7 @@
 "use strict";
 const FT = 3.28084;
-const KIND_LABEL = { light: "Lights", plug: "Plugs", valve: "Radiator valves", sensor: "Door / window sensors" };
-const KIND_ORDER = ["light", "plug", "valve", "sensor"];
+const KIND_LABEL = { light: "Lights", plug: "Plugs", valve: "Radiator valves", dehumidifier: "Dehumidifier", sensor: "Door / window sensors" };
+const KIND_ORDER = ["light", "plug", "valve", "dehumidifier", "sensor"];
 const SNAP = 0.05;
 const $ = (id) => document.getElementById(id);
 const svg = $("plan");
@@ -55,6 +55,7 @@ function deviceColor(d) {
   switch (d.kind) {
     case "light": case "plug": return d.state === "on" ? lightColor(d) || "var(--on)" : "var(--off)";
     case "sensor": return d.state === "on" ? "var(--open)" : "var(--closed)";
+    case "dehumidifier": return dehumColor(d);
     case "valve":
       if (d.state === "off") return "var(--off)";
       return d.current_temperature != null && d.temperature != null && d.current_temperature < d.temperature
@@ -68,6 +69,7 @@ function deviceValue(d) {
   const bat = batteryWarn(d) ? (d.battery != null ? ` · 🔋 ${d.battery} %` : " · 🔋 low") : "";
   if (d.kind === "valve") return `${d.current_temperature ?? "–"}° → ${d.temperature ?? "–"}°${bat}`;
   if (d.kind === "sensor") return (d.state === "on" ? "open" : "closed") + bat;
+  if (d.kind === "dehumidifier") return dehumValue(d);
   if (d.kind === "plug" && d.state === "on" && d.power != null) return `on · ${fmtW(d.power)}`;
   return d.state;
 }
@@ -143,6 +145,7 @@ function render() {
     if (st.editing) { const d = el("text", { x: lp.x + 0.15, y: lp.y + 0.72, class: "dim" }, g); d.textContent = `${fmtLen(r.w)} × ${fmtLen(r.h)}`; }
   }
   if (typeof renderRoomTemps === "function") renderRoomTemps(roomsG);
+  if (typeof renderRoomHumidity === "function") renderRoomHumidity(roomsG);
   renderRoomLabels(roomsG);
   renderOpenings();
   if (typeof renderSnap === "function") renderSnap();
@@ -157,6 +160,9 @@ function render() {
     if (iconFill(d)) u.style.fill = iconFill(d);
     if (kind === "valve" && d?.current_temperature != null) {
       const t = el("text", { x: p.x, y: p.y + R + 0.22 }, g); t.textContent = `${d.current_temperature}°`;
+    }
+    if (kind === "dehumidifier" && d?.current_humidity != null) {
+      const t = el("text", { x: p.x, y: p.y + R + 0.22 }, g); t.textContent = `${Math.round(d.current_humidity)} %`;
     }
     if (kind === "plug" && d?.state === "on" && d.power != null) {
       const t = el("text", { x: p.x, y: p.y + R + 0.22 }, g); t.textContent = fmtW(d.power);
@@ -272,6 +278,8 @@ function renderSheet() {
     minus.disabled = plus.disabled = unavailable;
     row.append(minus, val, plus); c.appendChild(row);
     const note = document.createElement("div"); note.className = "sub"; note.style.marginTop = "12px"; note.textContent = "Target temperature"; c.appendChild(note);
+  } else if (d.kind === "dehumidifier") {
+    dehumSheet(d, c, unavailable);
   } else if (d.kind === "sensor") {
     const b = document.createElement("span"); b.className = "badge";
     b.style.background = deviceColor(d); b.textContent = unavailable ? d.state : d.state === "on" ? "Open" : "Closed";

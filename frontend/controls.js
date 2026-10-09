@@ -136,7 +136,7 @@ async function bulk(action, devs) {
 }
 async function allOff() {
   const keep = new Set(keepOn());
-  const devs = [...st.devices.values()].filter((d) => isOnOff(d) && usable(d) && !keep.has(d.entity_id));
+  const devs = [...st.devices.values()].filter((d) => (isOnOff(d) || dehumInAllOff(d)) && usable(d) && !keep.has(d.entity_id));
   const on = devs.filter((d) => d.state === "on");
   if (!on.length) { setStatus("Everything is already off" + (keep.size ? ` (${keep.size} kept on)` : "")); return; }
   const kept = [...keep].filter((e) => st.devices.get(e)?.state === "on").length;

@@ -1,7 +1,7 @@
 :root {
   --bg: #14171c; --panel: #1d2128; --line: #343a45; --text: #e7e9ee; --muted: #8a92a0;
   --accent: #4f8cff; --on: #ffc441; --off: #5d6573; --open: #ff5d5d; --closed: #3ccf7a;
-  --heat: #ff8a3d; --idle: #59a8ff; --room: #222833; --room-sel: #2b3a55;
+  --heat: #ff8a3d; --idle: #59a8ff; --dry: #2ec4b6; --room: #222833; --room-sel: #2b3a55;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
@@ -357,9 +357,9 @@ body.wall dialog { width: min(440px, 92vw); padding: 22px; }
 /* ---------- walls (shared walls drawn once), snap guides, tidy up ---------- */
 #walls { pointer-events: none; }
 #walls line, #walls polygon { fill: none; vector-effect: non-scaling-stroke; }
-.wall { stroke: #59647a; stroke-linecap: square; }
-.wall.outer { stroke-width: 3; }
-.wall.inner { stroke-width: 2; }
+#walls .wall { stroke: #59647a; stroke-linecap: square; }  /* not body.wall (wall tablet mode) */
+#walls .wall.outer { stroke-width: 3; }
+#walls .wall.inner { stroke-width: 2; }
 .sel-outline { stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; }
 .snap-guide { stroke: var(--accent); stroke-width: 1; stroke-dasharray: 5 4; opacity: .85; }
 .tidy-ghost { stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 4 4; opacity: .7; }
@@ -430,3 +430,24 @@ button.danger { color: var(--open); }
 .quiet-state[hidden] { display: none; }
 .quiet-state { color: var(--on); margin-top: 8px; }
 button.linkish { background: none; border: 0; padding: 0 2px; min-height: 0; color: var(--accent); text-decoration: underline; font-size: 13px; }
+/* dehumidifier */
+.tank-banner { display: flex; flex-direction: column; gap: 2px; background: var(--open); color: #15181d; border-radius: 10px;
+  padding: 10px 14px; margin-bottom: 12px; }
+.tank-banner b { font-size: 17px; }
+.tank-banner span { font-size: 13px; }
+.dh-now { margin-bottom: 10px; }
+.big.dh-on { background: var(--dry); border-color: var(--dry); color: #10201e; }
+.dh-target { margin-top: 14px; }
+.dh-note { margin-top: 6px; }
+.dh-mode { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px; font-size: 14px; }
+.dh-mode select { min-height: 40px; min-width: 150px; font-size: 15px; }
+.room text.hum-label { font-size: .26px; font-weight: 600; fill: var(--dry); paint-order: stroke; stroke: var(--room); stroke-width: .04px; }
+body.wall .room text.hum-label { font-size: .36px; fill: var(--dry); }
+.dehumidifier-hist .line.s0 { stroke: var(--dry); }
+.dehumidifier-hist .area.s0 { fill: var(--dry); }
+.dehumidifier-hist .dot.s0 { fill: var(--dry); }
+.dehumidifier-hist .hist-legend .sw { border-top-color: var(--dry); }
+.hist-chart .bar.dehumidifier.on { fill: var(--dry); }
+.dh-runs { margin-top: 6px; }
+.dh-runs-sum { margin-top: 2px; }
+.wall-stat.hum svg { color: var(--dry); }

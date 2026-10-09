@@ -126,7 +126,7 @@ $("importLayout").onclick = () => {
   $("importFile").value = ""; $("importFile").click();
 };
 const refsOf = (L) => [...(L.placements || []).map((p) => p.entity_id), ...(L.openings || []).map((o) => o.entity_id).filter(Boolean),
-  ...(L.settings?.keep_on || []), ...Object.keys(L.settings?.names || {}), ...(L.settings?.hidden || [])];
+  ...(L.settings?.keep_on || []), ...Object.keys(L.settings?.names || {}), ...(L.settings?.hidden || []), ...(L.settings?.all_off_include || [])];
 function stripUnknown(L) {
   const ok = (e) => st.devices.has(e);
   const out = { ...L, placements: (L.placements || []).filter((p) => ok(p.entity_id)),
@@ -135,6 +135,7 @@ function stripUnknown(L) {
     out.settings = { ...L.settings, keep_on: (L.settings.keep_on || []).filter(ok) };
     if (L.settings.names) out.settings.names = Object.fromEntries(Object.entries(L.settings.names).filter(([e]) => ok(e)));
     if (Array.isArray(L.settings.hidden)) out.settings.hidden = L.settings.hidden.filter(ok);
+    if (Array.isArray(L.settings.all_off_include)) out.settings.all_off_include = L.settings.all_off_include.filter(ok);
   }
   return out;
 }

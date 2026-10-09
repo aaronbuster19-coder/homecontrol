@@ -181,6 +181,16 @@ def build(dev: Device, rng: str, start: int, end: int, rows_by_id: dict[str, lis
         tgt = segments(samples(rows, attr("temperature"), True), start, end)
         out["series"] = [{"name": "Current", "unit": "°C", "points": downsample(cur, start, end, steps=False)},
                          {"name": "Target", "unit": "°C", "points": downsample(tgt, start, end), "step": True}]
+    elif dev.kind == "dehumidifier":
+        rows = rows_by_id.get(dev.entity_id, [])
+        cur = segments(samples(rows, attr("current_humidity"), True), start, end)
+        if not any(v is not None for _, _, v in cur):  # older HA / switch-only: the humidity sensor instead
+            cur = segments(samples(rows_by_id.get(dev.related.get("humidity", ""), []), numeric_state), start, end)
+        out["series"] = [{"name": "Current", "unit": "%", "points": downsample(cur, start, end, steps=False)}]
+        tgt = segments(samples(rows, attr("humidity"), True), start, end)
+        if any(v is not None for _, _, v in tgt):
+            out["series"].append({"name": "Target", "unit": "%", "points": downsample(tgt, start, end), "step": True})
+        out["timeline"] = runs(segments(samples(rows, state_of("on", "off"), True), start, end))
     elif dev.kind == "light":
         out["timeline"] = runs(segments(samples(rows_by_id.get(dev.entity_id, []), state_of("on", "off")), start, end))
     elif dev.kind == "sensor":
@@ -263,6 +273,9 @@ class History:
         t0 = now - RANGES[rng]
         if dev.kind == "valve":
             data = await self.ha.history(t0, now, [dev.entity_id], attributes=True)
+        elif dev.kind == "dehumidifier":
+            ids = [dev.entity_id] + ([dev.related["humidity"]] if dev.related.get("humidity") else [])
+            data = await self.ha.history(t0, now, ids, attributes=True)
         else:
             ids = [dev.entity_id] + ([dev.related["power"]] if dev.kind == "plug" and dev.related.get("power") else [])
             data = await self.ha.history(t0, now, ids)

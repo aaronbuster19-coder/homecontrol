@@ -13,6 +13,7 @@ import threading
 import time
 
 from .alerts import parse_time
+from .dehumidifier import TankAlert
 from .geometry import opening_rooms, placed_in
 from .live import build_device
 from .quiet import HeldStore, Quiet
@@ -294,6 +295,7 @@ class Automations:
         self.quiet = Quiet(HeldStore(store.path), settings, pusher, clock, tz)
         self.window = WindowHeating(store, settings, self._set_temp, lambda p: self._notify(p, "window"), mode, clock)
         self.health = Health(store, settings, lambda p: self._notify(p, "health"), clock)
+        self.tank = TankAlert(store, settings, lambda p: self._notify(p, "health"))
         self.summary = WeeklySummary(store, settings, ha, lambda: self.live.devices, layout_store.get,
                                      lambda p: self._notify(p, "summary"), clock, tz)
         self.schedules = ScheduleEngine(ScheduleStore(store.path), ha.call_service, layout_store.get, mode, self.window, clock, tz)
@@ -308,7 +310,7 @@ class Automations:
         await self.quiet.notify(payload, category)
 
     def on_device(self, item: dict, raw: dict | None) -> None:
-        if item.get("kind") == "sensor":
+        if item.get("kind") == "sensor" or self.tank.observe(item):
             self.wake.set()
 
     async def tick(self) -> None:
@@ -321,7 +323,9 @@ class Automations:
         if devices and states:  # nothing is decided before HA's states are known
             for name, step in (("schedules", lambda: self._schedules(devices, states)),
                                ("window heating", lambda: self._window(devices, states)),
-                               ("device health", lambda: self.health.tick(devices, states))):
+                               ("device health", lambda: self.health.tick(devices, states)),
+                               ("dehumidifier tank", lambda: self.tank.tick(
+                                   [build_device(d, states) for d in devices.values() if d.kind == "dehumidifier"]))):
                 try:
                     await step()
                 except Exception as e:

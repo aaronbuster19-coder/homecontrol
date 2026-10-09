@@ -12,6 +12,7 @@ from .alerts import Alerts, AlertStore, Pusher, SettingsError, load_vapid, valid
 from .automations import Automations, AutoStore
 from .auth import COOKIE, SESSION_TTL, AuthMiddleware, RateLimiter, Sessions, check_basic_auth, check_credentials, client_key, is_https, load_secret  # noqa: F401
 from .config import Settings, load_settings
+from .dehumidifier import DehumError, check_humidity, check_mode
 from .discovery import Device, apply_names, parse_template_output
 from .energy import Energy, EnergyError
 from .ha import DISCOVERY_TEMPLATE, HAClient, HAError
@@ -80,13 +81,13 @@ def light_data(b: LightBody) -> dict:
 
 
 def on_off_groups(devs: dict[str, Device], entity_ids) -> dict[str, list[str]]:
-    """Split lights/plugs by HA domain; raises ValueError naming the first id that isn't one."""
+    """Split lights/plugs (and dehumidifiers, for "All off") by HA domain; raises ValueError naming the first id that isn't one."""
     groups: dict[str, list[str]] = {"light": [], "switch": []}
     for eid in dict.fromkeys(entity_ids):
         d = devs.get(eid)
-        if d is None or d.kind not in ("light", "plug"):
+        if d is None or d.kind not in ("light", "plug", "dehumidifier"):
             raise ValueError(eid)
-        groups["light" if d.kind == "light" else "switch"].append(eid)
+        groups.setdefault(eid.split(".", 1)[0], []).append(eid)
     return groups
 
 
@@ -187,7 +188,7 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
             rng = check_range(range)
         except RangeError as e:
             raise HTTPException(400, str(e))
-        dev = await require(entity_id, ("light", "plug", "valve", "sensor"))
+        dev = await require(entity_id, ("light", "plug", "valve", "sensor", "dehumidifier"))
         return await history.device(dev, rng, build_device(dev, live.states))
 
     @app.get("/api/doors/log")
@@ -354,10 +355,36 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
 
     @app.post("/api/devices/{entity_id}/toggle")
     async def toggle(entity_id: str):
-        dev = await require(entity_id, ("light", "plug"))
-        domain = "light" if dev.kind == "light" else "switch"
-        await ha.call_service(domain, "toggle", {"entity_id": entity_id})
+        await require(entity_id, ("light", "plug", "dehumidifier"))
+        # light.* / switch.* (plugs, switch-only dehumidifiers) / humidifier.*
+        await ha.call_service(entity_id.split(".", 1)[0], "toggle", {"entity_id": entity_id})
         return {"ok": True}
+
+    async def dehum_item(entity_id: str) -> dict:
+        dev = await require(entity_id, ("dehumidifier",))
+        if not live.fresh():
+            live.load_states(await ha.states())
+        return build_device(dev, live.states)
+
+    @app.post("/api/devices/{entity_id}/humidity")
+    async def set_humidity(entity_id: str, request: Request):
+        item = await dehum_item(entity_id)
+        try:
+            h = check_humidity(await json_body(request), item)
+        except DehumError as e:
+            raise HTTPException(400, str(e))
+        await ha.call_service("humidifier", "set_humidity", {"entity_id": entity_id, "humidity": h})
+        return {"ok": True, "humidity": h}
+
+    @app.post("/api/devices/{entity_id}/mode")
+    async def set_dehum_mode(entity_id: str, request: Request):
+        item = await dehum_item(entity_id)
+        try:
+            m = check_mode(await json_body(request), item)
+        except DehumError as e:
+            raise HTTPException(400, str(e))
+        await ha.call_service("humidifier", "set_mode", {"entity_id": entity_id, "mode": m})
+        return {"ok": True, "mode": m}
 
     @app.post("/api/devices/{entity_id}/temperature")
     async def set_temperature(entity_id: str, body: TemperatureBody):
@@ -479,14 +506,16 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
         old = store.get()
         known = stored_refs(old)
         plugs = set(old.get("settings", {}).get("keep_on", []))
+        dehums = set(old.get("settings", {}).get("all_off_include", []))
         try:
             devs = await devices()
             known |= set(devs)
             plugs |= {e for e, d in devs.items() if d.kind == "plug"}
+            dehums |= {e for e, d in devs.items() if d.kind == "dehumidifier"}
         except HAError:
             pass
         try:
-            layout = carry_settings(validate_layout(data, known, plugs), old, data)
+            layout = carry_settings(validate_layout(data, known, plugs, dehums), old, data)
         except LayoutError as e:
             raise HTTPException(400, str(e))
         store.put(layout)

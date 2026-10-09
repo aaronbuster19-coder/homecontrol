@@ -45,7 +45,7 @@ function segmented(opts, value, onPick) {
   return g;
 }
 function historySection(d, c) {
-  if (!d || !["plug", "valve", "light", "sensor"].includes(d.kind)) return;
+  if (!d || !["plug", "valve", "light", "sensor", "dehumidifier"].includes(d.kind)) return;
   const box = hx("details", "hist"); box.open = hState.open; c.appendChild(box);
   const sum = hx("summary", null); sum.append(hx("span", null, "History"));
   const rng = hState.range[d.kind] || "24h";
@@ -103,7 +103,7 @@ function drawHistory(body, d, data) {
   body.classList.add(`${data.kind}-hist`);
   const readout = hx("div", "hist-readout"); body.appendChild(readout);
   const W = Math.max(260, Math.round(body.clientWidth || 340)), PR = 4;
-  const isLine = data.kind === "plug" || data.kind === "valve";
+  const isLine = data.kind === "plug" || data.kind === "valve" || data.kind === "dehumidifier";
   const PL = isLine ? 40 : 4;
   const H = isLine ? 150 : 64, PT = isLine ? 14 : 8, PB = 20;
   const x = (t) => PL + (t - data.start) / (data.end - data.start) * (W - PL - PR);
@@ -146,9 +146,10 @@ function drawHistory(body, d, data) {
         data.energy_today_kwh != null ? `today ${data.energy_today_kwh.toFixed(2)} kWh${costText(data.energy_today_kwh)}` : "", `peak ${fmtW(Math.max(...vals))}`].filter(Boolean).join(" · ");
     } else {
       const cur = series.find((x) => x.name === "Current")?.points.map((p) => p[1]).filter((v) => v != null) || [];
-      summary = cur.length ? `Current ${Math.min(...cur)}–${Math.max(...cur)}°` : "";
+      const u = unit === "%" ? " %" : "°";
+      summary = cur.length ? `Current ${Math.min(...cur)}–${Math.max(...cur)}${u}` : "";
       const legend = hx("div", "hist-legend");
-      legend.innerHTML = `<span><i class="sw s0"></i>Current</span><span><i class="sw s1"></i>Target</span>`;
+      legend.innerHTML = `<span><i class="sw s0"></i>Current</span>` + (series.length > 1 ? `<span><i class="sw s1"></i>Target</span>` : "");
       body.appendChild(legend);
     }
   } else {
@@ -192,6 +193,7 @@ function drawHistory(body, d, data) {
   s.addEventListener("pointerdown", show);
   s.addEventListener("pointermove", (e) => { if (e.pointerType === "mouse" || e.buttons) show(e); });
   s.addEventListener("pointerleave", (e) => { if (e.pointerType === "mouse") hide(); });
+  if (data.kind === "dehumidifier") dehumRunBar(body, data);
 }
 
 // ---------- door log ----------
