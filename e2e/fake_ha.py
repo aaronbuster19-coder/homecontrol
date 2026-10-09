@@ -1,45 +1,70 @@
-"""A tiny fake Home Assistant for browser tests: REST states/template/services + websocket state_changed events.
+"""A fake Home Assistant for the browser tests. Token: "test-token". Never talks to a real HA.
 
-Run: python e2e/fake_ha.py PORT   (token: test-token). GET /_calls lists service calls, POST /_reset clears them.
+    python e2e/fake_ha.py PORT [HOST]
+
+HA API: GET /api/states, POST /api/template (discovery lines), POST /api/services/<domain>/<service> (applied to the
+states and broadcast), GET /api/history/period/<start> (generated, deterministic history), websocket /api/websocket
+(token auth, subscribe_events -> state_changed events).
+Test controls: GET /fake/calls (service call log), POST /fake/reset (calls + states), POST /fake/set
+{"entity_id", "state"?, "attributes"?} (change a state and push it over the websocket like a wall switch would).
 """
-import asyncio
 import json
+import math
+import random
 import sys
 import time
+import zlib
+from datetime import datetime, timedelta, timezone
 
 import uvicorn
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse, PlainTextResponse
 
 TOKEN = "test-token"
+# domain|entity_id|device name|manufacturer|model, then rel|primary|entity|device_class|unit|state_class|name
 TEMPLATE = """light|light.lounge|Lounge lamp|TP-Link|L530
 light|light.kitchen|Kitchen|TP-Link|L630
 light|light.bedroom|Bedroom|TP-Link|L530
 light|light.strip|TV strip|TP-Link|L430C
 switch|switch.kettle|Kettle|TP-Link|P110
 rel|switch.kettle|sensor.kettle_power|power|W|measurement|Kettle Current consumption
+rel|switch.kettle|sensor.kettle_today|energy|kWh|total_increasing|Kettle Today's consumption
+switch|switch.kettle_led|Kettle|TP-Link|P110
 switch|switch.tv|TV|TP-Link|P110
 rel|switch.tv|sensor.tv_power|power|W|measurement|TV Current consumption
 climate|climate.lounge_valve|Lounge radiator|TP-Link|KE100
+rel|climate.lounge_valve|sensor.lounge_valve_battery|battery|%|measurement|Lounge radiator Battery
 climate|climate.bedroom_valve|Bedroom radiator|TP-Link|KE100
 binary|binary_sensor.contact_sensor_door|Front door|TP-Link|T110
+rel|binary_sensor.contact_sensor_door|sensor.front_door_battery|battery|%|measurement|Front door Battery
+binary|binary_sensor.contact_sensor_door_2|Bedroom window|TP-Link|T110
+binary|binary_sensor.contact_sensor_door_cloud_connection|Front door|TP-Link|T110
+light|light.other_brand|Other lamp|Philips|LCT015
 """
 
 
 def initial_states():
     def s(eid, state, **attrs):
-        return {"entity_id": eid, "state": state, "attributes": attrs, "last_changed": "2026-10-09T10:00:00+00:00"}
+        return {"entity_id": eid, "state": state, "attributes": attrs,
+                "last_changed": "2026-10-09T10:00:00+00:00", "last_updated": "2026-10-09T10:00:00+00:00"}
     return {x["entity_id"]: x for x in [
         s("light.lounge", "on", brightness=200, supported_color_modes=["hs", "color_temp"], color_mode="color_temp",
           color_temp_kelvin=2700, min_color_temp_kelvin=2500, max_color_temp_kelvin=6500),
         s("light.kitchen", "off", supported_color_modes=["brightness"]),
         s("light.bedroom", "off", supported_color_modes=["brightness"]),
         s("light.strip", "on", brightness=120, supported_color_modes=["hs"], color_mode="hs", hs_color=[275, 90]),
-        s("switch.kettle", "off"), s("sensor.kettle_power", "0", unit_of_measurement="W"),
-        s("switch.tv", "on"), s("sensor.tv_power", "86.4", unit_of_measurement="W"),
+        s("light.other_brand", "on", supported_color_modes=["onoff"]),
+        s("switch.kettle", "off"), s("sensor.kettle_power", "0", unit_of_measurement="W", device_class="power"),
+        s("sensor.kettle_today", "0.42", unit_of_measurement="kWh", device_class="energy"),
+        s("switch.kettle_led", "on"),
+        s("switch.tv", "on"), s("sensor.tv_power", "86.4", unit_of_measurement="W", device_class="power"),
         s("climate.lounge_valve", "heat", current_temperature=20.5, temperature=21, min_temp=5, max_temp=30),
+        s("sensor.lounge_valve_battery", "80", unit_of_measurement="%", device_class="battery"),
         s("climate.bedroom_valve", "heat", current_temperature=18.0, temperature=19, min_temp=5, max_temp=30),
-        s("binary_sensor.contact_sensor_door", "off"),
+        s("binary_sensor.contact_sensor_door", "off", device_class="door"),
+        s("sensor.front_door_battery", "15", unit_of_measurement="%", device_class="battery"),
+        s("binary_sensor.contact_sensor_door_2", "off", device_class="window"),
+        s("binary_sensor.contact_sensor_door_cloud_connection", "on"),
     ]}
 
 
@@ -49,8 +74,19 @@ app.state.calls = []
 app.state.sockets = set()
 
 
-def auth(request: Request):
+def authorized(request: Request) -> bool:
     return request.headers.get("authorization") == f"Bearer {TOKEN}"
+
+
+@app.middleware("http")
+async def check_token(request: Request, call_next):
+    if request.url.path.startswith("/api/") and not authorized(request):
+        return JSONResponse({"message": "Unauthorized"}, 401)
+    return await call_next(request)
+
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 async def broadcast(eid):
@@ -64,20 +100,13 @@ async def broadcast(eid):
 
 
 @app.get("/api/states")
-async def states(request: Request):
-    if not auth(request):
-        return JSONResponse({"message": "unauthorized"}, 401)
+async def states():
     return list(app.state.states.values())
 
 
 @app.post("/api/template")
-async def template(request: Request):
+async def template():
     return PlainTextResponse(TEMPLATE)
-
-
-@app.get("/api/history/period/{start}")
-async def history(start: str):
-    return []
 
 
 @app.post("/api/services/{domain}/{service}")
@@ -89,21 +118,100 @@ async def service(domain: str, service: str, request: Request):
         s = app.state.states.get(eid)
         if not s:
             continue
+        a = s["attributes"]
         if service in ("turn_on", "turn_off", "toggle"):
             on = service == "turn_on" or (service == "toggle" and s["state"] != "on")
             s["state"] = "on" if on else "off"
+            if "brightness_pct" in body:
+                a["brightness"] = round(body["brightness_pct"] * 2.55)
+            for k in ("hs_color", "rgb_color", "color_temp_kelvin"):
+                if k in body:
+                    a[k] = body[k]
+                    a["color_mode"] = {"hs_color": "hs", "rgb_color": "rgb", "color_temp_kelvin": "color_temp"}[k]
         elif service == "set_temperature":
-            s["attributes"]["temperature"] = body.get("temperature")
+            a["temperature"] = body.get("temperature")
+        s["last_changed"] = s["last_updated"] = now_iso()
         await broadcast(eid)
     return []
 
 
-@app.get("/_calls")
+# ---------- generated history ----------
+def _rows(eid: str, start: datetime, end: datetime, with_attrs: bool) -> list[dict]:
+    """Deterministic per entity: on/off runs for lights/plugs, open/close for doors, W for power sensors,
+    current/target temperatures for valves. The last row is the current state."""
+    rnd = random.Random(zlib.crc32(eid.encode()))
+    cur = app.state.states.get(eid)
+    out = []
+
+    def row(t, state, attrs=None):
+        out.append({"entity_id": eid, "state": str(state), "attributes": attrs or {},
+                    "last_changed": t.isoformat(), "last_updated": t.isoformat()})
+
+    t = start
+    if eid.startswith(("light.", "switch.")):
+        on = False
+        while t < end:
+            row(t, "on" if on else "off")
+            t += timedelta(minutes=rnd.randint(20, 40) if on else rnd.randint(60, 200))
+            on = not on
+    elif eid.startswith("binary_sensor."):
+        while t < end:
+            row(t, "off")
+            t += timedelta(minutes=rnd.randint(50, 240))
+            if t >= end:
+                break
+            row(t, "on")
+            t += timedelta(minutes=rnd.randint(1, 25))
+    elif eid.endswith("_power"):
+        base = 80 if "tv" in eid else 0
+        busy = False
+        while t < end:
+            if rnd.random() < 0.15:
+                busy = not busy
+            v = (base + rnd.uniform(-8, 8) if busy else 0) if base else (2000 + rnd.uniform(-50, 50) if busy and rnd.random() < 0.5 else 0)
+            row(t, round(v, 1))
+            t += timedelta(minutes=10)
+    elif eid.startswith("climate."):
+        target = (cur or {}).get("attributes", {}).get("temperature", 20)
+        while t < end:
+            night = t.hour < 7 or t.hour >= 23
+            tg = target - 4 if night else target
+            ct = round(tg - 1 + math.sin(t.timestamp() / 5400) + rnd.uniform(-0.3, 0.3), 1)
+            row(t, "heat", {"current_temperature": ct, "temperature": tg})
+            t += timedelta(minutes=30)
+    elif cur:
+        row(t, cur["state"])
+    if cur and out:
+        row(end - timedelta(seconds=30), cur["state"], cur["attributes"] if eid.startswith("climate.") else None)
+    if not with_attrs:
+        for r in out:
+            r["attributes"] = {}
+    return out
+
+
+@app.get("/api/history/period/{start}")
+async def history(start: str, request: Request):
+    q = request.query_params
+    t0 = datetime.fromisoformat(start)
+    t1 = datetime.fromisoformat(q["end_time"]) if q.get("end_time") else datetime.now(timezone.utc)
+    minimal = "minimal_response" in q
+    out = []
+    for eid in filter(None, q.get("filter_entity_id", "").split(",")):
+        rows = _rows(eid, t0, t1, "no_attributes" not in q)
+        if minimal:  # like HA: only the first row carries entity_id and attributes
+            rows = rows[:1] + [{"state": r["state"], "last_changed": r["last_changed"]} for r in rows[1:]]
+        if rows:
+            out.append(rows)
+    return out
+
+
+# ---------- test controls ----------
+@app.get("/fake/calls")
 async def calls():
     return app.state.calls
 
 
-@app.post("/_reset")
+@app.post("/fake/reset")
 async def reset():
     app.state.calls.clear()
     app.state.states = initial_states()
@@ -112,21 +220,34 @@ async def reset():
     return {}
 
 
+@app.post("/fake/set")
+async def set_state(request: Request):
+    body = await request.json()
+    s = app.state.states[body["entity_id"]]
+    if "state" in body:
+        s["state"] = str(body["state"])
+    s["attributes"].update(body.get("attributes") or {})
+    s["last_changed"] = s["last_updated"] = now_iso()
+    await broadcast(body["entity_id"])
+    return s
+
+
 @app.websocket("/api/websocket")
 async def websocket(ws: WebSocket):
     await ws.accept()
-    await ws.send_text(json.dumps({"type": "auth_required"}))
+    await ws.send_text(json.dumps({"type": "auth_required", "ha_version": "2026.10.0"}))
     msg = json.loads(await ws.receive_text())
-    if msg.get("access_token") != TOKEN:
-        await ws.send_text(json.dumps({"type": "auth_invalid"}))
+    if msg.get("type") != "auth" or msg.get("access_token") != TOKEN:
+        await ws.send_text(json.dumps({"type": "auth_invalid", "message": "Invalid access token"}))
         await ws.close()
         return
-    await ws.send_text(json.dumps({"type": "auth_ok"}))
-    app.state.sockets.add(ws)
+    await ws.send_text(json.dumps({"type": "auth_ok", "ha_version": "2026.10.0"}))
     try:
         while True:
             m = json.loads(await ws.receive_text())
             await ws.send_text(json.dumps({"id": m.get("id"), "type": "result", "success": True, "result": None}))
+            if m.get("type") == "subscribe_events":
+                app.state.sockets.add(ws)
     except WebSocketDisconnect:
         pass
     finally:
@@ -134,4 +255,4 @@ async def websocket(ws: WebSocket):
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="127.0.0.1", port=int(sys.argv[1]), log_level="warning")
+    uvicorn.run(app, host=sys.argv[2] if len(sys.argv) > 2 else "127.0.0.1", port=int(sys.argv[1]), log_level="warning")
