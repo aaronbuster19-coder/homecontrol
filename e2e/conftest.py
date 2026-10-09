@@ -164,6 +164,13 @@ class Stack:
         # "localhost" is a secure context, so the service worker and push APIs are available.
         self.url = f"http://localhost:{app_port}"
 
+    def set_clock(self, t: float) -> float:
+        """Clock stacks only: the server's clock jumps to epoch seconds t (and keeps ticking); returns it."""
+        auth = base64.b64encode(f"{USER}:{PASSWORD}".encode()).decode()
+        req = urllib.request.Request(self.url + "/_test/clock", data=json.dumps({"t": t}).encode(), method="POST",
+                                     headers={"Content-Type": "application/json", "Authorization": f"Basic {auth}"})
+        return json.load(urllib.request.urlopen(req, timeout=5))["now"]
+
     def close(self):
         stop(self.app_proc, self.ha_proc)
 
@@ -193,6 +200,14 @@ def appliance_stack(tmp_path_factory):
 @pytest.fixture
 def fresh_stack(tmp_path_factory):
     s = Stack(tmp_path_factory.mktemp("fresh"))
+    yield s
+    s.close()
+
+
+@pytest.fixture
+def clock_stack(tmp_path_factory):
+    """A fresh fake HA + app with a movable server clock (e2e/clock_app.py), for automations that act at set times."""
+    s = Stack(tmp_path_factory.mktemp("clock"), clock=True)
     yield s
     s.close()
 

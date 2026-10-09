@@ -16,7 +16,7 @@ NOT_TANK = re.compile(r"defrost|filter|battery")
 @dataclass
 class Device:
     entity_id: str
-    kind: str  # light | plug | valve | sensor | dehumidifier
+    kind: str  # light | plug | valve | sensor | dehumidifier | person (presence for Auto Away, never on the plan)
     name: str
     model: str
     # role (power|energy_today|battery|battery_low; dehumidifiers also humidity|temperature|tank) -> entity_id
@@ -52,6 +52,10 @@ def _model_matches(model: str, wanted: str) -> bool:
 
 
 def classify(domain: str, entity_id: str, manufacturer: str, model: str, name: str = "", device_class: str = "") -> str | None:
+    if domain == "person" and entity_id.startswith("person."):
+        return "person"
+    if domain == "tracker" and entity_id.startswith("device_tracker.") and manufacturer in ("gps", "router"):
+        return "tracker"  # becomes a person only when HA has no person entities (see parse_template_output)
     if domain == "light" and _is_tplink(manufacturer):
         return "light"
     if domain == "switch" and _is_tplink(manufacturer):
@@ -147,6 +151,16 @@ def _one_dehumidifier_per_device(devices: list[Device], keys: dict[str, tuple]) 
     return [d for d in devices if d.entity_id not in drop]
 
 
+def _presence(devices: list[Device], sources: dict[str, str]) -> list[Device]:
+    """person.* entities are the presence; GPS / router device_trackers count only when there are none."""
+    if any(d.kind == "person" for d in devices):
+        return [d for d in devices if d.kind != "tracker"]
+    for d in devices:
+        if d.kind == "tracker":
+            d.kind, d.model = "person", "Phone (GPS)" if sources.get(d.entity_id) == "gps" else "Router"
+    return devices
+
+
 def parse_template_output(text: str) -> list[Device]:
     devices: list[Device] = []
     seen: set[str] = set()
@@ -166,9 +180,10 @@ def parse_template_output(text: str) -> list[Device]:
         kind = classify(domain, entity_id, manufacturer, model, name, classes.get(entity_id, ""))
         if kind and entity_id not in seen:
             seen.add(entity_id)
-            devices.append(Device(entity_id, kind, name or entity_id, model))
+            devices.append(Device(entity_id, kind, name or entity_id, "Person" if kind == "person" else model))
             keys[entity_id] = (name, manufacturer, model) if name else (entity_id,)
     devices = _one_dehumidifier_per_device(devices, keys)
+    devices = _presence(devices, {p[1]: p[3] for p in primaries})
     for d in devices:
         d.related = pick_related(rel.get(d.entity_id, []))
         if d.kind == "dehumidifier":

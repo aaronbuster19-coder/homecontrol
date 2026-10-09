@@ -102,7 +102,7 @@ def test_bell_sheet_sections_and_settings(fresh_stack, open_page):
     page.click("#alertsBtn")
     sheet = page.locator("#alertSheet")
     expect(sheet).to_be_visible()
-    expect(sheet.locator("h4")).to_have_text(["Doors & windows", "Device health", "Dehumidifier", "Weekly summary", "Appliances", "Quiet hours"])
+    expect(sheet.locator("h4")).to_have_text(["Doors & windows", "Device health", "Dehumidifier", "Weekly summary", "Appliances", "Quiet hours", "Auto Away"])
     expect(page.locator("#winHeat")).to_be_checked()
     expect(page.locator("#applDone")).to_be_checked()
     expect(page.locator("#healthBattery")).to_be_checked()
