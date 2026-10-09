@@ -42,8 +42,8 @@ body.editing #list li { touch-action: none; }
 #list .group { color: var(--muted); font-size: 12px; text-transform: uppercase; padding: 10px 6px 2px; cursor: default; }
 #list .group:hover { background: none; }
 
-.room rect, .room polygon { fill: var(--room); stroke: #59647a; stroke-width: 2; vector-effect: non-scaling-stroke; }
-.room.sel rect, .room.sel polygon { fill: var(--room-sel); stroke: var(--accent); }
+.room rect, .room polygon { fill: var(--room); stroke: none; } /* walls are drawn by snap.js */
+.room.sel rect, .room.sel polygon { fill: var(--room-sel); }
 .room text { fill: var(--muted); font-size: .32px; pointer-events: none; }
 .room .dim { font-size: .22px; }
 body.editing .room { cursor: move; }
@@ -92,7 +92,7 @@ dialog menu { display: flex; justify-content: flex-end; gap: 8px; padding: 0; ma
 /* doors and windows */
 .opening line, .opening path { fill: none; vector-effect: non-scaling-stroke; }
 .opening .hit { stroke: transparent; stroke-width: 26; }
-.opening .gap { stroke: var(--bg); stroke-width: 5; }
+.opening .gap { stroke: var(--room); stroke-width: 4; }
 .opening .pane { stroke: #8fd3ff; stroke-width: 2; }
 .opening .swing { stroke: var(--muted); stroke-width: 1.2; }
 .opening .swing.linked { stroke-width: 2; }
@@ -354,3 +354,12 @@ body.wall dialog { width: min(440px, 92vw); padding: 22px; }
   body.wall #planWrap { height: auto; padding: 4px 8px 10px; }
 }
 @media (max-width: 380px) { .wall-off span { display: none; } }
+/* ---------- walls (shared walls drawn once), snap guides, tidy up ---------- */
+#walls { pointer-events: none; }
+#walls line, #walls polygon { fill: none; vector-effect: non-scaling-stroke; }
+.wall { stroke: #59647a; stroke-linecap: square; }
+.wall.outer { stroke-width: 3; }
+.wall.inner { stroke-width: 2; }
+.sel-outline { stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; }
+.snap-guide { stroke: var(--accent); stroke-width: 1; stroke-dasharray: 5 4; opacity: .85; }
+.tidy-ghost { stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 4 4; opacity: .7; }

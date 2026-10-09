@@ -81,6 +81,15 @@ container isn't healthy within ~2.5 min it puts the previous image (`homecontrol
 - **Edit:** Edit → “+ Room”, then drag a rectangle on the plan and name it (sizes are pre-filled and can be tweaked), drag rooms and markers (a room carries the devices inside it), select a room and drag its handles to resize,
   drag unplaced devices from the side list onto the plan (or tap one, then tap the plan), select + Delete,
   “Edit room” (or double-click) to rename or resize, then Save.
+- **Snapping:** while you draw, move or resize a room (or drag an L's inner corner), its edges snap to the walls of
+  the other rooms — flush against a neighbour, or in line with an edge further away (e.g. top edges level) — when
+  within about 12 screen pixels (at most 0.4 m). Thin blue guide lines show the active snap. Hold **Alt** while
+  dragging to switch it off for that drag; with nothing nearby, sizes snap to the 5 cm grid as before.
+- **Tidy up** (edit toolbar): closes gaps and overlaps under 0.3 m between rooms that nearly touch by moving
+  rooms (with their devices, doors and windows) or stretching one side. It shows the old outlines dashed:
+  *Keep* or *Undo*; nothing is stored until Save, and Cancel throws it away.
+- **Shared walls:** where two rooms touch, the wall between them is drawn once, so the plan reads as one flat;
+  outside walls are drawn a little heavier. Doors and windows work on shared walls like on any other wall.
 - **L-shaped rooms:** select a room and press “L-shape” to cut out a corner; press again to move the cut to the
   next corner (NE → SE → SW → NW → off). Drag the white handle at the inner corner to size the cut.
 - **Doors and windows:** “+ Door” / “+ Window”, then tap near a wall (inner L walls too). Drag one to slide it along
@@ -246,6 +255,7 @@ pip install -r requirements-dev.txt
 python -m pytest backend/tests          # HA is mocked; no real devices touched
 pip install playwright && python -m pytest e2e   # browser tests (wall mode) against e2e/fake_ha.py
 docker build --target test .            # same, inside the image
+node --test tests/*.test.js            # snapping / wall maths (frontend/snap.js), plain Node, no npm
 HA_URL=… HA_TOKEN=… APP_USER=u APP_PASSWORD=p DB_PATH=./data/layout.db \
   uvicorn backend.app:create_app --factory --reload
 ```

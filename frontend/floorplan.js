@@ -162,6 +162,7 @@ function floorplanPointerMove(d, pt, dx, dy) {
     const r = d.cut, { fx, fy } = cutMap(r);
     const u = fx ? r.x + r.w - pt.x : pt.x - r.x, v = fy ? r.y + r.h - pt.y : pt.y - r.y;
     r.cut.w = snap(r.w - u); r.cut.h = snap(v); clampCut(r);
+    snapCut(d, pt);
     return true;
   }
   if (d.olen) {
