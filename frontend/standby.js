@@ -29,6 +29,7 @@ async function sbSave(eid, body) {
   if (st.sheetFor) renderSheet();
 }
 const sbBlockedText = (p) => p.blocked === "keep on" ? "Keep-on plugs always stay on." : p.blocked === "fridge" ? "A fridge or freezer is linked to this plug — it always stays on."
+  : p.blocked === "server" ? "A home server is linked to this plug — it always stays on."
   : !p.has_power ? "This plug doesn't measure power, so it can't tell whether something is in use." : "";
 const sbSaves = (p) => !p.year_kwh ? "" : p.year_p != null ? `saves ≈ ${fmtP(p.year_p)}/year` : `saves ≈ ${p.year_kwh} kWh/year`;
 function sbSummary(p) {

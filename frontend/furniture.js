@@ -1,6 +1,6 @@
 "use strict";
 // Furniture on the plan: catalogue + top-down drawings, edit-mode add/move/rotate/resize/duplicate, view-mode toggle.
-// Data: layout.furniture = [{id, type, x, y, w, h, rot, label?, plug?, hide_marker?, thresholds?}] (plug & co: appliances.js) — x/y is the centre (m), w × h the size before
+// Data: layout.furniture = [{id, type, x, y, w, h, rot, label?, plug?, hide_marker?, thresholds?, remind?, auto_off?}] (plug & co: appliances.js) — x/y is the centre (m), w × h the size before
 // rotating, rot whole degrees clockwise. Drawings face "down" (+y): backs, headboards and cisterns are at the top.
 // Hooks called from app.js: renderFurniture(markersG), furniturePointerDown(e, pt), furniturePointerMove(d, pt, dx, dy),
 // furnitureInRoom(r). Uses snap.js (solveSnap, linesOf, snapThr, setGuides, r3) and floorplan.js (inRoom, mpp).
@@ -312,6 +312,47 @@ function drawStraightener(g, w, h) { // two arms side by side: hinge and cable a
   fC(g, x0 + h * 0.5, 0, h * 0.3, "fu-s");
 }
 
+function drawHoover(g, w, h) { // cordless stick vacuum standing in its dock: wall bracket at the back, floor head in front
+  const x0 = -w / 2, y0 = -h / 2, m = Math.min(w, h), r = m * 0.2, cy = y0 + h * 0.32;
+  fR(g, -w * 0.24, y0, w * 0.48, h * 0.14, "fu-d", 0.012);                  // wall bracket with the charging contacts
+  fR(g, x0 + w * 0.04, y0 + h * 0.5, w * 0.92, h * 0.5, "fu-t", 0.03);       // the dock's floor plate
+  fR(g, -m * 0.035, cy, m * 0.07, y0 + h * 0.62 - cy, "fu-s", m * 0.03);     // the wand, seen end-on as it rises
+  fR(g, -w * 0.36, y0 + h * 0.6, w * 0.72, h * 0.25, "fu-b", 0.03);          // floor head
+  fL(g, -w * 0.3, y0 + h * 0.77, w * 0.3, y0 + h * 0.77, "fu-l fu-faint");   // brush roll
+  for (const s of [-1, 1]) fC(g, s * w * 0.27, y0 + h * 0.81, m * 0.022, "fu-d fu-led"); // headlights
+  fR(g, -m * 0.09, y0 + h * 0.02, m * 0.18, h * 0.16, "fu-s", m * 0.06);    // handle, against the bracket
+  fC(g, 0, cy, r, "fu-b");                                                   // motor and clear dust bin from above
+  fC(g, 0, cy, r * 0.72, "fu-w");
+  const b = r * 0.5;
+  fP(g, `M${b * 0.15} ${cy - b}L${-b * 0.55} ${cy + b * 0.12}H${-b * 0.02}L${-b * 0.15} ${cy + b}L${b * 0.55} ${cy - b * 0.12}H${b * 0.02}Z`, "fu-bolt");
+}
+function drawDesktopPc(g, w, h) { // tower from above: exhaust fan in the top panel, front bezel with the power button
+  const x0 = -w / 2, y0 = -h / 2, r = Math.min(w * 0.36, h * 0.2), cy = y0 + h * 0.36, bz = Math.min(0.05, h * 0.12);
+  fR(g, x0, y0, w, h, "fu-b", 0.015);
+  for (let i = 0; i < 3; i++) { const y = y0 + h * 0.05 + i * Math.min(0.02, h * 0.04); fL(g, x0 + w * 0.2, y, x0 + w * 0.8, y, "fu-l fu-faint"); }
+  fC(g, 0, cy, r, "fu-l");
+  fC(g, 0, cy, r * 0.62, "fu-l fu-faint");
+  for (let i = 0; i < 4; i++) { const a = i * Math.PI / 4; fL(g, Math.cos(a) * r * 0.9, cy + Math.sin(a) * r * 0.9, -Math.cos(a) * r * 0.9, cy - Math.sin(a) * r * 0.9, "fu-l fu-faint"); }
+  fC(g, 0, cy, r * 0.22, "fu-d");
+  fR(g, x0 + w * 0.12, cy + r + h * 0.08, w * 0.76, h * 0.12, "fu-s", 0.008); // drive / I/O panel
+  fR(g, x0, y0 + h - bz, w, bz, "fu-d", 0.01);                                // front bezel
+  fC(g, x0 + w * 0.72, y0 + h - bz / 2, Math.min(bz * 0.32, w * 0.08), "fu-s fu-led"); // power button
+}
+function drawHomeServer(g, w, h) { // small NAS / mini server: vented lid, a row of drive bays across the front
+  const x0 = -w / 2, y0 = -h / 2, n = Math.max(2, Math.min(8, Math.round(w / 0.09))), fy = y0 + h * 0.6, fh = h * 0.4 - 0.025;
+  fR(g, x0, y0, w, h, "fu-b", 0.025);
+  fR(g, x0 + w * 0.08, y0 + h * 0.07, w * 0.84, h * 0.44, "fu-l fu-faint", 0.015);
+  for (let i = 1; i < 6; i++) { const y = y0 + h * 0.07 + (i * h * 0.44) / 6; fL(g, x0 + w * 0.16, y, x0 + w * 0.84, y, "fu-l fu-faint"); }
+  fR(g, x0 + 0.02, fy, w - 0.04, fh, "fu-d", 0.012);
+  const gap = Math.min(0.012, w * 0.03), bw = (w - 0.04 - gap * (n + 1)) / n;
+  for (let i = 0; i < n; i++) {
+    const bx = x0 + 0.02 + gap + i * (bw + gap);
+    fR(g, bx, fy + gap, bw, fh - 2 * gap, "fu-s", 0.006);                             // drive bay
+    fL(g, bx + bw * 0.25, fy + fh * 0.3, bx + bw * 0.75, fy + fh * 0.3, "fu-l fu-faint"); // its pull tab
+    fC(g, bx + bw / 2, fy + fh - gap - Math.min(0.018, fh * 0.15), Math.min(0.009, bw * 0.18), "fu-d fu-led");
+  }
+}
+
 const FURNITURE = {
   bed: { name: "Double bed", group: "Bedroom", w: 1.4, h: 2.0, draw: drawBed },
   bed_single: { name: "Single bed", group: "Bedroom", w: 0.9, h: 1.9, draw: drawBed },
@@ -331,6 +372,8 @@ const FURNITURE = {
   dining_table: { name: "Dining table", group: "Work & dining", w: 1.4, h: 0.8, draw: drawTable },
   dining_set: { name: "Table + 4 chairs", group: "Work & dining", w: 1.6, h: 1.6, draw: drawDiningSet },
   chair: { name: "Chair", group: "Work & dining", w: 0.45, h: 0.5, draw: drawChair },
+  desktop_pc: { name: "Desktop PC", group: "Work & dining", w: 0.2, h: 0.45, draw: drawDesktopPc },
+  home_server: { name: "Home server", group: "Work & dining", w: 0.4, h: 0.4, draw: drawHomeServer },
   counter: { name: "Kitchen counter", group: "Kitchen", w: 1.2, h: 0.6, draw: drawCounter },
   kitchen_sink: { name: "Kitchen sink", group: "Kitchen", w: 0.8, h: 0.6, draw: drawKitchenSink },
   hob: { name: "Hob / cooker", group: "Kitchen", w: 0.6, h: 0.6, draw: drawHob },
@@ -353,6 +396,7 @@ const FURNITURE = {
   freezer: { name: "Freezer", group: "Appliances", w: 0.6, h: 0.65, draw: drawFreezer },
   iron: { name: "Iron", group: "Appliances", w: 0.14, h: 0.27, draw: drawIron },
   hair_straightener: { name: "Hair straightener", group: "Appliances", w: 0.3, h: 0.08, draw: drawStraightener },
+  hoover: { name: "Hoover", group: "Appliances", w: 0.3, h: 0.25, draw: drawHoover },
 };
 
 // ---------- geometry ----------
@@ -504,7 +548,7 @@ function duplicateFurniture() {
   const f = furSel(); if (!f) return;
   if (st.draft.furniture.length >= 200) { setStatus("That's the most furniture a plan can hold (200)", true); return; }
   const c = { ...f, id: furId(), x: r3(f.x + 0.3), y: r3(f.y + 0.3) };
-  delete c.plug; delete c.hide_marker; delete c.thresholds; // a plug links to one appliance only
+  delete c.plug; delete c.hide_marker; delete c.thresholds; delete c.auto_off; // a plug links to one appliance only
   st.draft.furniture.push(c); st.sel = { type: "fur", id: c.id }; render();
 }
 function deleteFurniture(id) { st.draft.furniture = (st.draft.furniture || []).filter((f) => f.id !== id); }

@@ -10,7 +10,7 @@ Safety, as for schedules (and with their timing helpers: wall-clock times in the
 occurrence is handled at most once — (plug, kind, local date) is written to SQLite before the call; nothing missed is
 replayed (at most GRACE late, never before the moment the plug was enabled or edited); everything due in one tick
 is one service call per action; a failed switch-off is logged and not retried (the plug just stays on); a failed
-switch-on is retried twice with back-off, then given up. Keep-on plugs and plugs a fridge / freezer
+switch-on is retried twice with back-off, then given up. Keep-on plugs and plugs a fridge / freezer or a home server
 is linked to (layout furniture with "plug") can never be enabled.
 """
 import logging
@@ -31,6 +31,7 @@ MIN_THRESHOLD, MARGIN = 2.0, 5.0
 LOG_MAX = 40
 RETRY, ON_TRIES = 300, 3   # a failed morning switch-on is tried again after 5, then 10 min, then given up
 COLD = ("fridge", "freezer", "fridge_freezer")
+SERVER = ("home_server",)
 HHMM = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
 EVERY_DAY = list(range(7))
 
@@ -51,6 +52,8 @@ def blocked_reason(eid: str, layout: dict) -> str | None:
     for f in layout.get("furniture") or []:
         if f.get("type") in COLD and f.get("plug") == eid:
             return "fridge"
+        if f.get("type") in SERVER and f.get("plug") == eid:
+            return "server"
     return None
 
 
@@ -203,7 +206,8 @@ class StandbySaver:
             why = blocked_reason(eid, layout)
             if why:
                 self.put_plug(eid, {**p, "enabled": False}, d.name,
-                              "it's a keep-on plug" if why == "keep on" else "a fridge is linked to it")
+                              {"keep on": "it's a keep-on plug", "server": "a home server is linked to it"}.get(
+                                  why, "a fridge is linked to it"))
                 continue
             cur = (states.get(eid) or {}).get("state")
             if st["owned"] and cur == "on" and now - st["owned"] > SETTLE:
@@ -348,6 +352,8 @@ def add_routes(app, saver: StandbySaver, devices, plug_devices, energy, layout, 
                 raise HTTPException(400, "keep-on plugs can't use the standby saver")
             if why == "fridge":
                 raise HTTPException(400, "a fridge or freezer is linked to this plug: it must stay on")
+            if why == "server":
+                raise HTTPException(400, "a home server is linked to this plug: it must stay on")
             if not d.related.get("power"):
                 raise HTTPException(400, "this plug doesn't measure power, so the saver can't tell if it's in use")
             if p["threshold_w"] is None:

@@ -1,12 +1,13 @@
 "use strict";
 // Appliances: furniture linked to a smart plug (layout furniture[].plug, hide_marker, thresholds).
 // View mode (plan, room view, wall mode): the piece glows while the plug is on and shows its watts and a status read
-// from the power ("Boiling…", "Running 47 min"). Tap = toggle the plug, except fridges/freezers and keep-on plugs: those
-// open the plug sheet, where switching off asks first. Long-press = plug sheet. The plug's own marker is hidden unless
+// from the power ("Boiling…", "Running 47 min", "Charging"). Tap = toggle the plug, except fridges/freezers, a home server
+// and keep-on plugs: those open the plug sheet, where switching off asks first. Long-press = plug sheet. The plug's own marker is hidden unless
 // the link says otherwise. Edit mode: "Link plug" for a selected appliance, with a one-tap offer to rename the plug.
 // The sheet also has a left-on reminder (pushed by the server with a "Turn off" action, see sw.js) and usage stats.
 // Washer / dryer / dishwasher cycles are tracked by the server (GET /api/appliances, SSE "appliances"), which also sends
-// the "Washing finished" push. Status rules mirror backend/appliances.py. Nothing here ever switches anything by itself.
+// the "Washing finished" push; likewise hoover charges ("Hoover charged", and the opt-in "Switch the plug off when
+// charged", done by the server). Status rules mirror backend/appliances.py. Nothing here ever switches anything by itself.
 // Hooks: renderAppliances, applianceLinked (furniture.js); applianceHidesMarker, applianceFor, applianceIcon,
 // applianceText, tapAppliance, confirmOff, applianceSheet, applianceEvents, loadAppliances (app.js); protectedPlugs
 // (controls.js All off, modes.js Away).
@@ -27,20 +28,25 @@ const APPLIANCE = { // keep in step with APPLIANCES in backend/appliances.py
   washer: { rule: "cycle", th: CYCLE_TH },
   dryer: { rule: "cycle", th: CYCLE_TH },
   dishwasher: { rule: "cycle", th: CYCLE_TH },
+  hoover: { rule: "charge", th: { charge_w: 10, trickle_w: 3, charged_min: 10 } },
+  desktop_pc: { rule: "busy", busy: "On", idle: "Sleep", th: { on_w: 10 } },
+  home_server: { rule: "on", busy: "Running", th: {} },
 };
-const PROTECTED_TYPES = ["fridge", "freezer"];
+const PROTECTED_TYPES = ["fridge", "freezer", "home_server"];
+const SERVER_TYPES = ["home_server"];
 // Left-on reminders (backend/appliances.py REMIND_DEFAULT): on by default for these, minutes.
 const REMIND_DEFAULT = { heater: 180, fan: 180, iron: 60, hair_straightener: 60 };
 const REMIND_CHOICES = [15, 30, 45, 60, 90, 120, 180, 240, 360, 480, 720, 1440];
 const SAFETY_TYPES = ["heater", "iron", "hair_straightener"];
-const remindOk = (f) => APPLIANCE[f.type] && APPLIANCE[f.type].rule !== "cycle" && !PROTECTED_TYPES.includes(f.type);
+const remindOk = (f) => APPLIANCE[f.type] && !["cycle", "charge"].includes(APPLIANCE[f.type].rule) && !PROTECTED_TYPES.includes(f.type);
 function remindMinutes(f) {
   if (!remindOk(f) || f.remind === false) return null;
   return Number.isInteger(f.remind) ? f.remind : REMIND_DEFAULT[f.type] ?? null;
 }
 const fmtHM = (m) => m < 60 ? `${m} min` : m % 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${Math.floor(m / 60)} h`;
 const FINISHED_FOR = 2 * 3600;
-const TH_LABEL = { on_w: ["Busy above", "W"], run_w: ["Running above", "W"], run_min: ["for", "min"], idle_w: ["Finished below", "W"], idle_min: ["for", "min"] };
+const TH_LABEL = { on_w: ["Busy above", "W"], run_w: ["Running above", "W"], run_min: ["for", "min"], idle_w: ["Finished below", "W"], idle_min: ["for", "min"],
+  charge_w: ["Charging above", "W"], trickle_w: ["Charged below", "W"], charged_min: ["for", "min"] };
 const ap = { cycles: {}, skew: 0, offer: null };
 const an = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
 
@@ -51,6 +57,7 @@ const applName = (f) => f.label || FURNITURE[f.type]?.name || f.type;
 const applTh = (f) => ({ ...APPLIANCE[f.type].th, ...(f.thresholds || {}) });
 const isProtected = (f) => PROTECTED_TYPES.includes(f.type) || keepOn().includes(f.plug);
 const nowS = () => (Date.now() + ap.skew) / 1000;
+// Plugs "All off" and Away leave on: linked fridges, freezers and home servers.
 function protectedPlugs() { return (st.layout.furniture || []).filter((f) => f.plug && PROTECTED_TYPES.includes(f.type)).map((f) => f.plug); }
 function fmtMins(s) {
   const m = Math.floor(Math.max(0, s) / 60);
@@ -61,11 +68,16 @@ function fmtMins(s) {
 // Mirrors status() in backend/appliances.py.
 function applianceStatus(f, d) {
   if (!d || !usable(d)) return "Offline";
-  if (d.state !== "on") return "Off";
   const A = APPLIANCE[f.type], th = applTh(f), p = d.power;
-  if (A.rule === "on") return p != null ? `On · ${fmtW(p)}` : "On";
+  if (d.state !== "on") return A.rule === "charge" ? "Not charging" : "Off";
+  if (A.rule === "on") return p != null ? `${A.busy || "On"} · ${fmtW(p)}` : A.busy || "On";
   if (A.rule === "busy") return p == null ? "On" : p > th.on_w ? A.busy : A.idle;
   const c = ap.cycles[f.id], now = nowS();
+  if (A.rule === "charge") {
+    const ph = c?.plug === f.plug ? c.phase : null;
+    if (ph === "charging" || (p != null && p > th.charge_w)) return "Charging";
+    return ph === "charged" ? "Charged" : "Not charging";
+  }
   if (c?.plug === f.plug && c.phase === "running" && c.run_start != null) return `Running ${fmtMins(now - c.run_start)}`;
   if (p != null && p > th.run_w) return "Starting…";
   if (c?.plug === f.plug && c.phase === "finished" && c.finished_at != null && now - c.finished_at < FINISHED_FOR) return `Finished ${fmtMins(now - c.finished_at)} ago`;
@@ -76,6 +88,7 @@ function applianceBusy(f, d) {
   const A = APPLIANCE[f.type], th = applTh(f);
   if (A.rule === "busy") return d.power != null && d.power > th.on_w;
   if (A.rule === "cycle") return ap.cycles[f.id]?.phase === "running" || (d.power != null && d.power > th.run_w);
+  if (A.rule === "charge") return ap.cycles[f.id]?.phase === "charging" || (d.power != null && d.power > th.charge_w);
   return true;
 }
 // Status plus the live watts (when the status doesn't already say them).
@@ -128,7 +141,8 @@ function renderAppliances() {
   for (const f of st.layout.furniture || []) {
     const def = FURNITURE[f.type]; if (!def || !applianceLinked(f)) continue;
     const d = st.devices.get(f.plug), on = d?.state === "on", busy = applianceBusy(f, d), off = !d || !usable(d);
-    const fg = el("g", { class: `fur appl fu-${f.type}` + (on ? " on" : "") + (busy ? " busy" : "") + (off ? " offline" : ""),
+    const done = on && !busy && applianceStatus(f, d) === "Charged";
+    const fg = el("g", { class: `fur appl fu-${f.type}` + (on ? " on" : "") + (busy ? " busy" : "") + (off ? " offline" : "") + (done ? " charged" : ""),
       "data-appl": f.id, "data-dev": f.plug, transform: `translate(${f.x} ${f.y}) rotate(${f.rot || 0})` }, g);
     const gp = Math.min(0.08, f.w * 0.2, f.h * 0.2);
     el("rect", { class: "appl-glow", x: -f.w / 2 - gp, y: -f.h / 2 - gp, width: f.w + 2 * gp, height: f.h + 2 * gp, rx: gp * 2 }, fg);
@@ -148,7 +162,7 @@ const TAG_PX = 17;
 function applianceTag(g, f, d, k, on, busy, off) {
   const status = applianceStatus(f, d), extra = applianceText(f, d).slice(status.length);
   const s = (0.17 * k) / TAG_PX, ph = TAG_PX * 1.6;
-  const tg = el("g", { class: "appl-tag" + (on ? " on" : "") + (busy ? " busy" : "") + (off ? " offline" : ""), "data-tag": f.id }, g);
+  const tg = el("g", { class: "appl-tag" + (on ? " on" : "") + (busy ? " busy" : "") + (off ? " offline" : "") + (status === "Charged" ? " charged" : ""), "data-tag": f.id }, g);
   const bg = el("rect", { class: "bg", y: -ph / 2, height: ph, rx: ph / 2 }, tg);
   const t = el("text", { x: 0, y: 0, style: `font-size:${TAG_PX}px` }, tg);
   const s1 = el("tspan", { class: "s" }, t); s1.textContent = status;
@@ -184,12 +198,14 @@ function tapAppliance(fid) {
 }
 // A marker or list tap on a fridge's plug opens its sheet too.
 function applianceTapOpensSheet(eid) { const f = applianceFor(eid, st.layout); return !!f && isProtected(f); }
-// The sheet's on/off button: switching a fridge (or a keep-on plug's appliance) off asks first.
+// The sheet's on/off button: switching a fridge, a home server (or a keep-on plug's appliance) off asks first.
 function confirmOff(d) {
   const f = applianceFor(d.entity_id, st.layout);
   if (!f || d.state !== "on" || !isProtected(f)) return true;
   const n = FURNITURE[f.type]?.name || f.type;
-  return confirm(f.label ? `Turn off ${f.label}?` : `Turn off the ${n === n.toUpperCase() ? n : n.toLowerCase()}?`);
+  const q = f.label ? `Turn off ${f.label}?` : `Turn off the ${n === n.toUpperCase() ? n : n.toLowerCase()}?`;
+  return confirm(SERVER_TYPES.includes(f.type)
+    ? `${q}\n\nThis may be the server running homecontrol: the app would stop working until the plug is switched back on at the plug or in Home Assistant.` : q);
 }
 
 // ---------- plug sheet: appliance section ----------
@@ -210,12 +226,15 @@ function applianceSheet(d, c) {
   const info = an("div", "appl-info");
   info.append(an("div", "name", applName(f)), an("div", "appl-status", applianceText(f, d)));
   head.append(info); sec.append(head);
-  if (isProtected(f)) sec.append(an("div", "hint", PROTECTED_TYPES.includes(f.type) ? "Tapping it on the plan opens this sheet; switching it off asks first." : "A keep-on plug: tapping it on the plan opens this sheet."));
+  if (isProtected(f)) sec.append(an("div", "hint", SERVER_TYPES.includes(f.type)
+    ? "Tapping it on the plan opens this sheet; switching it off asks first. All off, Away and the standby saver leave it on. A push comes if its plug reads 0 W or goes offline for 5 min."
+    : PROTECTED_TYPES.includes(f.type) ? "Tapping it on the plan opens this sheet; switching it off asks first." : "A keep-on plug: tapping it on the plan opens this sheet."));
   const lab = an("label", "keep-on"); const cb = an("input"); cb.type = "checkbox"; cb.id = "applHide"; cb.checked = f.hide_marker !== false;
   lab.append(cb, an("span", null, "Hide plug marker — the appliance is the control"));
   cb.onchange = async () => { if (!await saveLink(f, { hide_marker: cb.checked })) cb.checked = !cb.checked; else setStatus(cb.checked ? "Plug marker hidden" : "Plug marker shown"); };
   sec.append(lab);
   if (remindOk(f)) sec.append(remindRow(f));
+  if (APPLIANCE[f.type].rule === "charge") sec.append(autoOffRow(f));
   applianceStats(f, sec);
   const keys = Object.keys(APPLIANCE[f.type].th);
   if (!keys.length) return;
@@ -237,6 +256,7 @@ function applianceSheet(d, c) {
     form.append(r);
   };
   if (APPLIANCE[f.type].rule === "busy") row(["on_w"]);
+  else if (APPLIANCE[f.type].rule === "charge") { row(["charge_w"]); row(["trickle_w", "charged_min"]); }
   else { row(["run_w", "run_min"]); row(["idle_w", "idle_min"]); }
   const note = an("div", "hint appl-th-msg"); form.append(note);
   const reset = an("button", "linkish", "Reset to defaults"); reset.type = "button";
@@ -280,6 +300,20 @@ function remindRow(f) {
   const box = an("div", "appl-remind-box"); box.append(row, hint); return box;
 }
 
+// Hoover: "Switch the plug off when charged" — opt-in (default off); the server makes the one call when it sees the
+// charge finish (backend/appliances.py).
+function autoOffRow(f) {
+  const box = an("div", "appl-remind-box"), lab = an("label", "keep-on"), cb = an("input");
+  cb.type = "checkbox"; cb.id = "applAutoOff"; cb.checked = f.auto_off === true;
+  lab.append(cb, an("span", null, "Switch the plug off when charged"));
+  cb.onchange = async () => {
+    if (!await saveLink(f, { auto_off: cb.checked || undefined })) cb.checked = !cb.checked;
+    else setStatus(cb.checked ? "The plug will switch off when it's charged" : "The plug stays on when it's charged");
+  };
+  box.append(lab, an("div", "hint", "Off by default. Once a charge has finished (under the charged level for the set time), the plug is switched off once — so it doesn't sit on the charger. The “charged” push comes either way."));
+  return box;
+}
+
 // Usage from Home Assistant's history (GET /api/appliances/{id}/stats, cached).
 function applianceStats(f, sec) {
   if (typeof hFetch !== "function") return;
@@ -294,6 +328,9 @@ function applianceStats(f, sec) {
     const c = s.cycles;
     row("Cycles", `${c.this_week} this week · ${c.last_week} last week`);
     if (c.avg_min != null) row("Average cycle", `${fmtHM(c.avg_min)} · ${c.kwh_per_cycle.toFixed(2)} kWh${money(c.cost_per_cycle_p)}`);
+  } else if (s.charges) {
+    row("Charges", `${s.charges.this_week} this week`);
+    if (s.charges.avg_min != null) row("Average charge", fmtHM(s.charges.avg_min));
   } else if (s.uses) row(s.uses.label, `${s.uses.today} today · ${s.uses.week} this week`);
   else if (s.hours_week != null) row("On this week", `${fmtHM(Math.round(s.hours_week * 60))}`);
   else if (s.daily) row("Per day", s.daily.kwh != null ? `${s.daily.kwh.toFixed(2)} kWh${money(s.daily.cost_p)} (7-day average)` : "not enough history yet");
@@ -332,7 +369,7 @@ function showOffer(text, action, fn) {
   ap.offer = { fn, timer: setTimeout(hideOffer, 15e3) };
 }
 function hideOffer() { clearTimeout(ap.offer?.timer); ap.offer = null; $("applOffer").hidden = true; }
-function unlink(f) { f.plug = null; delete f.hide_marker; delete f.thresholds; } // null: the server drops the link
+function unlink(f) { f.plug = null; delete f.hide_marker; delete f.thresholds; delete f.auto_off; } // null: the server drops the link
 function linkDialog() {
   const f = furSel(); if (!f || !APPLIANCE[f.type]) return;
   const dlg = $("plugDialog"), list = $("plugList");
@@ -362,7 +399,7 @@ function linkDialog() {
     if (!eid) { if (f.plug) { unlink(f); setStatus(`${applName(f)} unlinked — Save to keep it`); } render(); return; }
     if (eid === f.plug) return;
     const o = others.get(eid); if (o) unlink(o);
-    f.plug = eid; f.hide_marker = true; delete f.thresholds;
+    f.plug = eid; f.hide_marker = true; delete f.thresholds; delete f.auto_off;
     render();
     const d = st.devices.get(eid), want = applName(f).slice(0, 40);
     setStatus(`${applName(f)} linked to ${d?.name || eid} — Save to keep it`);
@@ -377,7 +414,7 @@ function linkDialog() {
 (() => {
   const sec = an("section", "auto-sec"); sec.id = "applSec";
   sec.innerHTML = `<h4>Appliances</h4>
-    <label class="check"><input type="checkbox" id="applDone"> Washing machine, dryer or dishwasher finished</label>
+    <label class="check"><input type="checkbox" id="applDone"> Washing machine, dryer or dishwasher finished, hoover charged</label>
     <p class="hint">Needs the appliance linked to its plug (Edit → select it → Link plug). Held during quiet hours.
       Left-on reminders (heater, fan, iron…) are set per appliance in its sheet.</p>`;
   const anchor = $("quietSec") || $("alertTest"); anchor.before(sec);

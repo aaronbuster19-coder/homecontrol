@@ -4,7 +4,7 @@ import os
 import sqlite3
 import threading
 
-from .appliances import APPLIANCE_TYPES, ThresholdError, validate_remind, validate_thresholds
+from .appliances import APPLIANCE_TYPES, ThresholdError, validate_auto_off, validate_remind, validate_thresholds
 
 DEFAULT_LAYOUT = {"unit": "m", "rooms": [], "placements": []}
 
@@ -61,11 +61,13 @@ def _openings(items, known_entities: set[str]) -> list[dict]:
 
 FURNITURE_TYPES = (  # keep in step with FURNITURE in frontend/furniture.js
     "bed", "bed_single", "bedside", "wardrobe", "sofa", "sofa3", "sofa_corner", "armchair", "coffee_table", "unit",
-    "bookcase", "rug", "plant", "desk", "desk_chair", "dining_table", "dining_set", "chair", "counter", "kitchen_sink",
+    "bookcase", "rug", "plant", "desk", "desk_chair", "dining_table", "dining_set", "chair",
+    "desktop_pc", "home_server",  # appliances too (desk group)
+    "counter", "kitchen_sink",
     "hob", "fridge", "washer", "bathtub", "shower", "toilet", "sink",
     # appliances: these (and fridge, washer) can be linked to a plug — backend/appliances.py
     "fan", "floor_lamp", "tv", "heater", "kettle", "microwave", "coffee_machine", "toaster", "dishwasher", "dryer", "freezer",
-    "iron", "hair_straightener")
+    "iron", "hair_straightener", "hoover")
 FURNITURE_SIZE = (0.1, 10.0)
 FURNITURE_MAX, FURNITURE_LABEL_MAX = 200, 30
 
@@ -73,8 +75,8 @@ FURNITURE_MAX, FURNITURE_LABEL_MAX = 200, 30
 def _furniture(items, known_plugs: set[str]) -> list[dict]:
     """Furniture: [{id, type, x, y, w, h, rot, label?, plug?, hide_marker?, thresholds?}]; x/y is the centre (m), w/h the
     size before rotating, rot whole degrees clockwise, normalised to 0–359. Appliances may link one plug each
-    (plug: entity id or null); hide_marker (default true), thresholds and remind (left-on reminder: minutes, or false)
-    only exist while linked."""
+    (plug: entity id or null); hide_marker (default true), thresholds, remind (left-on reminder: minutes, or false) and
+    auto_off (hoover: switch the plug off once charged; stored only when true) only exist while linked."""
     if not isinstance(items, list):
         raise LayoutError("furniture must be a list")
     if len(items) > FURNITURE_MAX:
@@ -129,11 +131,17 @@ def _furniture(items, known_plugs: set[str]) -> list[dict]:
                 raise LayoutError(f"furniture {i}: {e}")
             if remind is not None:
                 item["remind"] = remind
+            try:
+                auto_off = validate_auto_off(f.get("auto_off"), f["type"])
+            except ThresholdError as e:
+                raise LayoutError(f"furniture {i}: {e}")
+            if auto_off:
+                item["auto_off"] = True
         out.append(item)
     return out
 
 
-LINK_KEYS = ("plug", "hide_marker", "thresholds", "remind")
+LINK_KEYS = ("plug", "hide_marker", "thresholds", "remind", "auto_off")
 
 
 def _carry_links(new: list[dict], old: list[dict], raw: list) -> None:

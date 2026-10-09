@@ -302,7 +302,7 @@ class Automations:
         self.health = Health(store, settings, lambda p: self._notify(p, "health"), clock)
         self.tank = TankAlert(store, settings, lambda p: self._notify(p, "health"))
         self.appliances = Appliances(store, settings, layout_store.get, self._notify,
-                                     lambda data: live.broadcast("appliances", data), clock)
+                                     lambda data: live.broadcast("appliances", data), clock, self._plug_off)
         self.summary = WeeklySummary(store, settings, ha, lambda: self.live.devices, layout_store.get,
                                      lambda p: self._notify(p, "summary"), clock, tz)
         self.schedules = ScheduleEngine(ScheduleStore(store.path), ha.call_service, layout_store.get, mode, self.window, clock, tz)
@@ -314,6 +314,10 @@ class Automations:
 
     async def _set_temp(self, valve: str, temp: float) -> None:
         await self.ha.call_service("climate", "set_temperature", {"entity_id": valve, "temperature": temp})
+
+    async def _plug_off(self, eid: str) -> None:
+        """A hoover's opt-in auto-off once it's charged (backend/appliances.py): the only appliance switching."""
+        await self.ha.call_service(eid.split(".", 1)[0], "turn_off", {"entity_id": eid})
 
     async def _notify(self, payload: dict, category: str) -> None:
         await self.quiet.notify(payload, category)

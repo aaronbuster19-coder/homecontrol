@@ -3,8 +3,12 @@ status, tap = toggle (fridge and keep-on plugs open the sheet, switching off ask
 marker, per-link thresholds, the washer cycle from a scripted power sequence on a movable server clock, the bell-sheet
 setting, import without unknown plugs, room view and wall mode. Desktop mouse and a 390px touch phone.
 
-Runs on its own stack (conftest.appliance_stack): e2e/clock_app.py and a fake HA with three extra plugs —
-switch.washer ("Washing machine"), switch.fridge ("Fridge plug"), switch.plug_3 ("Plug 3")."""
+Also the hoover (charging → charged from a scripted power sequence, the opt-in auto-off), the desktop PC and the
+protected home server (tap opens the sheet, off asks with a warning, All off skips it).
+
+Runs on its own stack (conftest.appliance_stack): e2e/clock_app.py and a fake HA with six extra plugs —
+switch.washer ("Washing machine"), switch.fridge ("Fridge plug"), switch.plug_3 ("Plug 3"), switch.hoover ("Hoover plug"),
+switch.pc ("PC plug") and switch.server ("Server plug")."""
 import copy
 import json
 import re
@@ -114,7 +118,7 @@ def test_add_link_rename_save(appliance_stack, aha, open_page, size):
         expect(page.locator("#furLink")).to_be_visible()
         press(page, "#furLink")
         expect(page.locator("#plugDialog")).to_be_visible()
-        expect(page.locator("#plugList .plug-opt")).to_have_count(6)  # None + 5 plugs
+        expect(page.locator("#plugList .plug-opt")).to_have_count(9)  # None + 8 plugs
         if t == "kettle":  # already-linked marker on the plug the fan took
             expect(page.locator('#plugList .plug-opt[data-plug="switch.plug_3"]')).to_have_class("plug-opt taken")
             expect(page.locator('#plugList .plug-opt[data-plug="switch.plug_3"] .sub')).to_contain_text("linked to Fan")
@@ -484,3 +488,192 @@ def test_usage_stats_in_sheet(appliance_stack, aha, open_page, size):
     page.click("#sheetClose") if size == "desktop" else page.tap("#sheetClose")
     long_press(page, *appl_center(page, "fan"))
     expect(page.locator("#sheetContent .appl-stats")).to_contain_text("On this week")
+
+
+# ---------------- hoover, desktop PC, home server ----------------
+OFFICE = [
+    fur("hoover", "hoover", 6.6, 3.95, 0.3, 0.25, plug="switch.hoover"),        # in the hall
+    fur("pc", "desktop_pc", 2.6, 1.0, 0.2, 0.45, plug="switch.pc"),             # in the lounge
+    fur("server", "home_server", 4.2, 1.0, 0.4, 0.4, plug="switch.server"),
+]
+GADGETS = {**copy.deepcopy(LAYOUT), "furniture": OFFICE}
+
+
+@pytest.mark.parametrize("size", ["desktop", "mobile"])
+def test_add_hoover_pc_server_and_link(appliance_stack, aha, open_page, size):
+    page = open_page(appliance_stack, size, layout=START)
+    press(page, "#editToggle")
+    expect(page.locator("#editbar")).to_be_visible()
+    press(page, "#addFurniture")
+    expect(page.locator("#furSheet")).to_be_visible()
+    for t, name in (("hoover", "Hoover"), ("desktop_pc", "Desktop PC"), ("home_server", "Home server")):
+        item = page.locator(f'#furGrid .fur-item[data-type="{t}"]')
+        expect(item.locator(".appl-badge")).to_have_count(1)
+        expect(item.locator(".n")).to_have_text(name)
+    # Next to the desks, and the hoover with the appliances.
+    assert page.evaluate("[...document.querySelectorAll('#furGrid .fur-item[data-type=desktop_pc], #furGrid .fur-item[data-type=home_server]')]"
+                         ".every((b) => b.closest('.fur-grid').querySelector('[data-type=desk]'))")
+    assert page.evaluate("!!document.querySelector('#furGrid .fur-item[data-type=hoover]').closest('.fur-grid').querySelector('[data-type=kettle]')")
+    page.locator('#furGrid .fur-item[data-type="desktop_pc"]').scroll_into_view_if_needed()
+    shot(page, f"appliances-catalogue-office-{size}")
+    page.locator('#furGrid .fur-item[data-type="hoover"]').scroll_into_view_if_needed()
+    shot(page, f"appliances-catalogue-hoover-{size}")
+    no_hscroll(page)
+    press(page, "#furClose")
+    spots = {"hoover": (6.6, 3.95), "desktop_pc": (2.6, 1.0), "home_server": (4.2, 1.0)}
+    plugs = {"hoover": "switch.hoover", "desktop_pc": "switch.pc", "home_server": "switch.server"}
+    for t in spots:
+        press(page, "#addFurniture")
+        page.locator(f'#furGrid .fur-item[data-type="{t}"]').scroll_into_view_if_needed()
+        press(page, f'#furGrid .fur-item[data-type="{t}"]')
+        page.wait_for_function("t => st.sel && st.draft.furniture.find((f) => f.id === st.sel.id)?.type === t", arg=t)
+        fid = page.evaluate("st.sel.id")
+        page.evaluate("([id, x, y]) => { const f = st.draft.furniture.find((f) => f.id === id); f.x = x; f.y = y; render(); }",
+                      [fid, *spots[t]])
+        press(page, "#furLink")
+        expect(page.locator("#plugDialog")).to_be_visible()
+        press(page, f'#plugList .plug-opt[data-plug="{plugs[t]}"]')
+        expect(page.locator("#plugDialog")).to_be_hidden()
+        if page.locator("#applOffer").is_visible():
+            press(page, "#applOffer .x")
+    press(page, "#save")
+    expect(page.locator("#editbar")).to_be_hidden()
+    saved = stored(page, appliance_stack)["furniture"]
+    assert {f["type"]: f.get("plug") for f in saved} == plugs
+    assert all("auto_off" not in f for f in saved)   # the hoover's auto-off is opt-in
+    expect(page.locator("#appliances .appl")).to_have_count(3)
+    expect(tag(page, next(f["id"] for f in saved if f["type"] == "home_server"))).to_have_text("Running · 35 W")
+    expect(tag(page, next(f["id"] for f in saved if f["type"] == "hoover"))).to_have_text("Not charging · 0.5 W")
+    no_hscroll(page)
+
+
+@pytest.mark.parametrize("size", ["desktop", "mobile"])
+def test_hoover_charge_from_power_and_auto_off(appliance_stack, aha, open_page, size):
+    stack = appliance_stack
+    t0 = time.time() + 86400 * (5 if size == "desktop" else 6)   # after the washer tests' days
+    stack.set_clock(t0)
+    hid = f"hoover_{size}"                                  # its own charge state on the shared stack
+    layout = {**GADGETS, "furniture": [{**OFFICE[0], "id": hid}, *OFFICE[1:]]}
+    page = open_page(stack, size, layout=layout)
+    h = tag(page, hid)
+
+    def charge():
+        return page.request.get(stack.url + "/api/appliances").json()["appliances"][hid]
+
+    expect(h).to_have_text("Not charging · 0.5 W")
+    aha.set("sensor.hoover_power", "45")                     # back on the dock
+    expect(h).to_have_text("Charging · 45 W")
+    expect(appl(page, hid)).to_have_class("fur appl fu-hoover on busy")
+    stack.set_clock(t0 + 40 * 60)
+    aha.set("sensor.hoover_power", "6")                      # tapering off: still charging
+    expect(h).to_have_text("Charging · 6 W")
+    aha.set("sensor.hoover_power", "1.2")                    # trickle
+    stack.set_clock(t0 + 45 * 60)
+    expect(h).to_have_text("Charging · 1.2 W")
+    assert charge()["phase"] == "charging"
+    stack.set_clock(t0 + 51 * 60)                            # under 3 W for 10 min: charged
+    expect(h).to_have_text("Charged · 1.2 W")
+    expect(h).to_have_class("appl-tag on charged")
+    expect(appl(page, hid)).to_have_class("fur appl fu-hoover on charged")
+    expect(page.locator('#list li[data-dev="switch.hoover"] .val')).to_have_text("Charged · 1.2 W")
+    c = charge()
+    assert c["phase"] == "charged" and c["status"] == "Charged"
+    assert toggles(aha, "switch.hoover") == []               # auto-off is off: nothing switched
+    shot(page, f"appliances-hoover-charged-{size}")
+    # The sheet: status, the opt-in toggle (off), the charge thresholds.
+    long_press(page, *appl_center(page, hid))
+    expect(page.locator("#sheetContent .appl-status")).to_have_text("Charged · 1.2 W")
+    expect(page.locator("#applRemind")).to_have_count(0)
+    box = page.locator("#applAutoOff")
+    expect(box).not_to_be_checked()
+    page.click("#sheetContent .appl-th summary") if size == "desktop" else page.tap("#sheetContent .appl-th summary")
+    expect(page.locator('#sheetContent .appl-th input[name="charge_w"]')).to_have_value("10")
+    expect(page.locator('#sheetContent .appl-th input[name="trickle_w"]')).to_have_value("3")
+    expect(page.locator('#sheetContent .appl-th input[name="charged_min"]')).to_have_value("10")
+    box.check() if size == "desktop" else box.tap()
+    page.wait_for_function("id => st.layout.furniture.find((f) => f.id === id).auto_off === true", arg=hid)
+    assert by_id(stored(page, stack), hid)["auto_off"] is True
+    shot(page, f"appliances-hoover-sheet-{size}")
+    no_hscroll(page)
+    page.click("#sheetClose") if size == "desktop" else page.tap("#sheetClose")
+    # The next charge: with auto-off on, the server switches the plug off once it's charged — exactly once.
+    stack.set_clock(t0 + 3 * 3600)
+    aha.set("sensor.hoover_power", "52")
+    expect(h).to_have_text("Charging · 52 W")
+    stack.set_clock(t0 + 4 * 3600)
+    aha.set("sensor.hoover_power", "0.8")
+    stack.set_clock(t0 + 4 * 3600 + 5 * 60)
+    expect(h).to_have_text("Charging · 0.8 W")
+    assert toggles(aha, "switch.hoover") == []
+    stack.set_clock(t0 + 4 * 3600 + 11 * 60)
+    call = aha.wait_call(lambda c: c["service"] == "turn_off" and c["data"] == {"entity_id": "switch.hoover"})[0]
+    assert call["domain"] == "switch"
+    expect(h).to_have_count(0)                                # off plugs show no pill
+    expect(page.locator('#list li[data-dev="switch.hoover"] .val')).to_have_text("Not charging")
+    aha.set("switch.hoover", "on")                            # switched back on by hand, still full
+    expect(h).to_have_text("Charged · 0.8 W")
+    stack.set_clock(t0 + 5 * 3600)                            # time passes: never a second call
+    page.wait_for_function("u => fetch(u).then((r) => r.json()).then((d) => d.now > 0)", arg=stack.url + "/api/appliances")
+    assert len(toggles(aha, "switch.hoover")) == 1
+
+
+@pytest.mark.parametrize("size", ["desktop", "mobile"])
+def test_server_is_protected_and_pc_status(appliance_stack, aha, open_page, size):
+    page = open_page(appliance_stack, size, layout=GADGETS)
+    expect(tag(page, "server")).to_have_text("Running · 35 W")
+    expect(tag(page, "pc")).to_have_count(0)                 # off
+    aha.set("sensor.pc_power", "120")
+    aha.set("switch.pc", "on")
+    expect(tag(page, "pc")).to_have_text("On · 120 W")
+    aha.set("sensor.pc_power", "4")
+    expect(tag(page, "pc")).to_have_text("Sleep · 4 W")
+    shot(page, f"appliances-office-{size}")
+    # The PC toggles on a tap like any appliance…
+    tap(page, *appl_center(page, "pc"))
+    aha.wait_call(lambda c: c["service"] == "toggle" and c["data"] == {"entity_id": "switch.pc"})
+    # …the server opens its sheet instead.
+    tap(page, *appl_center(page, "server"))
+    expect(page.locator("#sheet")).to_be_visible()
+    expect(page.locator("#sheetContent h3")).to_have_text("Server plug")
+    expect(page.locator("#sheetContent .appl-sec .name")).to_have_text("Home server")
+    expect(page.locator("#sheetContent .appl-sec .hint").first).to_contain_text("All off, Away and the standby saver leave it on")
+    expect(page.locator("#applRemind")).to_have_count(0)
+    # The standby saver can't be switched on for it.
+    expect(page.locator("#standbyRow .sb-info")).to_have_text("A home server is linked to this plug — it always stays on.")
+    expect(page.locator("#standbyRow input[type=checkbox]")).to_be_disabled()
+    shot(page, f"appliances-server-sheet-{size}")
+    no_hscroll(page)
+    seen = []
+    page.once("dialog", lambda d: (seen.append(d.message), d.dismiss()))
+    press(page, "#sheetContent button.big")              # the confirm is synchronous: dismissed, nothing sent
+    assert len(seen) == 1 and seen[0].startswith("Turn off the home server?")
+    assert "This may be the server running homecontrol" in seen[0]
+    assert toggles(aha, "switch.server") == []
+    page.once("dialog", lambda d: (seen.append(d.message), d.accept()))
+    press(page, "#sheetContent button.big")
+    aha.wait_call(lambda c: c["data"] == {"entity_id": "switch.server"})
+    assert len(toggles(aha, "switch.server")) == 1     # neither the tap nor the dismissed confirm sent anything
+    press(page, "#sheetClose")
+    expect(page.locator("#sheet")).to_be_hidden()
+    # "All off" never includes the server.
+    aha.set("switch.server", "on")
+    aha.set("switch.pc", "on")
+    page.wait_for_function("st.devices.get('switch.server').state === 'on' && st.devices.get('switch.pc').state === 'on'")
+    page.once("dialog", lambda d: d.accept())
+    press(page, "#allOff")
+    call = aha.wait_call(lambda c: c["service"] == "turn_off" and c["domain"] == "switch")[0]
+    assert "switch.server" not in call["data"]["entity_id"] and "switch.pc" in call["data"]["entity_id"]
+    expect(tag(page, "server")).to_have_text("Running · 35 W")
+
+
+def test_hoover_and_pc_usage_stats(appliance_stack, aha, open_page):
+    page = open_page(appliance_stack, layout=GADGETS)
+    long_press(page, *appl_center(page, "hoover"))
+    stats = page.locator("#sheetContent .appl-stats")
+    expect(stats).to_contain_text(re.compile(r"Charges\s*\d+ this week"))
+    expect(stats).to_contain_text(re.compile(r"Average charge\s*1 h"))
+    page.click("#sheetClose")
+    aha.set("switch.pc", "on")
+    long_press(page, *appl_center(page, "pc"))
+    expect(page.locator("#sheetContent .appl-stats")).to_contain_text("On this week")
+    expect(page.locator("#applRemind")).not_to_be_checked()     # available, off by default
