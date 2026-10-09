@@ -87,7 +87,7 @@ def test_door_log(stack, ha, open_page, size):
     shot(page, f"door-log-{size}")
     page.locator("#sheetContent .seg button", has_text="7d").click()
     expect(page.locator("#sheetContent .seg button.active")).to_have_text("7d")
-    page.wait_for_function(f"document.querySelectorAll('#sheetContent section.door')[1].querySelectorAll('li.ev').length > {n24}")
+    page.wait_for_function(f"(document.querySelectorAll('#sheetContent section.door')[1]?.querySelectorAll('li.ev').length || 0) > {n24}")  # re-renders while loading
     # From a sensor's own sheet too.
     page.click("#sheetClose")
     el = marker(page, "binary_sensor.contact_sensor_door").locator("circle").first

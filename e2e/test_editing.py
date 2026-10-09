@@ -57,6 +57,7 @@ def test_draw_resize_l_shape_openings_and_link_sensor(stack, ha, open_page, size
     expect(page.locator("#roomForm [name=w]")).to_have_value("3.0")
     page.fill("#roomForm [name=name]", "Study")
     page.click("#roomDialog button[value=ok]")
+    page.wait_for_function("st.draft.rooms.some((r) => r.name === 'Study')")  # the dialog's close handler adds it
     study = next(r for r in draft(page)["rooms"] if r["name"] == "Study")
     sid = study["id"]
     assert (study["x"], study["y"], study["w"], study["h"]) == (7, 0, 3, 3), study

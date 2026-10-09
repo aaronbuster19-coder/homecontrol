@@ -153,7 +153,9 @@ def test_all_off_only_when_included(browser, servers, ha):
     page = open_page(browser, servers, "desktop")
     page.once("dialog", lambda d: d.accept())
     page.click("#allOff")
-    ha.wait_call(lambda c: c["service"] == "turn_off")
+    # All off sends one call per domain: wait for both, or a late switch call would land after ha.reset()
+    ha.wait_call(lambda c: c["service"] == "turn_off" and c["domain"] == "light")
+    ha.wait_call(lambda c: c["service"] == "turn_off" and c["domain"] == "switch")
     assert not calls(ha, "turn_off")  # default: the dehumidifier keeps running
     ha.reset()
     marker(page, DH).locator("circle").click()

@@ -280,9 +280,18 @@ def marker(page, eid):
     return page.locator(f'#plan .marker[data-dev="{eid}"]')
 
 
-def center(locator):
-    b = locator.bounding_box()
-    return b["x"] + b["width"] / 2, b["y"] + b["height"] / 2
+def center(locator, timeout=3.0):
+    """Centre of an element on screen. Live updates re-render markers, so a just-replaced element can briefly
+    have no box: wait for it rather than failing."""
+    end = time.time() + timeout
+    while True:
+        locator.wait_for(state="visible", timeout=timeout * 1000)
+        b = locator.bounding_box()
+        if b:
+            return b["x"] + b["width"] / 2, b["y"] + b["height"] / 2
+        if time.time() > end:
+            raise AssertionError(f"no bounding box for {locator}")
+        time.sleep(0.05)
 
 
 def marker_center(page, eid):
