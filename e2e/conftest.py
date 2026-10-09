@@ -264,7 +264,8 @@ def open_page(browser, request):
     pages, contexts = [], []
 
     def make(stack, size="desktop", layout=LAYOUT, goto="/", clock=None, signed_in=True, **kw):
-        ctx = browser.new_context(**{**SIZES[size], "timezone_id": "Europe/London", "locale": "en-GB", **kw})
+        # Dark system theme by default (Theme: Auto → the original dark look); test_theme.py passes color_scheme itself.
+        ctx = browser.new_context(**{**SIZES[size], "timezone_id": "Europe/London", "locale": "en-GB", "color_scheme": "dark", **kw})
         if TRACE:
             ctx.tracing.start(screenshots=True, snapshots=True)
         contexts.append(ctx)

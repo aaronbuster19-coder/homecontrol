@@ -25,7 +25,7 @@ function lightColor(d) { const c = lightRgb(d); return c ? `rgb(${c.join(",")})`
 // Dark fills get a light icon so it stays readable.
 function iconFill(d) {
   const c = lightRgb(d); if (!c) return null;
-  return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2] < 110 ? "#f4f6fa" : null;
+  return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2] < 110 ? "var(--state-text-inv)" : null;
 }
 
 // ---------- throttled sending ----------

@@ -51,7 +51,7 @@ document.getElementById("signOut").addEventListener("click", signOut);
 
 // ---------- device state ----------
 function deviceColor(d) {
-  if (!d || d.state === "unavailable" || d.state === "unknown") return "#444b57";
+  if (!d || d.state === "unavailable" || d.state === "unknown") return "var(--unavailable)";
   switch (d.kind) {
     case "light": case "plug": return d.state === "on" ? lightColor(d) || "var(--on)" : "var(--off)";
     case "sensor": return d.state === "on" ? "var(--open)" : "var(--closed)";

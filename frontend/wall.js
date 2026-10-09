@@ -174,8 +174,11 @@ const WALL = (() => {
   const activity = () => { w.last = Date.now(); };
   for (const ev of ["pointerdown", "wheel", "touchstart"]) document.addEventListener(ev, activity, { capture: true, passive: true });
 
+  // The wall follows the theme by day; at night (dim hours) it is always dark, like its dim screen.
+  const nightTheme = () => window.hcTheme?.force(w.on && isNight() ? "dark" : null);
   function tick() {
     if (!w.on) return;
+    nightTheme();
     const s = settings(), idle = (Date.now() - w.last) / 1000;
     const limit = isNight() ? s.nightIdle : s.idle;
     if (!w.dimmed && limit > 0 && idle >= limit) setDim(true);
@@ -231,6 +234,7 @@ const WALL = (() => {
       store.set(ON_KEY, "1");
       closeSheet(); render(); paint();
       w.timer = setInterval(tick, 1000);
+      nightTheme();
       if (gesture) toast("Hold the clock to exit", 3500);
     }
     if (gesture && !document.fullscreenElement) {
@@ -243,6 +247,7 @@ const WALL = (() => {
     w.on = false; clearInterval(w.timer);
     setDim(false); hidePop(); unlock();
     document.body.classList.remove("wall"); bar.hidden = true;
+    nightTheme();
     st.markerScale = 1;
     setUrl(false); store.set(ON_KEY, null);
     if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});

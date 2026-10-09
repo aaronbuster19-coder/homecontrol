@@ -80,7 +80,7 @@ class HA:
 def new_page(browser, servers, size="tablet", clock=None, **kw):
     w, h = SIZES[size]
     ctx = browser.new_context(viewport={"width": w, "height": h}, timezone_id="Europe/London", locale="en-GB",
-                              has_touch=size != "tablet", **kw)
+                              has_touch=size != "tablet", color_scheme="dark", **kw)
     page = ctx.new_page()
     page.on("pageerror", lambda e: page.errors.append(str(e)))
     page.errors = []
