@@ -461,6 +461,13 @@ class Activity:
                     from .disco import REASONS
                     add(t, "lights", "light", "Disco off", detail=REASONS.get(x.get("reason")),
                         by=f"by {x['user']}" if x.get("user") else None)
+            elif k == "sleep_timer":  # backend/sleeptimer.py (its switch-offs are logged as calls "by Sleep timer")
+                name, ev = x.get("name") or "?", x.get("event")
+                text = {"set": f"Sleep timer: {name} off in {x.get('minutes')} min", "cancel": f"Sleep timer for {name} cancelled",
+                        "failed": f"Sleep timer for {name}: Home Assistant kept failing",
+                        "missed": f"Sleep timer for {name} missed — the app was down"}.get(ev)
+                if text:
+                    add(t, "lights", "schedule", text, by=f"by {x['user']}" if x.get("user") else None)
             elif k == "appliance":
                 ev, name, eid = x.get("event"), x.get("name") or "Appliance", x.get("plug")
                 dur = f" · {fmt_dur(x['secs'])}" if x.get("secs") else ""

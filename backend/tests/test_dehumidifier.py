@@ -298,6 +298,8 @@ def test_tank_push_through_automations(dclient, dha):
     automations = dclient.app.state.automations
     automations.pusher.send = lambda sub, p: sent.append(p) or 201
     automations.pusher.store.add({"endpoint": "https://push.test/1", "keys": {"p256dh": "k", "auth": "a"}})
+    s = automations.pusher.store
+    s.put_settings({**s.settings(), "quiet_hours": False})  # run at night too: quiet hours would hold the push
     dclient.get("/api/devices")
     asyncio.run(automations.tick())
     asyncio.run(automations.tick())

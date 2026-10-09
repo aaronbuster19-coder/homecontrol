@@ -45,6 +45,7 @@ from .modes import ModeError, ModeStore, current_targets, now_iso, public, resto
 from .summary import local_tz
 from . import climate as climate_api
 from . import disco as disco_api
+from . import scenes as scenes_api, sleeptimer as sleep_api
 from .store import NAME_MAX, LayoutError, LayoutStore, carry_settings, stored_media, stored_plugs, stored_refs, validate_energy, validate_layout
 
 CACHE_TTL = 300
@@ -158,7 +159,9 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
         alerts.start()
         automations.start()
         weather.start()
+        timers.start()  # sleep timers (backend/sleeptimer.py): their end times survive a restart
         yield
+        await timers.stop()
         await weather.stop()
         await automations.stop()
         await alerts.stop()
@@ -246,6 +249,9 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
                             devices, store.get, live.broadcast, activity.record, clock)
     app.state.disco = disco
     live.add_observer(disco.observe)
+    timers = sleep_api.SleepTimers(sleep_api.TimerStore(settings.db_path), lambda *a: ha.call_service(*a), devices,
+                                   lambda: live.states, store.get, live.broadcast, activity.record, disco.interrupt, clock)
+    app.state.timers = timers
     hold_push = automations.quiet.store.add
 
     def logged_hold(key: str, category: str, payload: dict, at: float):
@@ -782,6 +788,10 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
     app.include_router(underlay_api.router(settings.db_path))
     # ---- quick tiles: pinned favourites for /?view=tiles (backend/tiles.py) ----
     tiles_api.add_routes(app, tiles_api.TileStore(settings.db_path), devices, json_body)
+    # ---- scenes (backend/scenes.py) and sleep timers (backend/sleeptimer.py) ----
+    scenes_api.add_routes(app, scenes_api.Scenes(scenes_api.SceneStore(settings.db_path), lambda *a: ha.call_service(*a),
+                                                 devices, lambda: live.states, store.get, disco, clock), ensure_states, json_body)
+    sleep_api.add_routes(app, timers, ensure_states, json_body)
 
     @app.get("/sw.js", include_in_schema=False)
     async def service_worker():
