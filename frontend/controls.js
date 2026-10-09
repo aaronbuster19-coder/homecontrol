@@ -153,8 +153,9 @@ function renderRoomLabels(parent) {
   if (st.editing) return;
   const mpp = st.viewBox[2] / (svg.clientWidth || 800);
   for (const r of st.layout.rooms) {
-    const lp = labelPos(r), h = Math.max(0.6, 40 * mpp);
-    const w = Math.min(r.w, Math.max(r.name.length * 0.2 + 0.3, 44 * mpp));
+    const k = st.markerScale || 1; // wall mode: bigger names, bigger targets
+    const lp = labelPos(r), h = Math.max(0.6 * k, 40 * mpp * k);
+    const w = Math.min(r.w, Math.max(r.name.length * 0.2 * k + 0.3, 44 * mpp * k));
     const lights = roomLights(r), on = lights.some((d) => d.state === "on");
     const cls = "room-tap" + (lights.length ? "" : " empty") + (on ? " lit" : "") + (st.flashRoom === r.id ? " flash" : "");
     const g = el("g", { class: cls, "data-roomtap": r.id }, parent);

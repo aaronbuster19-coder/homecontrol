@@ -129,6 +129,32 @@ Import layout, Units (m/ft), Refresh devices and Sign out. It closes on a tap ou
   replaces the plan on confirm. If the server rejects unknown devices you can *Import without unknown devices*
   (drops their placements, sensor links and keep-on entries).
 
+## Wall tablet mode
+
+A full-screen, always-on view for a tablet on the wall. Open it from ⋯ → *Wall mode*, or bookmark `/?wall`
+(works offline too: the service worker serves the cached app).
+
+- **Screen:** no header, edit toolbar or device list — the plan fills the screen with bigger markers and room names.
+  A slim top bar shows a big clock and date, total power (⚡), the average indoor temperature from the radiator
+  valves, a *Reconnecting…* / *Offline* pill when the live stream is down, a Home/Away button (same confirmation
+  as ⋯ → Away) and *All off* (same confirmation as the header button). Taps work exactly as in the normal view:
+  tap a light/plug to toggle it, long-press for its sheet, tap a valve or sensor for its sheet, tap a room name.
+- **Dimming:** after 2 min without a touch, and always from 23:00 to 07:00, the screen goes black with a dim clock,
+  power and temperature (plus any open door). The first touch only wakes it — it never switches anything. At night
+  it dims again after 30 s. The dim clock moves a little every minute to avoid burn-in.
+- **Exit / settings:** hold the clock for about a second → *Exit wall mode* or *Wall settings…* (night start/end,
+  idle timeout in seconds, 0 = never; night re-dim delay). Settings are stored on that tablet only. On a computer,
+  Escape also exits. Exiting removes `?wall` from the address.
+- **Keeps running:** asks the browser to keep the screen on (Screen Wake Lock, re-acquired when the tab comes back),
+  the login lasts 90 days and a signed-out tablet goes back to wall mode after signing in, the live stream
+  reconnects by itself, and after 24 h the page quietly reloads during the next dim period to pick up new versions.
+
+**Old tablet setup:** install the app (see *Install the app*; on an old iPad use Safari → *Add to Home Screen*),
+sign in, open ⋯ → *Wall mode*, keep it on its charger, and turn off the OS auto-lock / screen timeout if the
+browser has no Screen Wake Lock (Safari before iOS 16.4, old Android WebViews) — on iPad: Settings → Display &
+Brightness → Auto-Lock → Never; on Android: Settings → Display → Screen timeout (or Developer options →
+*Stay awake* while charging). Guided Access (iPad) or screen pinning (Android) keeps it in the app.
+
 ## Live updates, power and battery
 
 - **Live:** the server keeps one websocket open to Home Assistant (`HA_URL` with `http`→`ws` / `https`→`wss`,
@@ -185,6 +211,7 @@ it runs pytest via `docker build --target test` and then builds the production i
 ```sh
 pip install -r requirements-dev.txt
 python -m pytest backend/tests          # HA is mocked; no real devices touched
+pip install playwright && python -m pytest e2e   # browser tests (wall mode) against e2e/fake_ha.py
 docker build --target test .            # same, inside the image
 HA_URL=… HA_TOKEN=… APP_USER=u APP_PASSWORD=p DB_PATH=./data/layout.db \
   uvicorn backend.app:create_app --factory --reload
