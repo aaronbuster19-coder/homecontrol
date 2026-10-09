@@ -34,7 +34,7 @@ def test_login_success_sets_cookie(anon):
     sc = r.headers["set-cookie"]
     assert sc.startswith(COOKIE + "=") and "HttpOnly" in sc and "SameSite=lax" in sc and "Path=/" in sc
     assert "Max-Age=7776000" in sc and "Secure" not in sc
-    assert anon.get("/api/me").json() == {"user": "aaron"}
+    assert anon.get("/api/me").json() == {"user": "aaron", "role": "admin", "expires": None, "owner": True}
     assert anon.get("/api/devices").status_code == 200
     assert anon.get("/").status_code == 200
 
@@ -152,7 +152,7 @@ def test_protected_paths(anon):
 
 def test_basic_header_accepted(anon):
     h = {"Authorization": "Basic " + base64.b64encode(b"aaron:s3cret").decode()}
-    assert anon.get("/api/me", headers=h).json() == {"user": "aaron"}
+    assert anon.get("/api/me", headers=h).json() == {"user": "aaron", "role": "admin", "expires": None, "owner": True}
 
 
 def test_streaming_passes_through(tmp_path, fake_ha):
@@ -200,7 +200,7 @@ def test_dotdot_paths_rejected():
     async def send(msg):
         sent.append(msg)
 
-    mw = AuthMiddleware(inner, Sessions(b"k", "p"), "u", "p")
+    mw = AuthMiddleware(inner, Sessions(b"k", "p"), None)
     for path in ("/icons/../app.js", "/icons/../index.html"):
         asyncio.run(mw({"type": "http", "path": path, "headers": [], "client": ("1.2.3.4", 1)}, None, send))
     assert reached == [] and [m["status"] for m in sent if "status" in m] == [404, 404]

@@ -38,11 +38,12 @@ docker compose up -d --build
 
 ### Login
 
-Sign in on `/login.html` with `APP_USER` / `APP_PASSWORD` (if either is empty, nobody can sign in). You then stay
+Sign in on `/login.html` with `APP_USER` / `APP_PASSWORD`, which is always an admin; more people get their own logins
+(see [Users and roles](#users-and-roles)). If either is empty, only those other accounts can sign in. You then stay
 signed in for 90 days (an HttpOnly cookie, `Secure` when served over https). Sign out from the ⋯ menu in the header.
 - `SESSION_SECRET` (optional) signs the cookie. If unset, a random one is generated once and kept in `session_secret`
   next to `DB_PATH` (e.g. `/data/session_secret`), so sessions survive restarts.
-- Changing `APP_PASSWORD` (or `SESSION_SECRET`) signs everyone out.
+- Changing `APP_PASSWORD` signs that account out everywhere; changing `SESSION_SECRET` signs everyone out.
 - 10 wrong passwords from one client within 10 minutes → locked out for the rest of that window (HTTP 429).
 - `curl -u user:pass` (HTTP Basic) still works for the API; the browser never gets a Basic popup.
 - Public without login: `/healthz`, the login page, manifest, icons, service worker.
@@ -740,3 +741,39 @@ e2e/docker.sh                           # the same in the Playwright image, exac
 Screenshots the tests take go to `e2e/screenshots` (`SHOTS=dir` to change). Failures save a screenshot of every open
 page to `e2e/artifacts` (`E2E_ARTIFACTS`), plus a trace with `E2E_TRACE=1` (on by default in `e2e/docker.sh`).
 The Playwright version is pinned twice — `requirements-e2e.txt` and the image tag in `e2e/docker.sh` — keep them equal.
+
+## Users and roles
+
+Everyone gets their own login, with one of three roles:
+
+| Role | Can |
+|---|---|
+| **Admin** | everything: settings, layout (Edit), schedules, Auto Away, standby saver, names, users |
+| **Member** | control every device, Heating / All off, Away / I'm home, mute pushes, alerts on their own phone; read history, energy, activity. No settings, layout or user changes |
+| **Guest** | see the plan and switch / dim the **lights**; nothing else. Optional expiry (1 day … 1 month) |
+
+- **Upgrading needs nothing:** the `APP_USER` / `APP_PASSWORD` login becomes the first admin on start (its existing
+  cookies stay valid). That account is always an admin and can't be removed or demoted from the app; its password stays
+  in `.env`. Renaming `APP_USER` replaces it.
+- **⋯ → Users…** (admins): add someone (a random password is suggested; the sheet shows it once so you can pass it on),
+  change a role, give a guest an expiry or extend it, *Reset password*, *Remove*. You can't remove or demote yourself, and
+  there is always at least one admin. Everyone else gets **⋯ → Account…** to change their own password.
+- Removing someone, resetting their password or them changing it signs that account out everywhere at once (each
+  account has a session id in its cookies). A role change or a guest's expiry applies to open sessions immediately.
+- Passwords are stored as salted scrypt hashes (N=2¹⁵, r=8). Wrong password, unknown user and expired guest all get the
+  same answer after the same work, so sign-in doesn't reveal who has an account. The 10-attempts lock-out applies to
+  the login form, Basic auth and password changes. Usernames are case-insensitive.
+- The UI hides what a role can't use, but every route is enforced on the server (HTTP 403 with a short reason).
+  Additions and changes to accounts show in *Activity* under *Security*.
+
+**For developers — classifying routes.** `backend/roles.py` has one `POLICY` table: `(METHOD, path template) -> least
+role` (`GUEST`, `MEMBER`, `ADMIN`, or `LIGHTS` = guests only for a `light.*` `{entity_id}`). `RoleMiddleware` (inside the
+auth guard) finds the route a request will hit and checks it, so **a route missing from the table is admin-only**.
+`backend/tests/test_roles.py::test_every_route_is_classified` fails until each new route has a line, e.g.
+`("GET", "/api/brief"): MEMBER,` — and it calls every listed route as each role to check the 403s.
+
+API: `GET /api/me` → `{user, role, expires, owner}` · `POST /api/me/password` `{current, password}` (any role; returns a
+fresh cookie) · admin: `GET /api/users` · `POST /api/users` `{username, password, role, expires?}` (`expires`: epoch
+seconds, guests only, within a year) · `PATCH /api/users/{username}` `{role?, expires?}` ·
+`PUT /api/users/{username}/password` `{password}` · `DELETE /api/users/{username}`. Writes need
+`Content-Type: application/json`. Passwords: 8–256 characters; usernames: 1–32 of letters, digits, `. _ @ -`.

@@ -70,6 +70,7 @@
   <label class="more-row" role="menuitem">Units <select id="unit" aria-label="Units"><option value="m">m</option><option value="ft">ft</option></select></label>
   <label class="more-row" role="menuitem">Theme <select id="themeSel" aria-label="Theme"><option value="auto">Auto</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
   <button id="refresh" role="menuitem" title="Re-discover devices">↻ Refresh devices</button>
+  <button id="usersBtn" role="menuitem" hidden>Users…</button>
   <button id="signOut" role="menuitem" title="Sign out">Sign out</button>
 </div>
 
@@ -231,6 +232,7 @@
 <script src="activity.js"></script>
 <script src="weather.js"></script>
 <script src="theme.js"></script>
+<script src="users.js"></script>
 <script>if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});</script>
 </body>
 </html>
