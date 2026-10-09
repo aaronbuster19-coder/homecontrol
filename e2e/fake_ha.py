@@ -8,7 +8,10 @@ states and broadcast), GET /api/history/period/<start> (generated, deterministic
 Test controls: GET /fake/calls (service call log), POST /fake/reset (calls + states) — also as /_calls, /_reset —
 and POST /fake/set {"entity_id", "state"?, "attributes"?} (change a state and push it like a wall switch would;
 also as /_state). With FAKE_HA_APPLIANCES=1 three more plugs exist (washer, fridge, "Plug 3"; e2e/test_appliances.py).
+With FAKE_HA_TV=1 a Samsung TV (media_player, with a SmartThings duplicate on the same device), a speaker, and
+GET /api/media_player_proxy/<entity> (the TV's artwork, a PNG) exist (e2e/test_tv.py).
 """
+import struct
 import json
 import math
 import os
@@ -114,6 +117,49 @@ rel|switch.plug_3|sensor.plug_3_power|power|W|measurement|Plug 3 Current consump
         return out
 
 
+# FAKE_HA_TV=1 (the TV tests' own stack): a Samsung TV as both HA integrations show it, and a speaker.
+TV_FEATURES = 1 | 4 | 8 | 16 | 32 | 128 | 256 | 1024 | 2048 | 16384 | 65536  # samsungtv + Wake-on-LAN + UPnP volume
+MEDIA = os.environ.get("FAKE_HA_TV") == "1"
+if MEDIA:
+    TEMPLATE += f"""media|media_player.samsung_tv|Samsung TV|Samsung|QE55Q80A
+dc|media_player.samsung_tv|tv
+sf|media_player.samsung_tv|{TV_FEATURES}
+media|media_player.samsung_tv_2|Samsung TV|Samsung|QE55Q80A
+dc|media_player.samsung_tv_2|tv
+sf|media_player.samsung_tv_2|{8 | 256 | 1024 | 2048}
+switch|switch.samsung_tv|Samsung TV|Samsung|QE55Q80A
+media|media_player.kitchen_speaker|Kitchen speaker|Sonos|One
+dc|media_player.kitchen_speaker|speaker
+sf|media_player.kitchen_speaker|{1 | 4 | 8 | 16 | 32 | 16384}
+"""
+    _pre_media_states = initial_states
+
+    def initial_states():
+        out = _pre_media_states()
+        for eid, state, attrs in (
+            ("media_player.samsung_tv", "on", {
+                "device_class": "tv", "supported_features": TV_FEATURES, "friendly_name": "Samsung TV", "volume_level": 0.24,
+                "is_volume_muted": False, "source": "TV", "source_list": ["TV", "HDMI1", "HDMI2", "Netflix", "YouTube", "Disney+"],
+                "app_name": "Netflix", "media_title": "The Crown", "media_series_title": "Season 2", "media_content_type": "tvshow",
+                "entity_picture": "/api/media_player_proxy/media_player.samsung_tv?token=fakeproxytoken&cache=1",
+                "sound_mode": "Standard", "sound_mode_list": ["Standard", "Movie", "Music", "Amplify"]}),
+            ("media_player.samsung_tv_2", "on", {"supported_features": 8 | 256 | 1024 | 2048}),
+            ("switch.samsung_tv", "on", {}),
+            ("media_player.kitchen_speaker", "idle", {"device_class": "speaker", "supported_features": 1 | 4 | 8 | 16 | 32 | 16384,
+                                                      "volume_level": 0.3, "is_volume_muted": False}),
+        ):
+            out[eid] = {"entity_id": eid, "state": state, "attributes": attrs,
+                        "last_changed": "2026-10-09T10:00:00+00:00", "last_updated": "2026-10-09T10:00:00+00:00"}
+        return out
+
+
+def _png(w: int = 96, h: int = 96) -> bytes:
+    """Artwork for the fake TV: a small purple-to-red gradient PNG."""
+    rows = b"".join(b"\0" + bytes(c for x in range(w) for c in (90 + x, 40 + y // 2, 200 - x)) for y in range(h))
+    chunk = lambda t, d: struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d) & 0xffffffff)
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b"")
+
+
 app = FastAPI()
 app.state.states = initial_states()
 app.state.calls = []
@@ -180,6 +226,21 @@ async def service(domain: str, service: str, request: Request):
             a["humidity"] = body.get("humidity")
         elif service == "set_mode":
             a["mode"] = body.get("mode")
+        elif service == "volume_set":
+            a["volume_level"] = body.get("volume_level")
+        elif service in ("volume_up", "volume_down"):
+            a["volume_level"] = round(min(1, max(0, (a.get("volume_level") or 0) + (0.01 if service == "volume_up" else -0.01))), 2)
+        elif service == "volume_mute":
+            a["is_volume_muted"] = body.get("is_volume_muted")
+        elif service == "select_source":
+            a["source"] = body.get("source")
+            a["app_name"] = body["source"] if body.get("source") in ("Netflix", "YouTube", "Disney+") else None
+            for k in ("media_title", "media_series_title", "entity_picture"):
+                a.pop(k, None)
+        elif service == "select_sound_mode":
+            a["sound_mode"] = body.get("sound_mode")
+        elif service == "media_play_pause":
+            s["state"] = "paused" if s["state"] == "playing" else "playing"
         s["last_changed"] = s["last_updated"] = now_iso()
         await broadcast(eid)
     return []
@@ -277,6 +338,12 @@ async def history(start: str, request: Request):
         if rows:
             out.append(rows)
     return out
+
+
+@app.get("/api/media_player_proxy/{entity_id}")
+async def media_proxy(entity_id: str):
+    from fastapi.responses import Response
+    return Response(_png(), media_type="image/png")
 
 
 # ---------- test controls ----------

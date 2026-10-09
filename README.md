@@ -12,6 +12,7 @@ Everything goes through Home Assistant's REST API; the app never talks to Tapo/K
 | Radiator valves (KE100) | `climate.*` | target temp, shows current |
 | Door/window sensors (T110) | `binary_sensor.contact_sensor_door*` (diagnostic ones like `_cloud_connection` skipped) | read-only, open/closed |
 | Dehumidifier (Tuya) | `humidifier.*`, or a `switch.*` that says “dehumid” — see [Dehumidifier](#dehumidifier) | on/off, target humidity, mode |
+| TV / media players (Samsung via SmartThings or Samsung Smart TV, LG, Android TV, Chromecast, speakers) | `media_player.*` — see [TV / media players](#tv--media-players) | sheet: power, volume, mute, source, play/pause, sound mode |
 
 Discovery uses `POST /api/template` to read each entity's device model, and caches the result for 5 minutes.
 *Refresh devices* in the ⋯ menu (or `POST /api/devices/refresh`) re-discovers immediately. State is polled every 5 s.
@@ -256,6 +257,52 @@ API: `POST /api/devices/{id}/toggle` (`humidifier.toggle` or `switch.toggle`), `
 `{"humidity": 55}` → `humidifier.set_humidity` (whole number within min/max; 400 for switch-only ones),
 `POST /api/devices/{id}/mode` `{"mode": "sleep"}` → `humidifier.set_mode` (must be one of `available_modes`).
 
+## TV / media players
+
+The app only talks to Home Assistant, so a TV shows up once HA has a `media_player` for it. **Add a Samsung TV to HA:**
+
+1. HA → *Settings → Devices & services → Add integration* → **SmartThings** (sign in with your Samsung account and pick
+   the TV), or **Samsung Smart TV** (local, finds the TV on the network; accept the prompt on the TV). Either works;
+   with both, the two media players end up on one HA device and homecontrol uses the one that can do more.
+2. **Turning it on:** most TVs drop off the network when fully off, so `turn_on` only works if HA knows how. In the
+   Samsung Smart TV integration add a *Turn on* trigger / enable *Wake-on-LAN* (and on the TV: *Settings → General →
+   Network → Expert settings → Power on with mobile* / *IP remote*); SmartThings TVs can usually be woken while in
+   standby. Without it the TV sheet says so instead of offering a dead button.
+3. homecontrol: ⋯ → *Refresh devices*. The TV appears under **TV & media** in the device list. LG webOS, Android TV,
+   Chromecast, Sonos & co. work the same way (a speaker gets a speaker icon).
+
+**On the plan:** place its marker like any device, or — nicer — put a *TV* from the furniture catalogue on the plan,
+select it in edit mode and press **Link TV** (stored as `furniture[].media`, one media player per TV; a TV can also
+link its plug for watts). A linked TV hides the media marker; while it's on, its screen lights up and throws light into
+the room, with the app or title as a small label (“Netflix · 86 W” when its plug is linked too).
+
+- **Tap** the TV (marker, list row or furniture) for its sheet — never a toggle, so it can't be switched off by
+  accident. The sheet offers only what the TV's `supported_features` allow: Turn on / Turn off, ⏮ ⏯ ⏭, mute, a
+  volume slider (sends at most every 300 ms, like brightness) with −/+ (5 %), the source list as chips (a menu for long
+  lists), the sound mode, and now playing (title, series / artist, app, source) with the artwork. Artwork is fetched by
+  the server from HA (`entity_picture`) and served as `/api/media/{id}/artwork?v=…`; HA's token never reaches the browser.
+- **All off** leaves TVs alone by default; tick *Include in “All off”* in the TV's sheet (`settings.all_off_include`).
+- **Away** turns TVs off (only ones that are on and can be turned off); untick *Turn TVs off when I go away* in the
+  Away dialog to stop that (`tv_off` in `PUT /api/mode/settings`).
+- Room view lists the TV of the room (placed or on its furniture) with a “Samsung TV · Netflix” chip; wall mode shows a
+  “TV on” chip in its top bar (tap for the sheet). TVs never trigger the offline push (they go unavailable when off).
+
+**What's used from HA:** state (`on`/`playing`/`paused`/`idle`/`off`/`standby`/`unavailable`), attributes
+`supported_features`, `device_class` (`tv` / `speaker` / `receiver`; otherwise the device's manufacturer / model /
+name decide TV vs speaker), `volume_level`, `is_volume_muted`, `source`, `source_list`, `sound_mode`,
+`sound_mode_list`, `app_name`, `media_title`, `media_series_title`, `media_artist`, `media_content_type`,
+`entity_picture`; and a `power` sensor on the same HA device, if any. Other entities on the TV's HA device (SmartThings'
+switch and sensors) don't become devices.
+
+API: `POST /api/devices/{id}/media` with one of `{"action": "power", "on": true|false}` → `media_player.turn_on` /
+`turn_off`, `{"action": "volume", "level": 0.35}` → `volume_set`, `{"action": "volume", "step": "up"|"down"}` →
+`volume_up`/`volume_down`, `{"action": "mute", "muted": true}` → `volume_mute`, `{"action": "source", "source": "HDMI1"}`
+→ `select_source` (must be in `source_list`), `{"action": "play_pause"|"next"|"previous"}` → `media_play_pause` /
+`media_next_track` / `media_previous_track`, `{"action": "sound_mode", "sound_mode": "Movie"}` → `select_sound_mode`.
+Anything the entity's `supported_features` don't allow is a 400 (nothing is sent to HA). `GET /api/devices` adds
+`media_type`, `supported_features`, `supports` {turn_on, turn_off, volume_set, volume_step, mute, select_source,
+play_pause, next, previous, sound_mode}, the attributes above and `picture` (artwork URL or null) for `kind: "media"`.
+
 ## More menu (⋯), temperatures, Away/Home, backup
 
 The ⋯ button at the right of the header holds: Away / I'm home, *Auto Away…* (see *Auto Away*), Wall mode, *Schedules…* (see *Schedules*), *Show temperature & humidity on plan*, *Show furniture* (see *Furniture*), Energy, Hidden devices, Export layout,
@@ -267,12 +314,13 @@ Import layout, Units (m/ft), Refresh devices and Sign out. It closes on a tap ou
   The toggle is remembered per device (browser storage), default on.
 - **Away / Home:** *Away…* shows what will happen and lets you set the radiator temperature while away
   (5–25°, default 16°). Away turns off all lights and plugs except “keep on” plugs, remembers each radiator's
-  target and sets them all to the away temperature, and turns door alerts on. An “AWAY” badge shows in the
+  target and sets them all to the away temperature, turns TVs off (see *TV / media players*) and turns door alerts on. An “AWAY” badge shows in the
   status line and the menu item becomes *I'm home*, which puts every radiator back to its remembered target
   (vanished valves skipped, clamped 5–35°) and restores the previous alerts on/off setting; lights stay off.
   Pressing Away twice keeps the first remembered targets. The state is in SQLite, so it survives restarts.
-  API: `GET /api/mode` → `{"mode","since","away_temp"}`, `POST /api/mode` `{"mode":"away"|"home"}` (returns a
-  summary: `turned_off`, `kept_on`, `valves`, `alerts_enabled`), `PUT /api/mode/settings` `{"away_temp": 5–25}`.
+  API: `GET /api/mode` → `{"mode","since","away_temp","tv_off"}`, `POST /api/mode` `{"mode":"away"|"home"}` (returns a
+  summary: `turned_off`, `kept_on`, `valves`, `alerts_enabled`), `PUT /api/mode/settings` `{"away_temp": 5–25,
+  "tv_off": true|false}` (either or both).
 - **Backup:** *Export layout* downloads the saved plan as `homecontrol-layout-YYYY-MM-DD.json`. *Import layout…*
   reads such a file, shows rooms / placed devices / doors-windows / furniture and any devices not in Home Assistant now, and
   replaces the plan on confirm. If the server rejects unknown devices you can *Import without unknown devices*
@@ -539,7 +587,8 @@ always come through.**
 
 `GET /healthz` · `POST /api/login` `{"username","password"}` · `POST /api/logout` · `GET /api/me` · `GET /api/devices` · `GET /api/events` (SSE: `snapshot`, `status` `{"ws": bool}`, then `device` events) · `POST /api/devices/refresh` · `POST /api/devices/{entity_id}/toggle` ·
 `POST /api/devices/{entity_id}/temperature` `{"temperature": 21.0}` · `POST /api/devices/{entity_id}/humidity` `{"humidity": 55}` ·
-`POST /api/devices/{entity_id}/mode` `{"mode": "auto"}` · `GET /api/layout` · `PUT /api/layout` ·
+`POST /api/devices/{entity_id}/mode` `{"mode": "auto"}` · `POST /api/devices/{entity_id}/media` (TVs, see above) ·
+`GET /api/media/{entity_id}/artwork` · `GET /api/layout` · `PUT /api/layout` ·
 `GET /api/push/key` · `POST /api/push/subscribe` (PushSubscription JSON) · `POST /api/push/unsubscribe` `{"endpoint"}` ·
 `POST /api/push/test` · `GET`/`PUT /api/alerts/settings` `{"enabled", "door_open_minutes", "notify_on_close",
 "window_heating_enabled", "window_open_minutes", "window_off_temp", "window_notify", "health_battery", "health_unavailable",
