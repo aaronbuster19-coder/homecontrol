@@ -110,6 +110,10 @@ POLICY: dict[tuple[str, str], str] = {
     ("PUT", "/api/tiles"): MEMBER,
     ("POST", "/api/tiles/{entity_id}"): MEMBER,
     ("DELETE", "/api/tiles/{entity_id}"): MEMBER,
+    # disco mode (backend/disco.py): guests too; the handlers check every light taking part is one the role may control
+    ("GET", "/api/disco"): GUEST,
+    ("POST", "/api/disco/start"): GUEST,
+    ("POST", "/api/disco/stop"): GUEST,
     ("GET", "/openapi.json"): ADMIN,
     ("GET", "/docs"): ADMIN,
     ("GET", "/docs/oauth2-redirect"): ADMIN,

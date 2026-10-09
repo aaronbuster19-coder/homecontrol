@@ -44,6 +44,7 @@ from . import tiles as tiles_api
 from .modes import ModeError, ModeStore, current_targets, now_iso, public, restore_groups, validate_mode_settings
 from .summary import local_tz
 from . import climate as climate_api
+from . import disco as disco_api
 from .store import NAME_MAX, LayoutError, LayoutStore, carry_settings, stored_media, stored_plugs, stored_refs, validate_energy, validate_layout
 
 CACHE_TTL = 300
@@ -153,6 +154,7 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
     @asynccontextmanager
     async def lifespan(app):
         live.start()
+        disco.start_background()  # lights a disco left coloured when the app stopped go back
         alerts.start()
         automations.start()
         weather.start()
@@ -160,6 +162,7 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
         await weather.stop()
         await automations.stop()
         await alerts.stop()
+        await disco.shutdown()
         await live.stop()
         await ha.close()
 
@@ -237,6 +240,12 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
     activity.schedule_name = lambda sid: (automations.schedules.store.get(sid) or {}).get("name")
     automations.appliances.on_event = activity.record_appliance
     live.add_observer(activity.observe)
+    # Disco mode (backend/disco.py): colour steps go out unlogged (raw call), its first step and the restore logged.
+    disco = disco_api.Disco(disco_api.DiscoStore(settings.db_path), lambda *a: ha.call_service(*a),
+                            lambda *a: getattr(ha.call_service, "__wrapped__", ha.call_service)(*a), lambda: live.states,
+                            devices, store.get, live.broadcast, activity.record, clock)
+    app.state.disco = disco
+    live.add_observer(disco.observe)
     hold_push = automations.quiet.store.add
 
     def logged_hold(key: str, category: str, payload: dict, at: float):
@@ -448,6 +457,7 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
     @app.post("/api/devices/{entity_id}/toggle")
     async def toggle(entity_id: str):
         await require(entity_id, ("light", "plug", "dehumidifier"))
+        await disco.interrupt("manual", [entity_id])
         # light.* / switch.* (plugs, switch-only dehumidifiers) / humidifier.*
         await ha.call_service(entity_id.split(".", 1)[0], "toggle", {"entity_id": entity_id})
         return {"ok": True}
@@ -456,6 +466,7 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
     async def turn_off(entity_id: str):
         """Only ever switches OFF (the "Turn off" button on a left-on reminder push; session cookie as everywhere)."""
         await require(entity_id, ("light", "plug"))
+        await disco.interrupt("manual", [entity_id])
         await ha.call_service(entity_id.split(".", 1)[0], "turn_off", {"entity_id": entity_id})
         return {"ok": True}
 
@@ -528,6 +539,7 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
     async def set_light(entity_id: str, body: LightBody):
         await require(entity_id, ("light",))
         data = light_data(body)
+        await disco.interrupt("manual", [entity_id])
         await ha.call_service("light", "turn_on", {"entity_id": entity_id, **data})
         return {"ok": True}
 
@@ -541,6 +553,7 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
             raise HTTPException(400, f"not a light or plug: {e}")
         if body.action == "turn_on" and groups.get("media_player"):  # "All off" only: a TV is never switched on in bulk
             raise HTTPException(400, f"not a light or plug: {groups['media_player'][0]}")
+        await disco.interrupt("all_off" if body.source == "all_off" else "manual", body.entity_ids)
         with acting("All off" if body.source == "all_off" else None):
             return {"ok": True, "count": await call_groups(ha, body.action, groups)}
 
@@ -568,6 +581,7 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
         kept = sorted(e for e in keep if e in devs)
         valves = sorted(e for e, d in devs.items() if d.kind == "valve")
         held = automations.window.held()  # radiators an open window keeps low stay low; remember their real target
+        await disco.interrupt("away", off)  # lights being switched off stay off; any others go back
         if s["mode"] != "away":  # pressing Away twice keeps the first remembered targets
             s["targets"] = {**current_targets(valves, live.states),
                             **{e: t for e, t in held.items() if e in valves and t is not None}}
@@ -753,6 +767,7 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
 
     activity_api.add_routes(app, activity)
     weather_api.add_routes(app, weather, ensure_states, json_body)
+    disco_api.add_routes(app, disco, ensure_states, json_body)  # disco mode (backend/disco.py)
     brief_api.add_routes(app, settings.db_path, ha, live, store.get, devices, plug_devices, weather, local_tz(), clock)  # morning brief, monthly report
 
     # ---- Auto Away (backend/presence.py), standby saver (backend/standby.py) ----

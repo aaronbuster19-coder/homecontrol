@@ -453,6 +453,14 @@ class Activity:
             elif k == "mode":
                 add(t, "people", "away", "Away mode on" if x.get("mode") == "away" else "Home mode on",
                     by="by you" if x.get("user") else None)
+            elif k == "disco":  # backend/disco.py: started / stopped (its colour steps aren't logged)
+                if x.get("event") == "start":
+                    add(t, "lights", "light", f"Disco on · {x.get('n', 0)} light{'' if x.get('n') == 1 else 's'}",
+                        by=f"by {x['user']}" if x.get("user") else None)
+                else:
+                    from .disco import REASONS
+                    add(t, "lights", "light", "Disco off", detail=REASONS.get(x.get("reason")),
+                        by=f"by {x['user']}" if x.get("user") else None)
             elif k == "appliance":
                 ev, name, eid = x.get("event"), x.get("name") or "Appliance", x.get("plug")
                 dur = f" · {fmt_dur(x['secs'])}" if x.get("secs") else ""
