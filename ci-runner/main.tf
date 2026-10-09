@@ -678,8 +678,8 @@ resource "hyperv_machine_instance" "ci" {
   for_each   = local.runners
   depends_on = [terraform_data.preflight]
 
-  name                   = each.value.vm_name
-  path                   = local.vm_dir
+  name = each.value.vm_name
+  path = local.vm_dir
   # No apostrophes (or other single quotes) in notes or any VM string: the provider pastes them into a PowerShell
   # '...' string, a quote ends it early, and New-VM never runs ("unable to find a virtual machine" in the next step).
   notes                  = "homecontrol CI self-hosted runner (homecontrol ci-runner/main.tf). Internet only; rebuilt by tofu apply. Not managed by the Luna stack."
