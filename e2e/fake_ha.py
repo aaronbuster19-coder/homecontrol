@@ -5,8 +5,8 @@
 HA API: GET /api/states, POST /api/template (discovery lines), POST /api/services/<domain>/<service> (applied to the
 states and broadcast), GET /api/history/period/<start> (generated, deterministic history), websocket /api/websocket
 (token auth, subscribe_events -> state_changed events).
-Test controls: GET /fake/calls (service call log), POST /fake/reset (calls + states), POST /fake/set
-{"entity_id", "state"?, "attributes"?} (change a state and push it over the websocket like a wall switch would).
+Test controls: GET /fake/calls (service call log), POST /fake/reset (calls + states) — also as /_calls, /_reset —
+and POST /fake/set {"entity_id", "state"?, "attributes"?} (change a state and push it like a wall switch would).
 """
 import json
 import math
@@ -206,11 +206,13 @@ async def history(start: str, request: Request):
 
 
 # ---------- test controls ----------
+@app.get("/_calls")  # old name, kept for copies of the earlier wall-test fixtures
 @app.get("/fake/calls")
 async def calls():
     return app.state.calls
 
 
+@app.post("/_reset")
 @app.post("/fake/reset")
 async def reset():
     app.state.calls.clear()

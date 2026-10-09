@@ -178,6 +178,12 @@ def fresh_stack(tmp_path_factory):
     s.close()
 
 
+@pytest.fixture(scope="module")
+def servers(stack):
+    """The old e2e/test_wall.py shape: {"ha": fake HA base URL, "app": app base URL}."""
+    return {"ha": stack.ha.base, "app": stack.url}
+
+
 @pytest.fixture
 def ha(stack):
     stack.ha.reset()
@@ -185,8 +191,9 @@ def ha(stack):
 
 
 # ---------- browser ----------
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def browser():
+    # Module scope: a test module with its own sync_playwright() fixtures never overlaps this one.
     with sync_playwright() as p:
         b = p.chromium.launch()
         yield b

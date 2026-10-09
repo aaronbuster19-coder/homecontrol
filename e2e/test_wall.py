@@ -114,11 +114,12 @@ def test_away_home_and_all_off(new_page, stack, ha):
     # Back home, then All off with its confirmation.
     page.click("#wallAway"); page.click("#modeOk")
     expect(page.locator("#wallAway .st")).to_have_text("Home", timeout=3000)
-    ha.reset(); page.wait_for_timeout(500)
+    ha.reset()  # back to lounge, strip and TV on; wait until the page has those states, not a fixed delay
+    page.wait_for_function("['light.lounge', 'light.strip', 'switch.tv'].every((e) => st.devices.get(e)?.state === 'on')")
     asked = []
     page.once("dialog", lambda d: (asked.append(d.message), d.accept()))
     page.click("#wallAllOff")
-    calls = ha.wait_call(lambda c: c["service"] == "turn_off")
+    calls = ha.wait_calls(2, "turn_off")  # one call per domain: light, then switch
     assert asked and asked[0].startswith("Turn off 3 devices")
     off = {e for c in calls for e in c["data"]["entity_id"]}
     assert {"light.lounge", "light.strip", "switch.tv"} <= off
@@ -142,6 +143,8 @@ def test_settings_persist_in_local_storage(new_page, stack, ha):
     page = new_page()
     page.goto(stack.url + "/?wall")
     set_settings(page, start="22:30", end="06:45", idle=600, nightIdle=20)
+    # Saved when the dialog closes; wait for the write rather than reading straight away.
+    page.wait_for_function("localStorage.getItem('hc.wall.settings')?.includes('22:30')")
     stored = json.loads(page.evaluate("localStorage.getItem('hc.wall.settings')"))
     assert stored == {"start": "22:30", "end": "06:45", "idle": 600, "nightIdle": 20}
     page.reload()
