@@ -96,6 +96,7 @@ const WALL = (() => {
     const hu = typeof indoorHumidity === "function" ? indoorHumidity() : null;
     $("wallHum").querySelector("b").textContent = hu == null ? "–" : `${Math.round(hu)} %`;
     $("wallHum").hidden = hu == null;
+    if (typeof tvWallPaint === "function") tvWallPaint(); // "TV on" (tv.js)
     const cn = $("wallConn"); cn.hidden = !c; if (c) { cn.textContent = c[1]; cn.className = `wall-conn ${c[0]}`; }
     const away = modeSt.mode === "away", mb = $("wallAway");
     mb.classList.toggle("away", away);

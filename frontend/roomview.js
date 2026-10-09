@@ -172,6 +172,7 @@ const ROOMVIEW = (() => {
     if (f.power != null) facts.append(chip("power", `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 9-12h-7z" fill="currentColor"/></svg>`, fmtW(f.power), "power"));
     if (f.open.length) for (const d of f.open) facts.append(chip("open", ICON("sensor"), `${d.name} open`, "open"));
     else if (f.sensors.length) facts.append(chip("closed", ICON("sensor"), f.sensors.length > 1 ? "Doors & windows closed" : `${f.sensors[0].name} closed`, "open"));
+    if (typeof tvRoomFacts === "function") facts.append(...tvRoomFacts(r)); // "TV · Netflix"
     if (f.temp != null) facts.append(chip("temp", ICON("valve"), `${(Math.round(f.temp * 10) / 10).toFixed(1)}°`, "temp"));
     if (f.hum != null) facts.append(chip("hum", ICON("dehumidifier"), `${Math.round(f.hum)} %`, "hum"));
     facts.hidden = !facts.children.length;
@@ -182,6 +183,7 @@ const ROOMVIEW = (() => {
   function roomSideFilter(devs) {
     const r = !st.editing && room(); if (!r) return devs;
     const ids = new Set(st.layout.placements.filter((p) => inRoom(r, p)).map((p) => p.entity_id));
+    if (typeof tvRoomIds === "function") tvRoomIds(r).forEach((e) => ids.add(e)); // a TV on its furniture (tv.js)
     const out = devs.filter((d) => ids.has(d.entity_id));
     $("sideTitle").textContent = `In ${r.name}`;
     $("sideHint").textContent = out.length ? "" : "No devices placed in this room.";

@@ -136,8 +136,9 @@ async function bulk(action, devs) {
 }
 async function allOff() {
   const keep = new Set([...keepOn(), ...(typeof protectedPlugs === "function" ? protectedPlugs() : [])]); // + fridges
-  const devs = [...st.devices.values()].filter((d) => (isOnOff(d) || dehumInAllOff(d)) && usable(d) && !keep.has(d.entity_id));
-  const on = devs.filter((d) => d.state === "on");
+  const devs = [...st.devices.values()].filter((d) => (isOnOff(d) || dehumInAllOff(d) || (typeof tvInAllOff === "function" && tvInAllOff(d)))
+    && usable(d) && !keep.has(d.entity_id));
+  const on = devs.filter((d) => d.state === "on" || (d.kind === "media" && tvIsOn(d))); // TVs only when ticked in their sheet
   if (!on.length) { setStatus("Everything is already off" + (keep.size ? ` (${keep.size} kept on)` : "")); return; }
   const kept = [...keep].filter((e) => st.devices.get(e)?.state === "on").length;
   const hid = on.filter((d) => d.hidden).length;

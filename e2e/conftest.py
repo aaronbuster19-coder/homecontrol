@@ -143,10 +143,10 @@ class FakeHA:
 class Stack:
     """A fake HA and the app (temp DB) on free ports of 127.0.0.1."""
 
-    def __init__(self, tmp: Path, clock: bool = False, appliances: bool = False):
+    def __init__(self, tmp: Path, clock: bool = False, appliances: bool = False, tv: bool = False):
         ha_port, app_port = free_port(), free_port()
         self.ha_proc = subprocess.Popen([sys.executable, str(ROOT / "e2e" / "fake_ha.py"), str(ha_port), HOST], cwd=ROOT,
-                                        env={**os.environ, "FAKE_HA_APPLIANCES": "1" if appliances else "0"})
+                                        env={**os.environ, "FAKE_HA_APPLIANCES": "1" if appliances else "0", "FAKE_HA_TV": "1" if tv else "0"})
         wait_http(f"http://{HOST}:{ha_port}/fake/calls", self.ha_proc)
         env = {**os.environ, "HA_URL": f"http://{HOST}:{ha_port}", "HA_TOKEN": "test-token", "APP_USER": USER,
                "APP_PASSWORD": PASSWORD, "DB_PATH": str(tmp / "layout.db"), "TZ_NAME": "Europe/London"}
@@ -193,6 +193,14 @@ def stack(tmp_path_factory):
 def appliance_stack(tmp_path_factory):
     """Movable server clock (e2e/clock_app.py) and a fake HA with three extra plugs: washer, fridge, "Plug 3"."""
     s = Stack(tmp_path_factory.mktemp("appliances"), clock=True, appliances=True)
+    yield s
+    s.close()
+
+
+@pytest.fixture(scope="module")
+def tv_stack(tmp_path_factory):
+    """A fake HA with a Samsung TV media player (plus its SmartThings duplicate) and a speaker."""
+    s = Stack(tmp_path_factory.mktemp("tv"), tv=True)
     yield s
     s.close()
 

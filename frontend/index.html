@@ -13,6 +13,7 @@
 <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
 <title>homecontrol</title>
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="tv.css">
 </head>
 <body>
 <header>
@@ -71,6 +72,8 @@
         <symbol id="ic-plug" viewBox="0 0 24 24"><path d="M8 2v6H6v4a6 6 0 0 0 5 5.9V22h2v-4.1A6 6 0 0 0 18 12V8h-2V2h-2v6h-4V2z"/></symbol>
         <symbol id="ic-valve" viewBox="0 0 24 24"><path d="M14 14.8V5a2 2 0 0 0-4 0v9.8a4 4 0 1 0 4 0zM12 3a2 2 0 0 1 2 2v1h-4V5a2 2 0 0 1 2-2z"/></symbol>
         <symbol id="ic-dehumidifier" viewBox="0 0 24 24"><path d="M12 2.5S5.5 9.7 5.5 14.3a6.5 6.5 0 0 0 13 0C18.5 9.7 12 2.5 12 2.5zm-3 12a.9.9 0 0 1 1.8 0 2.2 2.2 0 0 0 2.2 2.2.9.9 0 0 1 0 1.8 4 4 0 0 1-4-4z"/></symbol>
+        <symbol id="ic-media" viewBox="0 0 24 24"><path d="M3 5h18a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zm1 2v9h16V7zm4 13h8v1.5H8z"/></symbol>
+        <symbol id="ic-media-speaker" viewBox="0 0 24 24"><path d="M7 2h10a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2zm5 3a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zm0 5a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9zm0 2.5a2 2 0 1 1 0 4 2 2 0 0 1 0-4z"/></symbol>
         <symbol id="ic-sensor" viewBox="0 0 24 24"><path d="M5 2h11v20H5zm9 9a1 1 0 1 0 0 2 1 1 0 0 0 0-2zM17 4h2v16h-2z"/></symbol>
         <filter id="applGlow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="0.06"/></filter>
       </defs>
@@ -159,6 +162,7 @@
     <h3 id="modeTitle">Away</h3>
     <ul id="modeList" class="mode-list"></ul>
     <label id="awayTempRow">Radiators while away (°C) <input name="away_temp" type="number" min="5" max="25" step="0.5" inputmode="decimal"></label>
+    <label id="awayTvRow" class="keep-on" hidden><input type="checkbox" name="tv_off"> <span>Turn TVs off when I go away</span></label>
     <menu><button value="cancel" formnovalidate>Cancel</button><button value="ok" class="primary" id="modeOk">Go</button></menu>
   </form>
 </dialog>
@@ -199,6 +203,7 @@
 <script src="appliances.js"></script>
 <script src="presence.js"></script>
 <script src="standby.js"></script>
+<script src="tv.js"></script>
 <script>if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});</script>
 </body>
 </html>

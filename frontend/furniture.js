@@ -385,6 +385,7 @@ function renderFurniture(handlesParent) {
     if (st.editing || showFurniture) for (const f of furList()) {
       const def = FURNITURE[f.type]; if (!def) continue;
       if (!st.editing && typeof applianceLinked === "function" && applianceLinked(f)) continue; // live: appliances.js
+      if (!st.editing && typeof tvLinked === "function" && tvLinked(f)) continue; // live: tv.js
       const sel = st.editing && st.sel?.type === "fur" && st.sel.id === f.id;
       const fg = el("g", { class: `fur fu-${f.type}` + (sel ? " sel" : ""), "data-fur": f.id,
         transform: `translate(${f.x} ${f.y}) rotate(${f.rot || 0})` }, g);
@@ -401,6 +402,7 @@ function renderFurniture(handlesParent) {
     if (g.childElementCount) furRaiseNames(g);
   }
   if (typeof renderAppliances === "function") renderAppliances();
+  if (typeof renderTvs === "function") renderTvs();
   const f = furSel();
   for (const id of ["furRot", "furDup", "furEdit"]) if ($(id)) $(id).hidden = !f;
   if ($("furLink")) $("furLink").hidden = !f || typeof APPLIANCE === "undefined" || !APPLIANCE[f.type];
@@ -504,7 +506,7 @@ function duplicateFurniture() {
   const f = furSel(); if (!f) return;
   if (st.draft.furniture.length >= 200) { setStatus("That's the most furniture a plan can hold (200)", true); return; }
   const c = { ...f, id: furId(), x: r3(f.x + 0.3), y: r3(f.y + 0.3) };
-  delete c.plug; delete c.hide_marker; delete c.thresholds; // a plug links to one appliance only
+  delete c.plug; delete c.hide_marker; delete c.thresholds; delete c.media; // a plug / TV links to one piece only
   st.draft.furniture.push(c); st.sel = { type: "fur", id: c.id }; render();
 }
 function deleteFurniture(id) { st.draft.furniture = (st.draft.furniture || []).filter((f) => f.id !== id); }
