@@ -357,9 +357,9 @@ body.wall dialog { width: min(440px, 92vw); padding: 22px; }
 /* ---------- walls (shared walls drawn once), snap guides, tidy up ---------- */
 #walls { pointer-events: none; }
 #walls line, #walls polygon { fill: none; vector-effect: non-scaling-stroke; }
-.wall { stroke: #59647a; stroke-linecap: square; }
-.wall.outer { stroke-width: 3; }
-.wall.inner { stroke-width: 2; }
+#walls .wall { stroke: #59647a; stroke-linecap: square; }  /* not body.wall (wall tablet mode) */
+#walls .wall.outer { stroke-width: 3; }
+#walls .wall.inner { stroke-width: 2; }
 .sel-outline { stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; }
 .snap-guide { stroke: var(--accent); stroke-width: 1; stroke-dasharray: 5 4; opacity: .85; }
 .tidy-ghost { stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 4 4; opacity: .7; }
