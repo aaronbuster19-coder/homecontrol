@@ -145,6 +145,7 @@ function render() {
   if (typeof renderRoomTemps === "function") renderRoomTemps(roomsG);
   renderRoomLabels(roomsG);
   renderOpenings();
+  if (typeof renderSnap === "function") renderSnap();
   const R = 0.26;
   for (const p of L.placements) {
     const d = st.devices.get(p.entity_id);
@@ -343,9 +344,10 @@ svg.addEventListener("pointerdown", (e) => {
   const mk = e.target.closest(".marker"), rm = e.target.closest(".room");
   if (!st.editing) return;
   const pt = svgPoint(e.clientX, e.clientY);
+  st.tidy = null;
   if (floorplanPointerDown(e, pt)) return;
   if (st.drawing) {
-    const p0 = { x: snap(pt.x), y: snap(pt.y) };
+    const p0 = snapDrawStart(pt, e.altKey);
     st.drag = { draw: p0, pid: e.pointerId };
     st.drawRect = { x: p0.x, y: p0.y, w: 0, h: 0 };
     svg.setPointerCapture(e.pointerId);
@@ -379,9 +381,9 @@ svg.addEventListener("pointerdown", (e) => {
 svg.addEventListener("pointermove", (e) => {
   const d = st.drag; if (!d || e.pointerId !== d.pid) return;
   const pt = svgPoint(e.clientX, e.clientY);
+  d.alt = e.altKey; // Alt: no snapping to other rooms for this move
   if (d.draw) {
-    const x2 = snap(pt.x), y2 = snap(pt.y);
-    st.drawRect = { x: Math.min(d.draw.x, x2), y: Math.min(d.draw.y, y2), w: Math.abs(x2 - d.draw.x), h: Math.abs(y2 - d.draw.y) };
+    st.drawRect = snapDrawRect(d.draw, pt, e.altKey);
     render();
     return;
   }
@@ -389,9 +391,11 @@ svg.addEventListener("pointermove", (e) => {
   if (!d.moved && Math.hypot(dx, dy) < 0.08) return;
   d.moved = true;
   if (floorplanPointerMove(d, pt, dx, dy)) { render(); return; }
-  if (d.resize) { resizeRoom(d.obj, d.orig, d.resize, dx, dy); clampCut(d.obj); render(); return; }
-  d.obj.x = snap(d.ox + dx); d.obj.y = snap(d.oy + dy);
-  for (const c of d.carried || []) { c.p.x = snap(c.ox + dx); c.p.y = snap(c.oy + dy); }
+  if (d.resize) { resizeRoom(d.obj, d.orig, d.resize, dx, dy); snapResize(d, dx, dy); clampCut(d.obj); render(); return; }
+  if (!d.carried) { d.obj.x = snap(d.ox + dx); d.obj.y = snap(d.oy + dy); render(); return; }
+  snapMove(d, dx, dy); // a room snaps to the others; what it carries moves by the same amount
+  const mx = d.obj.x - d.ox, my = d.obj.y - d.oy;
+  for (const c of d.carried) { c.p.x = +(c.ox + mx).toFixed(3); c.p.y = +(c.oy + my).toFixed(3); }
   render();
 });
 const MIN_ROOM = 0.3;
@@ -405,7 +409,7 @@ function resizeRoom(r, o, dir, dx, dy) {
 const endDrag = (e) => {
   if (!st.drag || e.pointerId !== st.drag.pid) return;
   const wasDraw = st.drag.draw, rect = st.drawRect;
-  st.drag = null; st.drawRect = null;
+  st.drag = null; st.drawRect = null; st.snapGuides = null;
   if (wasDraw) {
     setDrawing(false);
     if (e.type === "pointerup" && rect.w >= MIN_ROOM && rect.h >= MIN_ROOM) roomDialog(null, rect);
