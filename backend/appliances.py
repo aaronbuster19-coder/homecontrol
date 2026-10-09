@@ -25,7 +25,7 @@ log = logging.getLogger("homecontrol.appliances")
 # type -> (rule, busy text, idle text, default thresholds)
 CYCLE_DEFAULTS = {"run_w": 10.0, "run_min": 2.0, "idle_w": 5.0, "idle_min": 3.0}
 APPLIANCES = {
-    "fan": ("on", None, None, {}),
+    "fan": ("busy", "On", "Idle", {"on_w": 1.0}),  # plug on but the fan switched off draws ~0 W
     "floor_lamp": ("on", None, None, {}),
     "tv": ("busy", "On", "Standby", {"on_w": 15.0}),
     "heater": ("busy", "Heating", "Idle", {"on_w": 100.0}),

@@ -13,7 +13,7 @@
 // (controls.js All off, modes.js Away).
 const CYCLE_TH = { run_w: 10, run_min: 2, idle_w: 5, idle_min: 3 };
 const APPLIANCE = { // keep in step with APPLIANCES in backend/appliances.py
-  fan: { rule: "on", th: {} },
+  fan: { rule: "busy", busy: "On", idle: "Idle", th: { on_w: 1 } },
   floor_lamp: { rule: "on", th: {} },
   tv: { rule: "busy", busy: "On", idle: "Standby", th: { on_w: 15 } },
   heater: { rule: "busy", busy: "Heating", idle: "Idle", th: { on_w: 100 } },
