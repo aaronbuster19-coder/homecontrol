@@ -280,6 +280,8 @@ def open_page(browser, request):
             if layout is not None:
                 put_layout(page, stack.url, layout)
             if goto:
+                if "#" in goto:  # from the signed-in "/" a hash-only goto doesn't load: start fresh so it sees the stored layout
+                    page.goto("about:blank")
                 page.goto(stack.url + goto)
                 if goto == "/" and layout and layout.get("placements"):
                     page.locator("#plan .marker").first.wait_for()
