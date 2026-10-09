@@ -59,9 +59,11 @@
   function say(msg, err = false) { usr.msg = msg; usr.err = err; const m = $("usersMsg"); if (m) { m.textContent = msg; m.classList.toggle("warn", err); } }
   async function act(fn, ok) {
     if (usr.busy) return; usr.busy = true;
-    try { await fn(); say(ok); } catch (e) { say(e.message, true); }
+    let done = false;
+    try { await fn(); say(ok); done = true; } catch (e) { say(e.message, true); }
     finally { usr.busy = false; }
-    if (usr.me?.role === "admin") await loadUsers(); else drawUsers();
+    if (usr.me?.role === "admin") await loadUsers();
+    else if (done) drawUsers();  // clears the password fields; a typo keeps what was typed
   }
 
   function drawUsers() {
