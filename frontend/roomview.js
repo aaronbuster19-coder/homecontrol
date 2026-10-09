@@ -211,7 +211,7 @@ const ROOMVIEW = (() => {
         const p = st.layout.placements.find((q) => q.entity_id === m.dataset.dev);
         if (p && !inRoom(r, p)) m.classList.add("rv-out");
       }
-      for (const t of $("rooms").querySelectorAll("[data-roomtap]")) if (t.dataset.roomtap !== r.id) t.classList.add("rv-out");
+      for (const t of svg.querySelectorAll("[data-roomtap]")) if (t.dataset.roomtap !== r.id) t.classList.add("rv-out");
       paint(r);
     }
   }

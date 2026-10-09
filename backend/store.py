@@ -4,6 +4,8 @@ import os
 import sqlite3
 import threading
 
+from .appliances import APPLIANCE_TYPES, ThresholdError, validate_remind, validate_thresholds
+
 DEFAULT_LAYOUT = {"unit": "m", "rooms": [], "placements": []}
 
 
@@ -60,19 +62,24 @@ def _openings(items, known_entities: set[str]) -> list[dict]:
 FURNITURE_TYPES = (  # keep in step with FURNITURE in frontend/furniture.js
     "bed", "bed_single", "bedside", "wardrobe", "sofa", "sofa3", "sofa_corner", "armchair", "coffee_table", "unit",
     "bookcase", "rug", "plant", "desk", "desk_chair", "dining_table", "dining_set", "chair", "counter", "kitchen_sink",
-    "hob", "fridge", "washer", "bathtub", "shower", "toilet", "sink")
+    "hob", "fridge", "washer", "bathtub", "shower", "toilet", "sink",
+    # appliances: these (and fridge, washer) can be linked to a plug — backend/appliances.py
+    "fan", "floor_lamp", "tv", "heater", "kettle", "microwave", "coffee_machine", "toaster", "dishwasher", "dryer", "freezer",
+    "iron", "hair_straightener")
 FURNITURE_SIZE = (0.1, 10.0)
 FURNITURE_MAX, FURNITURE_LABEL_MAX = 200, 30
 
 
-def _furniture(items) -> list[dict]:
-    """Furniture: [{id, type, x, y, w, h, rot, label?}]; x/y is the centre (m), w/h the size before rotating,
-    rot whole degrees clockwise, normalised to 0–359."""
+def _furniture(items, known_plugs: set[str]) -> list[dict]:
+    """Furniture: [{id, type, x, y, w, h, rot, label?, plug?, hide_marker?, thresholds?}]; x/y is the centre (m), w/h the
+    size before rotating, rot whole degrees clockwise, normalised to 0–359. Appliances may link one plug each
+    (plug: entity id or null); hide_marker (default true), thresholds and remind (left-on reminder: minutes, or false)
+    only exist while linked."""
     if not isinstance(items, list):
         raise LayoutError("furniture must be a list")
     if len(items) > FURNITURE_MAX:
         raise LayoutError(f"at most {FURNITURE_MAX} pieces of furniture")
-    out, ids = [], set()
+    out, ids, plugs = [], set(), {}
     for i, f in enumerate(items):
         if not isinstance(f, dict):
             raise LayoutError(f"furniture {i} must be an object")
@@ -97,8 +104,50 @@ def _furniture(items) -> list[dict]:
                 raise LayoutError(f"furniture {i} label is longer than {FURNITURE_LABEL_MAX} characters")
             if label:
                 item["label"] = label
+        plug = f.get("plug")
+        if plug is not None:
+            if f["type"] not in APPLIANCE_TYPES:
+                raise LayoutError(f"furniture {i}: a {f['type']} can't be linked to a plug")
+            if not isinstance(plug, str) or plug not in known_plugs:
+                raise LayoutError(f"furniture {i}: unknown plug {plug!r}")
+            if plug in plugs:
+                raise LayoutError(f"furniture {i}: {plug} is already linked to furniture {plugs[plug]}")
+            plugs[plug] = i
+            hide = f.get("hide_marker", True)
+            if not isinstance(hide, bool):
+                raise LayoutError(f"furniture {i} hide_marker must be true or false")
+            item.update(plug=plug, hide_marker=hide)
+            try:
+                th = validate_thresholds(f.get("thresholds"), f["type"])
+            except ThresholdError as e:
+                raise LayoutError(f"furniture {i}: {e}")
+            if th:
+                item["thresholds"] = th
+            try:
+                remind = validate_remind(f.get("remind"), f["type"])
+            except ThresholdError as e:
+                raise LayoutError(f"furniture {i}: {e}")
+            if remind is not None:
+                item["remind"] = remind
         out.append(item)
     return out
+
+
+LINK_KEYS = ("plug", "hide_marker", "thresholds", "remind")
+
+
+def _carry_links(new: list[dict], old: list[dict], raw: list) -> None:
+    """An app from before appliances sends furniture without "plug": keep each piece's stored link (same id and type).
+    Unlinking sends "plug": null explicitly."""
+    stored = {f["id"]: f for f in old if f.get("plug")}
+    sent = {f.get("id"): f for f in raw if isinstance(f, dict)}
+    used = {f["plug"] for f in new if f.get("plug")}
+    for f in new:
+        o = stored.get(f["id"])
+        if o is None or "plug" in sent.get(f["id"], {}) or o["type"] != f["type"] or o["plug"] in used:
+            continue
+        f.update({k: o[k] for k in LINK_KEYS if k in o})
+        used.add(o["plug"])
 
 
 NAME_MAX = 40
@@ -194,6 +243,8 @@ def carry_settings(new: dict, old: dict, raw) -> dict:
     # Same for furniture: an app version from before furniture existed doesn't send the key at all. Send [] to clear.
     if isinstance(raw, dict) and "furniture" not in raw and old.get("furniture"):
         new["furniture"] = old["furniture"]
+    elif new.get("furniture") and old.get("furniture") and isinstance(raw.get("furniture"), list):
+        _carry_links(new["furniture"], old["furniture"], raw["furniture"])
     return new
 
 
@@ -202,7 +253,13 @@ def stored_refs(layout: dict) -> set[str]:
     s = layout.get("settings") or {}
     return ({p["entity_id"] for p in layout.get("placements", [])}
             | {o["entity_id"] for o in layout.get("openings", []) if o.get("entity_id")}
-            | set(s.get("names") or {}) | set(s.get("hidden") or []) | set(s.get("all_off_include") or []))
+            | set(s.get("names") or {}) | set(s.get("hidden") or []) | set(s.get("all_off_include") or [])
+            | stored_plugs(layout))
+
+
+def stored_plugs(layout: dict) -> set[str]:
+    """Plugs a stored layout refers to as plugs (keep on, appliance links): still plugs while HA briefly misses them."""
+    return set((layout.get("settings") or {}).get("keep_on") or []) | {f["plug"] for f in layout.get("furniture") or [] if f.get("plug")}
 
 
 def validate_layout(data, known_entities: set[str], known_plugs: set[str] | None = None,
@@ -250,7 +307,7 @@ def validate_layout(data, known_entities: set[str], known_plugs: set[str] | None
     openings = _openings(data.get("openings", []), known_entities)
     out = {"unit": unit, "rooms": rooms, "placements": places, "openings": openings}
     if data.get("furniture") is not None:  # optional: layouts from before furniture stay exactly as they were
-        out["furniture"] = _furniture(data["furniture"])
+        out["furniture"] = _furniture(data["furniture"], known_plugs if known_plugs is not None else known_entities)
     settings = _settings(data, known_plugs if known_plugs is not None else known_entities, known_entities,
                          known_dehums if known_dehums is not None else known_entities)
     if settings is not None:

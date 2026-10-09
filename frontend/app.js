@@ -136,6 +136,7 @@ function render() {
   const L = cur();
   const roomsG = $("rooms"), markersG = $("markers");
   roomsG.replaceChildren(); markersG.replaceChildren();
+  const tapsG = $("roomTaps") || roomsG; if (tapsG !== roomsG) tapsG.replaceChildren();
 
   for (const r of L.rooms) {
     const g = el("g", { class: "room" + (st.sel?.type === "room" && st.sel.id === r.id ? " sel" : ""), "data-room": r.id }, roomsG);
@@ -147,7 +148,7 @@ function render() {
   }
   if (typeof renderRoomTemps === "function") renderRoomTemps(roomsG);
   if (typeof renderRoomHumidity === "function") renderRoomHumidity(roomsG);
-  renderRoomLabels(roomsG);
+  renderRoomLabels(tapsG); // above the furniture: a linked appliance under a room name never steals its tap
   renderOpenings();
   if (typeof renderSnap === "function") renderSnap();
   const R = 0.26 * (st.markerScale || 1); // wall mode draws bigger markers
@@ -155,6 +156,7 @@ function render() {
   for (const p of L.placements) {
     const d = st.devices.get(p.entity_id);
     if (d?.hidden) continue; // placement kept: unhiding brings the marker back
+    if (typeof applianceHidesMarker === "function" && applianceHidesMarker(p.entity_id)) continue; // the appliance is the control
     const kind = d?.kind || "light";
     const g = el("g", { class: "marker" + (st.sel?.type === "dev" && st.sel.id === p.entity_id ? " sel" : ""), "data-dev": p.entity_id }, markersG);
     el("circle", { cx: p.x, cy: p.y, r: R, fill: deviceColor(d) }, g);
@@ -227,9 +229,11 @@ function renderSide() {
       const li = document.createElement("li");
       li.dataset.dev = d.entity_id;
       if (st.picked === d.entity_id) li.classList.add("picked");
-      li.appendChild(icon(kind, deviceColor(d)));
+      const af = !st.editing && typeof applianceFor === "function" ? applianceFor(d.entity_id) : null; // linked appliance
+      li.appendChild(af ? applianceIcon(af, d) : icon(kind, deviceColor(d)));
       const n = document.createElement("span"); n.className = "name"; n.textContent = d.name; li.appendChild(n);
-      const v = document.createElement("span"); v.className = "val"; v.textContent = deviceValue(d); li.appendChild(v);
+      if (af && d.name !== applName(af)) { const a = document.createElement("span"); a.className = "appl-of"; a.textContent = ` · ${applName(af)}`; n.appendChild(a); }
+      const v = document.createElement("span"); v.className = "val"; v.textContent = af ? applianceText(af, d) : deviceValue(d); li.appendChild(v);
       list.appendChild(li);
     }
   }
@@ -254,8 +258,9 @@ function renderSheet() {
     const b = document.createElement("button"); b.className = "big" + (d.state === "on" ? " on" : "");
     b.textContent = unavailable ? d.state : d.state === "on" ? "On — tap to turn off" : "Off — tap to turn on";
     b.disabled = unavailable;
-    b.onclick = () => toggle(d);
+    b.onclick = () => { if (typeof confirmOff !== "function" || confirmOff(d)) toggle(d); };
     c.appendChild(b);
+    if (typeof applianceSheet === "function") applianceSheet(d, c);
     extraSheet(d, c, unavailable);
     if (d.kind === "plug" && (d.power != null || d.energy_today != null)) {
       const pw = document.createElement("div"); pw.className = "sub"; pw.style.marginTop = "12px";
@@ -297,10 +302,11 @@ function renderSheet() {
   historySection(d, c);
   deviceMeta(d, c);
 }
-// Lights and plugs toggle straight away; valves and sensors open their sheet.
+// Lights and plugs toggle straight away; valves and sensors open their sheet (and so does a fridge's plug).
 function tapDevice(eid) {
   const d = st.devices.get(eid);
-  if ((d?.kind === "light" || d?.kind === "plug") && d.state !== "unavailable" && d.state !== "unknown") toggle(d);
+  if (typeof applianceTapOpensSheet === "function" && applianceTapOpensSheet(eid)) openSheet(eid);
+  else if ((d?.kind === "light" || d?.kind === "plug") && d.state !== "unavailable" && d.state !== "unknown") toggle(d);
   else openSheet(eid);
 }
 async function toggle(d) {
@@ -456,7 +462,9 @@ svg.addEventListener("dblclick", (e) => {
 svg.addEventListener("click", (e) => {
   if (st.editing) return;
   const mk = e.target.closest(".marker");
-  if (mk) tapDevice(mk.dataset.dev);
+  if (mk) { tapDevice(mk.dataset.dev); return; }
+  const ap = e.target.closest("[data-appl]"); // a linked appliance (appliances.js)
+  if (ap) tapAppliance(ap.dataset.appl);
 });
 
 // palette / list
@@ -514,7 +522,10 @@ $("save").onclick = async () => {
   $("save").disabled = true;
   // Settings (keep on, names, hidden, tariff) may have changed since the draft was taken: send the current ones.
   const body = st.layout.settings ? { ...st.draft, settings: st.layout.settings } : st.draft;
-  try { st.layout = await api("/api/layout", { method: "PUT", body: JSON.stringify(body) }); setEditing(false); setStatus("Saved"); }
+  try {
+    st.layout = await api("/api/layout", { method: "PUT", body: JSON.stringify(body) }); setEditing(false); setStatus("Saved");
+    if (typeof loadAppliances === "function") loadAppliances(); // links may have changed
+  }
   catch (e) { setStatus(`Save failed: ${e.message}`, true); }
   finally { $("save").disabled = false; }
 };
@@ -566,6 +577,7 @@ function startLive() {
     applyDevices();
   });
   es.addEventListener("status", (e) => { st.ws = !!JSON.parse(e.data).ws; updateStatus(); });
+  if (typeof applianceEvents === "function") applianceEvents(es); // washer cycles etc.
   es.onopen = () => { st.live = true; updateStatus(); };
   // EventSource retries by itself; polling covers the gap.
   es.onerror = () => { if (st.live) { st.live = false; updateStatus(); loadDevices(); } };

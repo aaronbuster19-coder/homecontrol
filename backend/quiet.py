@@ -1,7 +1,8 @@
 """Quiet hours and mute for automation pushes.
 
-Every push has a category. Door alerts ("door") and the explicit test ("test") always go straight through; the
-automations' pushes ("health", "summary", "window") are held during quiet hours (default 23:00–07:00) or while
+Every push has a category. Door alerts ("door"), the explicit test ("test") and safety reminders ("safety": a heater,
+iron or hair straightener left on) always go straight through; the
+automations' pushes ("health", "summary", "window", "appliance") are held during quiet hours (default 23:00–07:00) or while
 muted, kept in SQLite (de-duplicated), and delivered as ONE digest push once the quiet time is over.
 """
 import json
@@ -14,7 +15,7 @@ import time
 from datetime import datetime, time as dtime, timedelta
 
 log = logging.getLogger("homecontrol.quiet")
-BYPASS = ("door", "test")
+BYPASS = ("door", "test", "safety")  # safety: a heater / iron / straightener left on
 HHMM = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
 MAX_MUTE = 48 * 3600
 MAX_LINES = 8

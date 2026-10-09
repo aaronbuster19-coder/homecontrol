@@ -142,6 +142,10 @@ class Live:
         """Push fresh device items (e.g. after a rename) to observers and browsers."""
         self._publish({e for e in primary_ids if e in self.devices})
 
+    def broadcast(self, event: str, data) -> None:
+        """Send any other event to every browser (e.g. appliance cycles)."""
+        self._broadcast(sse(event, data))
+
     def set_ws(self, up: bool) -> None:
         if up != self.ws_up:
             self.ws_up = up

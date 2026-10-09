@@ -70,7 +70,7 @@ function applyMode(m) {
 async function loadMode() { try { applyMode(await api("/api/mode")); } catch {} }
 function modeDialog() {
   const away = modeSt.mode !== "away", f = $("modeForm"), list = $("modeList"); list.replaceChildren();
-  const devs = [...st.devices.values()], keep = new Set(st.layout.settings?.keep_on || []);
+  const devs = [...st.devices.values()], keep = new Set([...(st.layout.settings?.keep_on || []), ...(typeof protectedPlugs === "function" ? protectedPlugs() : [])]);
   const onOff = devs.filter((d) => (d.kind === "light" || d.kind === "plug") && !keep.has(d.entity_id));
   const valves = devs.filter((d) => d.kind === "valve");
   $("modeTitle").textContent = away ? "Leaving home?" : "Back home?";
@@ -126,11 +126,18 @@ $("importLayout").onclick = () => {
   $("importFile").value = ""; $("importFile").click();
 };
 const refsOf = (L) => [...(L.placements || []).map((p) => p.entity_id), ...(L.openings || []).map((o) => o.entity_id).filter(Boolean),
-  ...(L.settings?.keep_on || []), ...Object.keys(L.settings?.names || {}), ...(L.settings?.hidden || []), ...(L.settings?.all_off_include || [])];
+  ...(L.settings?.keep_on || []), ...Object.keys(L.settings?.names || {}), ...(L.settings?.hidden || []), ...(L.settings?.all_off_include || []),
+  ...(Array.isArray(L.furniture) ? L.furniture.map((f) => f?.plug).filter(Boolean) : [])];
 function stripUnknown(L) {
   const ok = (e) => st.devices.has(e);
   const out = { ...L, placements: (L.placements || []).filter((p) => ok(p.entity_id)),
     openings: (L.openings || []).map((o) => { if (!o.entity_id || ok(o.entity_id)) return o; const c = { ...o }; delete c.entity_id; return c; }) };
+  if (Array.isArray(L.furniture)) { // an appliance linked to an unknown plug stays, unlinked
+    out.furniture = L.furniture.map((f) => {
+      if (!f?.plug || ok(f.plug)) return f;
+      const c = { ...f }; delete c.plug; delete c.hide_marker; delete c.thresholds; return c;
+    });
+  }
   if (L.settings) {
     out.settings = { ...L.settings, keep_on: (L.settings.keep_on || []).filter(ok) };
     if (L.settings.names) out.settings.names = Object.fromEntries(Object.entries(L.settings.names).filter(([e]) => ok(e)));

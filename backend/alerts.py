@@ -19,11 +19,11 @@ DEFAULT_SETTINGS = {"enabled": True, "door_open_minutes": 5, "notify_on_close": 
                     # automations (backend/automations.py)
                     "window_heating_enabled": True, "window_open_minutes": 2, "window_off_temp": 7.0, "window_notify": True,
                     "health_battery": True, "health_unavailable": True, "health_unavailable_minutes": 30,
-                    "weekly_summary": True, "dehumidifier_tank": True,
+                    "weekly_summary": True, "dehumidifier_tank": True, "appliance_done": True,
                     # quiet hours for automation pushes (backend/quiet.py); door alerts and tests always go through
                     "quiet_hours": True, "quiet_from": "23:00", "quiet_to": "07:00", "mute_until": None}
 BOOL_SETTINGS = ("enabled", "notify_on_close", "window_heating_enabled", "window_notify", "health_battery",
-                 "health_unavailable", "weekly_summary", "quiet_hours", "dehumidifier_tank")
+                 "health_unavailable", "weekly_summary", "quiet_hours", "dehumidifier_tank", "appliance_done")
 TIME_SETTINGS = ("quiet_from", "quiet_to")
 HHMM = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
 MAX_MUTE = 48 * 3600

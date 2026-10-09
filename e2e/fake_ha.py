@@ -7,10 +7,11 @@ states and broadcast), GET /api/history/period/<start> (generated, deterministic
 (token auth, subscribe_events -> state_changed events).
 Test controls: GET /fake/calls (service call log), POST /fake/reset (calls + states) — also as /_calls, /_reset —
 and POST /fake/set {"entity_id", "state"?, "attributes"?} (change a state and push it like a wall switch would;
-also as /_state).
+also as /_state). With FAKE_HA_APPLIANCES=1 three more plugs exist (washer, fridge, "Plug 3"; e2e/test_appliances.py).
 """
 import json
 import math
+import os
 import random
 import sys
 import time
@@ -82,6 +83,30 @@ def initial_states():
         s("binary_sensor.dehumidifier_tank_full", "off"),
         s("switch.dehumidifier_child_lock", "off"),
     ]}
+
+
+# FAKE_HA_APPLIANCES=1 (the appliance tests' own stack): three more plugs with power sensors, for linking appliances.
+APPLIANCE_PLUGS = os.environ.get("FAKE_HA_APPLIANCES") == "1"
+if APPLIANCE_PLUGS:
+    TEMPLATE += """switch|switch.washer|Washing machine|TP-Link|P110
+rel|switch.washer|sensor.washer_power|power|W|measurement|Washing machine Current consumption
+rel|switch.washer|sensor.washer_today|energy|kWh|total_increasing|Washing machine Today's consumption
+switch|switch.fridge|Fridge plug|TP-Link|P110
+rel|switch.fridge|sensor.fridge_power|power|W|measurement|Fridge plug Current consumption
+switch|switch.plug_3|Plug 3|TP-Link|TP11
+rel|switch.plug_3|sensor.plug_3_power|power|W|measurement|Plug 3 Current consumption
+"""
+    _base_states = initial_states
+
+    def initial_states():
+        out = _base_states()
+        for eid, state, w in (("washer", "on", "0.8"), ("fridge", "on", "2.1"), ("plug_3", "off", "0")):
+            out[f"switch.{eid}"] = {"entity_id": f"switch.{eid}", "state": state, "attributes": {},
+                                    "last_changed": "2026-10-09T10:00:00+00:00", "last_updated": "2026-10-09T10:00:00+00:00"}
+            out[f"sensor.{eid}_power"] = {"entity_id": f"sensor.{eid}_power", "state": w,
+                                          "attributes": {"unit_of_measurement": "W", "device_class": "power"},
+                                          "last_changed": "2026-10-09T10:00:00+00:00", "last_updated": "2026-10-09T10:00:00+00:00"}
+        return out
 
 
 app = FastAPI()
@@ -160,6 +185,10 @@ async def service(domain: str, service: str, request: Request):
 LONDON = ZoneInfo("Europe/London")
 POWER = {"sensor.tv_power": lambda h: 86.4 if 18 <= h < 23 else 4.0,
          "sensor.kettle_power": lambda h: 2000.0 if h == 8 else 0.0}
+if APPLIANCE_PLUGS:  # a 2 h wash every day (09:00 2 kW, 10:00 500 W), a fridge compressor every third hour, a fan 13–16
+    POWER.update({"sensor.washer_power": lambda h: 2000.0 if h == 9 else 500.0 if h == 10 else 1.0,
+                  "sensor.fridge_power": lambda h: 80.0 if h % 3 == 0 else 2.0,
+                  "sensor.plug_3_power": lambda h: 35.0 if 13 <= h < 16 else 0.0})
 
 
 def _rows(eid: str, start: datetime, end: datetime, with_attrs: bool) -> list[dict]:
