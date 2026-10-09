@@ -40,7 +40,7 @@ const TV_STATE = { on: "On", playing: "Playing", paused: "Paused", idle: "On", b
 const tvStateText = (d) => TV_STATE[d.state] || d.state;
 function tvColor(d) {
   if (!tvIsOn(d)) return "var(--off)";
-  return d.state === "playing" ? "var(--tv-play, #7c6cff)" : "var(--tv-on, #4f8cff)";
+  return d.state === "playing" ? "var(--tv-play)" : "var(--tv-on)";
 }
 function tvValue(d) {
   if (!tvIsOn(d)) return d.state === "standby" ? "standby" : "off";

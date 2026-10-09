@@ -18,6 +18,7 @@
   --fur-plant: #2f5440; --fur-plant-line: #5b9472; --fur-rug: #29303b; --fur-snow: #7fb4d9;
   --appl-shade: #5b4b24; --appl-screen: #2f5fbf; --appl-screen-busy: #4f8cff; --appl-window: #5c4f28; --appl-hot: #ff7a3d;
   --tag-bg: rgba(20,23,28,.9); --tag-busy-bg: rgba(42,35,16,.94);
+  --charged: #5fd47a; --charged-ink: #9be6ad; --led-off: #3c463e; --tv-play: #8b7bff; --tv-glow: #6fa4ff;
   /* aliases (semantic names) */
   --muted: var(--text-muted); --room-fill: var(--room); --furniture-stroke: var(--fur-line); --chart-grid: var(--line);
 }
@@ -36,6 +37,7 @@
   --fur-plant: #bfe0c9; --fur-plant-line: #3f8a5c; --fur-rug: #ebe5da; --fur-snow: #3f86bd;
   --appl-shade: #f6dc8f; --appl-screen: #4a7fe0; --appl-screen-busy: #2160d4; --appl-window: #f3dd9a; --appl-hot: #f06a2a;
   --tag-bg: rgba(255,255,255,.94); --tag-busy-bg: rgba(255,243,214,.96);
+  --charged: #2ea862; --charged-ink: #16733e; --led-off: #c9d1cb; --tv-play: #5b45d6; --tv-glow: #4f86e8;
 }
 @media (prefers-color-scheme: light) { :root:not([data-theme]) {
   color-scheme: light;
@@ -52,6 +54,7 @@
   --fur-plant: #bfe0c9; --fur-plant-line: #3f8a5c; --fur-rug: #ebe5da; --fur-snow: #3f86bd;
   --appl-shade: #f6dc8f; --appl-screen: #4a7fe0; --appl-screen-busy: #2160d4; --appl-window: #f3dd9a; --appl-hot: #f06a2a;
   --tag-bg: rgba(255,255,255,.94); --tag-busy-bg: rgba(255,243,214,.96);
+  --charged: #2ea862; --charged-ink: #16733e; --led-off: #c9d1cb; --tv-play: #5b45d6; --tv-glow: #4f86e8;
 } }
 :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 * { box-sizing: border-box; }
@@ -694,11 +697,10 @@ body.wall .appl-tag text { font-weight: 700; }
 .appl-remind-box .hint { margin: 4px 0 0 30px; }
 .appl-stats { margin-top: 12px; }
 .appl-stats .sum-row { font-size: 14px; }
-.appl.busy .fu-plate { fill: #ff7a3d; } .appl.busy .fu-dial { fill: var(--on); }
-.fu-led { fill: #3c463e; stroke: var(--fur-line); } .appl.on .fu-led { fill: #5fd47a; }
+.fu-led { fill: var(--led-off); stroke: var(--fur-line); } .appl.on .fu-led { fill: var(--charged); }
 .fu-bolt { fill: var(--fur-dark); stroke: var(--fur-line); }
-.appl.busy .fu-bolt { fill: var(--on); } .appl.charged .fu-bolt { fill: #5fd47a; }
-.appl-tag.charged .bg { stroke: rgba(95,212,122,.7); } .appl-tag.charged .s { fill: #9be6ad; }
+.appl.busy .fu-bolt { fill: var(--on); } .appl.charged .fu-bolt { fill: var(--charged); }
+.appl-tag.charged .bg { stroke: color-mix(in srgb, var(--charged) 70%, transparent); } .appl-tag.charged .s { fill: var(--charged-ink); }
 .appl.busy .fu-plate { fill: var(--appl-hot); } .appl.busy .fu-dial { fill: var(--on); }
 /* ---------- Auto Away (presence.js), standby saver (standby.js) ---------- */
 .pres-status { font-size: 15px; margin: 0 0 12px; padding: 10px 12px; border-radius: 10px; background: color-mix(in srgb, var(--accent) 12%, transparent); }
