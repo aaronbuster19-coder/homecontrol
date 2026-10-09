@@ -118,6 +118,35 @@ container isn't healthy within ~2.5 min it puts the previous image (`homecontrol
   “open since”; 24h / 7d. Built from HA history, so it covers time the app wasn't open.
 - Units: m/ft selector in the ⋯ menu. The layout is always stored in metres; the selector changes how sizes are shown and entered.
 
+## Furniture
+
+Beds, sofas, desks and the rest drawn to scale on the plan, so it looks like your flat — and so you can tell where a
+lamp is (“the one by the sofa”) at a glance.
+
+- **Add:** in edit mode press **+ Furniture** (a small sofa icon on phones) for the catalogue. Tap a piece to put it
+  in the middle of the plan you can see, or drag it straight onto the plan. Each has a real-world default size:
+  double bed 1.4 × 2.0 m, single bed 0.9 × 1.9, bedside table 0.45 × 0.4, wardrobe 1.0 × 0.6, sofa 2.0 × 0.9,
+  3-seat sofa 2.3 × 0.95, corner sofa 2.5 × 1.6, armchair, coffee table, TV unit / sideboard 1.6 × 0.45, bookcase,
+  rug, plant, desk 1.2 × 0.6, desk chair, dining table, table + 4 chairs, chair, kitchen counter, kitchen sink,
+  hob / cooker, fridge, washing machine, bathtub 1.7 × 0.75, shower, toilet and basin.
+- **Move:** drag it. Its edges snap flush to walls and to other furniture when close (the same ~12 px / 0.4 m as
+  rooms, with blue guide lines), otherwise to the 5 cm grid; hold **Alt** for grid only.
+- **Rotate:** drag the round handle above a selected piece (15° steps; Alt for 1°) or press **↻ 90°**.
+- **Resize:** drag a corner handle — the opposite corner stays put, it stays a rectangle, at least 0.2 m a side.
+  **Size…** (or double-click it) sets width, depth and an optional label (up to 30 characters, drawn on the piece).
+- **Copy** duplicates the selected piece, **Delete** (or the Delete key) removes it. Moving a room — or Tidy up —
+  carries the furniture inside it along with its devices, doors and windows. As always nothing is stored until
+  **Save**; Cancel throws it away.
+- Drawings are top-down and face “down” when unrotated: headboards, sofa backs, unit backs and cisterns at the top,
+  so rotate them to put the back against a wall. Chairs face up, towards a desk or table above them.
+- **View mode:** furniture sits under the device markers and never takes a tap — a lamp on a bed or a room name
+  behind a wardrobe works as before (room names covered by furniture are drawn again on top). *Show furniture* in
+  the ⋯ menu hides it on this device (browser storage, default on). Wall tablet mode shows it a little dimmer.
+- **Layout JSON:** an optional `furniture` list, included in Export / Import, e.g.
+  `{"id": "f1", "type": "bed", "x": 2.2, "y": 5.2, "w": 1.4, "h": 2.0, "rot": 90, "label": "Our bed"}` — `x`/`y`
+  is the centre in metres, `w` × `h` the size before rotating (0.1–10 m), `rot` whole degrees clockwise (stored
+  0–359). Known types only, at most 200 pieces. Layouts without the key load and save unchanged.
+
 ## Dehumidifier
 
 Shows up as its own group (*Dehumidifier*) with a droplet marker you place like any other device. Tapping it opens its
@@ -164,7 +193,7 @@ API: `POST /api/devices/{id}/toggle` (`humidifier.toggle` or `switch.toggle`), `
 
 ## More menu (⋯), temperatures, Away/Home, backup
 
-The ⋯ button at the right of the header holds: Away / I'm home, Wall mode, *Schedules…* (see *Schedules*), *Show temperature & humidity on plan*, Energy, Hidden devices, Export layout,
+The ⋯ button at the right of the header holds: Away / I'm home, Wall mode, *Schedules…* (see *Schedules*), *Show temperature & humidity on plan*, *Show furniture* (see *Furniture*), Energy, Hidden devices, Export layout,
 Import layout, Units (m/ft), Refresh devices and Sign out. It closes on a tap outside or Escape.
 
 - **Temperatures on the plan:** every room with a radiator valve in it (L-shapes respected) is tinted by the
@@ -180,7 +209,7 @@ Import layout, Units (m/ft), Refresh devices and Sign out. It closes on a tap ou
   API: `GET /api/mode` → `{"mode","since","away_temp"}`, `POST /api/mode` `{"mode":"away"|"home"}` (returns a
   summary: `turned_off`, `kept_on`, `valves`, `alerts_enabled`), `PUT /api/mode/settings` `{"away_temp": 5–25}`.
 - **Backup:** *Export layout* downloads the saved plan as `homecontrol-layout-YYYY-MM-DD.json`. *Import layout…*
-  reads such a file, shows rooms / placed devices / doors-windows and any devices not in Home Assistant now, and
+  reads such a file, shows rooms / placed devices / doors-windows / furniture and any devices not in Home Assistant now, and
   replaces the plan on confirm. If the server rejects unknown devices you can *Import without unknown devices*
   (drops their placements, sensor links and keep-on entries).
 

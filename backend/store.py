@@ -57,6 +57,50 @@ def _openings(items, known_entities: set[str]) -> list[dict]:
     return out
 
 
+FURNITURE_TYPES = (  # keep in step with FURNITURE in frontend/furniture.js
+    "bed", "bed_single", "bedside", "wardrobe", "sofa", "sofa3", "sofa_corner", "armchair", "coffee_table", "unit",
+    "bookcase", "rug", "plant", "desk", "desk_chair", "dining_table", "dining_set", "chair", "counter", "kitchen_sink",
+    "hob", "fridge", "washer", "bathtub", "shower", "toilet", "sink")
+FURNITURE_SIZE = (0.1, 10.0)
+FURNITURE_MAX, FURNITURE_LABEL_MAX = 200, 30
+
+
+def _furniture(items) -> list[dict]:
+    """Furniture: [{id, type, x, y, w, h, rot, label?}]; x/y is the centre (m), w/h the size before rotating,
+    rot whole degrees clockwise, normalised to 0–359."""
+    if not isinstance(items, list):
+        raise LayoutError("furniture must be a list")
+    if len(items) > FURNITURE_MAX:
+        raise LayoutError(f"at most {FURNITURE_MAX} pieces of furniture")
+    out, ids = [], set()
+    for i, f in enumerate(items):
+        if not isinstance(f, dict):
+            raise LayoutError(f"furniture {i} must be an object")
+        fid = f.get("id")
+        if not isinstance(fid, str) or not fid or len(fid) > 40 or fid in ids:
+            raise LayoutError(f"furniture {i} needs a unique id")
+        ids.add(fid)
+        if f.get("type") not in FURNITURE_TYPES:
+            raise LayoutError(f"furniture {i}: unknown type {f.get('type')!r}")
+        w, h = _num(f.get("w"), f"furniture {i} w"), _num(f.get("h"), f"furniture {i} h")
+        if not (FURNITURE_SIZE[0] <= w <= FURNITURE_SIZE[1] and FURNITURE_SIZE[0] <= h <= FURNITURE_SIZE[1]):
+            raise LayoutError(f"furniture {i} size must be {FURNITURE_SIZE[0]}–{FURNITURE_SIZE[1]} m")
+        rot = _num(f.get("rot", 0), f"furniture {i} rot")
+        item = {"id": fid, "type": f["type"], "x": _num(f.get("x"), f"furniture {i} x"),
+                "y": _num(f.get("y"), f"furniture {i} y"), "w": w, "h": h, "rot": round(rot) % 360}
+        label = f.get("label")
+        if label is not None:
+            if not isinstance(label, str):
+                raise LayoutError(f"furniture {i} label must be text")
+            label = " ".join(label.split())
+            if len(label) > FURNITURE_LABEL_MAX:
+                raise LayoutError(f"furniture {i} label is longer than {FURNITURE_LABEL_MAX} characters")
+            if label:
+                item["label"] = label
+        out.append(item)
+    return out
+
+
 NAME_MAX = 40
 RATE_MAX, STANDING_MAX = 200, 500  # pence per kWh / pence per day
 SETTINGS_CARRIED = ("names", "hidden", "energy", "all_off_include")  # kept by a PUT that leaves them out (older clients, imports)
@@ -147,6 +191,9 @@ def carry_settings(new: dict, old: dict, raw) -> dict:
     kept = {k: v for k, v in (old.get("settings") or {}).items() if k in SETTINGS_CARRIED and k not in sent}
     if kept:
         new["settings"] = {"keep_on": [], **new.get("settings", {}), **kept}
+    # Same for furniture: an app version from before furniture existed doesn't send the key at all. Send [] to clear.
+    if isinstance(raw, dict) and "furniture" not in raw and old.get("furniture"):
+        new["furniture"] = old["furniture"]
     return new
 
 
@@ -202,6 +249,8 @@ def validate_layout(data, known_entities: set[str], known_plugs: set[str] | None
                        "y": _num(p.get("y"), f"placement {i} y")})
     openings = _openings(data.get("openings", []), known_entities)
     out = {"unit": unit, "rooms": rooms, "placements": places, "openings": openings}
+    if data.get("furniture") is not None:  # optional: layouts from before furniture stay exactly as they were
+        out["furniture"] = _furniture(data["furniture"])
     settings = _settings(data, known_plugs if known_plugs is not None else known_entities, known_entities,
                          known_dehums if known_dehums is not None else known_entities)
     if settings is not None:

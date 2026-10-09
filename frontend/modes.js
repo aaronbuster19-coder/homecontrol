@@ -148,6 +148,7 @@ $("importFile").onchange = async () => {
   const list = $("importList"); list.replaceChildren();
   [plural(Array.isArray(L.rooms) ? L.rooms.length : 0, "room"), `${plural(Array.isArray(L.placements) ? L.placements.length : 0, "placed device")}`,
     `${Array.isArray(L.openings) ? L.openings.length : 0} doors/windows`,
+    ...(Array.isArray(L.furniture) && L.furniture.length ? [plural(L.furniture.length, "piece") + " of furniture"] : []),
     unknown.length ? `${unknown.length} not in Home Assistant now: ${unknown.join(", ")}` : "All devices are known to Home Assistant"]
     .forEach((t) => list.appendChild(li(t)));
   const msg = $("importMsg"), strip = $("importStrip"), okBtn = $("importOk"), dlg = $("importDialog");

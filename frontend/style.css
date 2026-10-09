@@ -523,3 +523,47 @@ body.wall .rb-lights { min-height: 52px; border-radius: 14px; padding: 8px 16px;
   .rb-lights { padding: 6px 9px; gap: 6px; }
   .rb-climate { font-size: 13px; gap: 6px; }
 }
+
+/* ---------- furniture (furniture.js) ---------- */
+:root { --fur: #2c323d; --fur-soft: #363e4b; --fur-tex: #313845; --fur-dark: #1a1e25; --fur-line: #66718a; --fur-water: #24323d; --fur-water-line: #6f8ea3; }
+#furniture { pointer-events: none; }  /* never in the way of device markers or room-name taps */
+body.editing:not(.drawing) #furniture .fur { pointer-events: auto; cursor: move; }
+.fur * { vector-effect: non-scaling-stroke; stroke-width: 1; stroke-linejoin: round; }
+.fur .fu-hit { fill: transparent; stroke: none; }
+.fu-b { fill: var(--fur); stroke: var(--fur-line); }
+.fu-s { fill: var(--fur-soft); stroke: var(--fur-line); }
+.fu-t { fill: var(--fur-tex); stroke: var(--fur-line); }
+.fu-d { fill: var(--fur-dark); stroke: var(--fur-line); }
+.fu-l, .fu-ring { fill: none; stroke: var(--fur-line); }
+.fu-faint { stroke-opacity: .55; }
+.fur-names text { pointer-events: none; paint-order: stroke; stroke: var(--room); stroke-width: .07px; stroke-linejoin: round; }
+#addFurniture .fur-ic { vertical-align: -2px; }
+.fu-ring { stroke: #8a6a5a; }
+.fu-w { fill: var(--fur-water); stroke: var(--fur-water-line); }
+.fu-pot { fill: #3a3230; stroke: #7a665c; }
+.fu-g { fill: #2f5440; stroke: #5b9472; }
+.fu-rug { fill: #29303b; stroke: var(--fur-line); stroke-dasharray: 3 2; }
+.fu-rugl { fill: none; stroke: var(--fur-line); stroke-opacity: .45; }
+.fu-label { fill: var(--text); font-size: .19px; text-anchor: middle; dominant-baseline: middle; pointer-events: none;
+  paint-order: stroke; stroke: var(--fur); stroke-width: .05px; stroke-linejoin: round; }
+#furniture .fur.sel .fu-b, #furniture .fur.sel .fu-w, #furniture .fur.sel .fu-rug { stroke: var(--accent); }
+.fur-outline { fill: none; stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 5 4; vector-effect: non-scaling-stroke; pointer-events: none; }
+.fur-stem { stroke: var(--accent); stroke-width: 1.5; vector-effect: non-scaling-stroke; pointer-events: none; }
+.handle circle.hit { fill: transparent; stroke: none; }
+.fh-rot circle:not(.hit) { fill: var(--accent); stroke: #fff; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.fur-rot-ic { fill: none; stroke: #fff; stroke-width: 1.5; vector-effect: non-scaling-stroke; pointer-events: none; }
+.fh-nw, .fh-se { cursor: nwse-resize; } .fh-ne, .fh-sw { cursor: nesw-resize; } .fh-rot { cursor: grab; }
+body.wall #furniture { opacity: .5; }
+.fur-sheet .sheet-body { max-height: 88vh; overflow-y: auto; overscroll-behavior: contain; max-width: 560px; }
+.fur-sheet h4 { margin: 14px 0 6px; font-size: 12px; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+.fur-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }
+.fur-item { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 4px; min-width: 0; touch-action: pan-y; }
+.fur-item svg { width: 64px; height: 56px; pointer-events: none; }
+.fur-item .n { font-size: 12.5px; line-height: 1.2; text-align: center; }
+.fur-item .z { font-size: 11px; color: var(--muted); }
+.fur-item:hover { border-color: var(--accent); }
+.fur-ghost { border-radius: 6px; }
+@media (max-width: 480px) {
+  #addFurniture .lbl { display: none; }
+  #editbar { gap: 5px; } #editbar button { padding: 6px 7px; }  /* + Furniture still fits two rows at 390px */
+  .fur-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } .fur-item svg { width: 52px; height: 46px; } }
