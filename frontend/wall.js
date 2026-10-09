@@ -108,6 +108,8 @@ const WALL = (() => {
       const open = [...st.devices.values()].filter((d) => d.kind === "sensor" && d.state === "on" && !d.hidden).map((d) => d.name);
       const info = $("wallDimInfo"); info.replaceChildren();
       const part = (icon, text) => { const p = document.createElement("span"); p.innerHTML = icon; p.append(text); info.append(p); };
+      const wxd = typeof weatherDim === "function" ? weatherDim() : null; // outdoor (weather.js)
+      if (wxd) part(wxd.icon, wxd.text);
       if (pw != null) part(BOLT, fmtW(pw));
       if (tp != null) part(THERMO, `${tp.toFixed(1)}°`);
       if (hu != null) part(DROP, `${Math.round(hu)} %`);

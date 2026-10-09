@@ -19,6 +19,7 @@
 <header>
   <h1>homecontrol</h1>
   <span id="awayBadge" class="away-badge" hidden title="Away mode is on">Away</span>
+  <button id="wxChip" class="wx-chip" type="button" hidden></button>
   <span id="status" class="status"></span>
   <div class="actions">
     <span class="quick">
@@ -36,6 +37,8 @@
   <button id="roomsBtn" role="menuitem">Rooms…</button>
   <button id="wallBtn" role="menuitem">Wall mode</button>
   <button id="schedulesBtn" role="menuitem">Schedules…</button>
+  <button id="activityBtn" role="menuitem">Activity</button>
+  <button id="weatherBtn" role="menuitem">Weather settings…</button>
   <label class="more-row" role="menuitem"><input type="checkbox" id="tempToggle"> Show temperature &amp; humidity on plan</label>
   <button id="energyBtn" role="menuitem">Energy</button>
   <button id="hiddenBtn" role="menuitem">Hidden devices</button>
@@ -204,6 +207,8 @@
 <script src="presence.js"></script>
 <script src="standby.js"></script>
 <script src="tv.js"></script>
+<script src="activity.js"></script>
+<script src="weather.js"></script>
 <script>if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});</script>
 </body>
 </html>

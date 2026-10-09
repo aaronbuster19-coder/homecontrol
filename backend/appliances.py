@@ -335,6 +335,7 @@ class Appliances:
                                          for k, v in (store.get("appliance_servers", {}) or {}).items() if isinstance(v, dict)}
         self.pending: list[tuple[dict, str]] = []
         self.pending_off: list[tuple[dict, str]] = []  # (piece, key): auto-off calls owed, each made once in tick()
+        self.on_event = None  # fn(furniture, "started"|"finished"|"aborted", cycle): the activity log
 
     @staticmethod
     def key(f: dict) -> str:
@@ -425,6 +426,8 @@ class Appliances:
         if ev is None:
             return False
         log.info("appliance %s (%s): %s", f["id"], f["plug"], ev)
+        if self.on_event:
+            self.on_event(f, ev, c)
         if ev == "finished" and not c.get("notified"):
             c["notified"] = True  # marked (and saved below) before the push goes out: never twice
             if self.settings().get("appliance_done", True):

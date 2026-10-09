@@ -3,11 +3,13 @@
     python e2e/fake_ha.py PORT [HOST]
 
 HA API: GET /api/states, POST /api/template (discovery lines), POST /api/services/<domain>/<service> (applied to the
-states and broadcast), GET /api/history/period/<start> (generated, deterministic history), websocket /api/websocket
-(token auth, subscribe_events -> state_changed events).
-Test controls: GET /fake/calls (service call log), POST /fake/reset (calls + states) — also as /_calls, /_reset —
-and POST /fake/set {"entity_id", "state"?, "attributes"?} (change a state and push it like a wall switch would;
-also as /_state). With FAKE_HA_APPLIANCES=1 six more plugs exist (washer, fridge, "Plug 3", hoover, PC, server; e2e/test_appliances.py).
+states and broadcast), POST /api/services/weather/get_forecasts?return_response (hourly / daily for weather.forecast_home),
+GET /api/history/period/<start> (generated, deterministic history, plus the real changes made since the last reset),
+websocket /api/websocket (token auth, subscribe_events -> state_changed events).
+Test controls: GET /fake/calls (service call log), POST /fake/reset (calls + states + forecast) — also as /_calls,
+/_reset — POST /fake/set {"entity_id", "state"?, "attributes"?} (change a state and push it like a wall switch would;
+also as /_state), POST /fake/forecast {"cold": true} (tonight drops to 1°) or {"error": 500} (get_forecasts fails)
+and GET /fake/forecast_calls (get_forecasts requests, kept out of /fake/calls).
 With FAKE_HA_TV=1 a Samsung TV (media_player, with a SmartThings duplicate on the same device), a speaker, and
 GET /api/media_player_proxy/<entity> (the TV's artwork, a PNG) exist (e2e/test_tv.py).
 """
@@ -90,6 +92,9 @@ def initial_states():
         # presence for Auto Away (HA person entities; the companion app's zone: home / not_home / a zone name)
         s("person.alex", "home", friendly_name="Alex", source="device_tracker.alex_phone"),
         s("person.sam", "home", friendly_name="Sam", source="device_tracker.sam_phone"),
+        # outdoor weather: the Met.no entity HA creates by default (forecasts via weather.get_forecasts)
+        s("weather.forecast_home", "partlycloudy", temperature=12.4, apparent_temperature=10.2, humidity=71, wind_speed=16.1,
+          wind_bearing=225, temperature_unit="°C", wind_speed_unit="km/h", pressure=1012, friendly_name="Forecast Home"),
     ]}
 
 
@@ -171,6 +176,9 @@ app = FastAPI()
 app.state.states = initial_states()
 app.state.calls = []
 app.state.sockets = set()
+app.state.changes = {}   # entity id -> [(before, after)] state dicts: real changes, merged into the history
+app.state.forecast = {}  # {"cold": bool, "error": status}
+app.state.forecast_calls = []
 
 
 def authorized(request: Request) -> bool:
@@ -186,6 +194,13 @@ async def check_token(request: Request, call_next):
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def changed(eid: str, before: dict) -> None:
+    """Remember a real state change for /api/history/period (the recorder)."""
+    s = app.state.states[eid]
+    if (before["state"], before["attributes"]) != (s["state"], s["attributes"]):
+        app.state.changes.setdefault(eid, []).append((before, json.loads(json.dumps(s))))
 
 
 async def broadcast(eid):
@@ -208,6 +223,43 @@ async def template():
     return PlainTextResponse(TEMPLATE)
 
 
+def forecast(kind: str) -> list[dict]:
+    """Hourly: 36 h from this hour; daily: 6 days from today. {"cold": true} brings tonight down to 1°."""
+    now = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+    cold = app.state.forecast.get("cold")
+    if kind == "hourly":
+        out = []
+        for i in range(36):
+            t = now + timedelta(hours=i)
+            h = t.astimezone(LONDON).hour
+            night = h >= 20 or h < 7
+            temp = (1.0 if cold else 7.0) + (0 if night else 6 + 4 * math.sin((h - 9) / 10 * math.pi))
+            out.append({"datetime": t.isoformat(), "condition": "clear-night" if night else ["sunny", "partlycloudy", "rainy"][i % 3],
+                        "temperature": round(temp, 1), "precipitation": 0.4 if i % 3 == 2 else 0.0,
+                        "precipitation_probability": 60 if i % 3 == 2 else 10, "wind_speed": 14.0, "wind_bearing": 220})
+        return out
+    day0 = datetime.now(LONDON).replace(hour=12, minute=0, second=0, microsecond=0)
+    conds = ["partlycloudy", "rainy", "sunny", "cloudy", "snowy", "fog"]
+    return [{"datetime": (day0 + timedelta(days=i)).astimezone(timezone.utc).isoformat(), "condition": conds[i],
+             "temperature": 13.0 - i, "templow": (1.0 if cold and i == 1 else 6.0 - i / 2), "precipitation": 0.0}
+            for i in range(6)]
+
+
+@app.post("/api/services/weather/get_forecasts")
+async def get_forecasts(request: Request):
+    body = await request.json()
+    # logged apart from /fake/calls: the browser fetches the weather on its own schedule
+    app.state.forecast_calls.append({"data": body, "query": str(request.query_params), "t": time.time()})
+    if "return_response" not in request.query_params:
+        return JSONResponse({"message": "Service call requires responses but caller did not ask for responses"}, 400)
+    if app.state.forecast.get("error"):
+        return JSONResponse({"message": "error"}, app.state.forecast["error"])
+    eid = body.get("entity_id")
+    if eid not in app.state.states or body.get("type") not in ("hourly", "daily"):
+        return JSONResponse({"message": "not supported"}, 400)
+    return {"changed_states": [], "service_response": {eid: {"forecast": forecast(body["type"])}}}
+
+
 @app.post("/api/services/{domain}/{service}")
 async def service(domain: str, service: str, request: Request):
     body = await request.json()
@@ -217,6 +269,7 @@ async def service(domain: str, service: str, request: Request):
         s = app.state.states.get(eid)
         if not s:
             continue
+        before = json.loads(json.dumps(s))
         a = s["attributes"]
         if service in ("turn_on", "turn_off", "toggle"):
             on = service == "turn_on" or (service == "toggle" and s["state"] != "on")
@@ -249,6 +302,7 @@ async def service(domain: str, service: str, request: Request):
         elif service == "media_play_pause":
             s["state"] = "paused" if s["state"] == "playing" else "playing"
         s["last_changed"] = s["last_updated"] = now_iso()
+        changed(eid, before)
         await broadcast(eid)
     return []
 
@@ -334,6 +388,19 @@ def _rows(eid: str, start: datetime, end: datetime, with_attrs: bool) -> list[di
     return out
 
 
+def with_changes(eid: str, rows: list[dict], end: datetime, with_attrs: bool) -> list[dict]:
+    """The generated rows up to the first real change (and the real state a minute before it), then the real changes."""
+    real = [(b, a) for b, a in app.state.changes.get(eid, []) if datetime.fromisoformat(a["last_changed"]) <= end]
+    if not real:
+        return rows
+    first = datetime.fromisoformat(real[0][1]["last_changed"])
+    keep = [r for r in rows if datetime.fromisoformat(r["last_changed"]) < first - timedelta(seconds=61)]
+    before = {**real[0][0], "last_changed": (first - timedelta(seconds=60)).isoformat()}
+    before["last_updated"] = before["last_changed"]
+    out = keep + [before] + [a for _, a in real]
+    return [{**r, "entity_id": eid, "attributes": r["attributes"] if with_attrs else {}} for r in out]
+
+
 @app.get("/api/history/period/{start}")
 async def history(start: str, request: Request):
     q = request.query_params
@@ -342,7 +409,8 @@ async def history(start: str, request: Request):
     minimal = "minimal_response" in q
     out = []
     for eid in filter(None, q.get("filter_entity_id", "").split(",")):
-        rows = _rows(eid, t0, t1, "no_attributes" not in q)
+        rows = with_changes(eid, _rows(eid, t0, t1, "no_attributes" not in q), t1, "no_attributes" not in q)
+        rows = [r for r in rows if datetime.fromisoformat(r["last_changed"]) >= t0 - timedelta(seconds=1)] or rows[-1:]
         if minimal:  # like HA: only the first row carries entity_id and attributes
             rows = rows[:1] + [{"state": r["state"], "last_changed": r["last_changed"]} for r in rows[1:]]
         if rows:
@@ -367,6 +435,8 @@ async def calls():
 @app.post("/fake/reset")
 async def reset():
     app.state.calls.clear()
+    app.state.changes.clear()
+    app.state.forecast = {}
     app.state.states = initial_states()
     for eid in app.state.states:
         await broadcast(eid)
@@ -378,12 +448,25 @@ async def reset():
 async def set_state(request: Request):
     body = await request.json()
     s = app.state.states[body["entity_id"]]
+    before = json.loads(json.dumps(s))
     if "state" in body:
         s["state"] = str(body["state"])
     s["attributes"].update(body.get("attributes") or {})
     s["last_changed"] = s["last_updated"] = now_iso()
+    changed(body["entity_id"], before)
     await broadcast(body["entity_id"])
     return s
+
+
+@app.get("/fake/forecast_calls")
+async def forecast_calls():
+    return app.state.forecast_calls
+
+
+@app.post("/fake/forecast")
+async def set_forecast(request: Request):
+    app.state.forecast = await request.json()
+    return app.state.forecast
 
 
 @app.websocket("/api/websocket")

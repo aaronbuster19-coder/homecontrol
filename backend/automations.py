@@ -13,6 +13,7 @@ import threading
 import time
 
 from .alerts import parse_time
+from .activity import acting
 from .appliances import Appliances
 from .dehumidifier import TankAlert
 from .geometry import opening_rooms, placed_in
@@ -33,6 +34,7 @@ WEEK = 7 * 24 * 3600
 BATTERY_LOW, BATTERY_OK = 15, 20  # alert below 15 %, consider it replaced at 20 % (no flapping around 15)
 RECOVER_SECS = 120      # "back online" only once a device has stayed available this long
 UNAVAILABLE_GRACE = 3600  # a window sensor that drops out keeps the hold this long, then the radiator is released
+ACTORS = {"window heating": "window heating", "auto away": "Auto Away", "standby saver": "standby saver"}
 
 
 class AutoStore:
@@ -351,7 +353,8 @@ class Automations:
                                ("appliances", lambda: self.appliances.tick(
                                    {e: build_device(d, states) for e, d in devices.items() if d.kind == "plug"}))):
                 try:
-                    await step()
+                    with acting(ACTORS.get(name)):  # who switched it, for the activity timeline
+                        await step()
                 except Exception as e:
                     log.warning("%s failed: %s", name, e)
         try:

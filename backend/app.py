@@ -18,6 +18,8 @@ class RevalidatingStaticFiles(StaticFiles):
         return resp
 from pydantic import BaseModel
 
+from . import activity as activity_api, weather as weather_api
+from .activity import Activity, ActivityStore, ActorMiddleware, acting
 from .appliances import linked, protected_plugs
 from .appliance_stats import ApplianceStats
 from .alerts import Alerts, AlertStore, Pusher, SettingsError, load_vapid, validate_settings, validate_subscription, webpush_sender
@@ -34,6 +36,7 @@ from .schedules import ScheduleError, validate_schedule
 from .schedules import validate_settings as validate_schedule_settings
 from . import media, presence as presence_api, standby as standby_api
 from .modes import ModeError, ModeStore, current_targets, now_iso, public, restore_groups, validate_mode_settings
+from .summary import local_tz
 from .store import NAME_MAX, LayoutError, LayoutStore, carry_settings, stored_media, stored_plugs, stored_refs, validate_energy, validate_layout
 
 CACHE_TTL = 300
@@ -60,6 +63,7 @@ class LightBody(BaseModel):
 class BulkBody(BaseModel):
     action: str
     entity_ids: list[str]
+    source: str | None = None  # "all_off": the header's All off button (named in the activity timeline)
 
 
 class ValvesBody(BaseModel):
@@ -128,13 +132,25 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
     alert_store = AlertStore(settings.db_path)
     mode_store = ModeStore(settings.db_path)
     pusher = Pusher(alert_store, push_sender or webpush_sender(vapid))
+    # Activity timeline (backend/activity.py): every service call, push and sign-in is logged with who/what did it.
+    activity = Activity(ActivityStore(settings.db_path), ha, lambda: devices(), lambda: store.get(), clock, local_tz())
+    ha.call_service = activity.wrap_call(getattr(ha.call_service, "__wrapped__", ha.call_service))
+    send_push = pusher.notify
+
+    async def logged_push(payload: dict):
+        r = await send_push(payload)
+        activity.record_push(payload, r)
+        return r
+    pusher.notify = logged_push
 
     @asynccontextmanager
     async def lifespan(app):
         live.start()
         alerts.start()
         automations.start()
+        weather.start()
         yield
+        await weather.stop()
         await automations.stop()
         await alerts.stop()
         await live.stop()
@@ -144,6 +160,13 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
 
     sessions = Sessions(load_secret(settings.db_path), settings.app_password)
     limiter = RateLimiter()
+    count_fail = limiter.fail
+
+    def logged_fail(key: str):  # form and Basic sign-in failures alike, for the activity timeline
+        count_fail(key)
+        activity.record("login_failed", ip=key)
+    limiter.fail = logged_fail
+    app.add_middleware(ActorMiddleware)  # inside the auth guard: sees the signed-in user
     app.add_middleware(AuthMiddleware, sessions=sessions, user=settings.app_user, password=settings.app_password, limiter=limiter)
 
     @app.post("/api/login")
@@ -154,6 +177,7 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
         if not check_credentials(body.username, body.password, settings.app_user, settings.app_password):
             limiter.fail(key)
             raise HTTPException(401, "wrong username or password")
+        activity.record("login", user=settings.app_user, ip=key)
         resp = JSONResponse({"user": settings.app_user})
         resp.set_cookie(COOKIE, sessions.issue(settings.app_user), max_age=SESSION_TTL, path="/",
                         httponly=True, samesite="lax", secure=is_https(request))
@@ -194,6 +218,23 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
     automations = Automations(AutoStore(settings.db_path), alert_store.settings, pusher, live, ha, store, mode_store.get, devices,
                               clock=clock)
     app.state.automations = automations
+    activity.auto_store = automations.store
+    activity.schedule_name = lambda sid: (automations.schedules.store.get(sid) or {}).get("name")
+    automations.appliances.on_event = activity.record_appliance
+    live.add_observer(activity.observe)
+    hold_push = automations.quiet.store.add
+
+    def logged_hold(key: str, category: str, payload: dict, at: float):
+        hold_push(key, category, payload, at)
+        activity.record("push_held", title=str(payload.get("title") or ""), body=str(payload.get("body") or "")[:200],
+                        category=category)
+    automations.quiet.store.add = logged_hold
+
+    def heating_start() -> float | None:
+        nxt = [s["next"] for s in automations.schedules.listing()["schedules"]
+               if s.get("next") and s["enabled"] and s["action"]["type"] == "temperature"]
+        return min(nxt) / 1000 if nxt else None
+    weather = weather_api.Weather(ha, live, automations.store, automations._notify, heating_start, clock, local_tz())
     history = History(ha)
     appliance_stats = ApplianceStats(ha)
 
@@ -485,7 +526,8 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
             raise HTTPException(400, f"not a light or plug: {e}")
         if body.action == "turn_on" and groups.get("media_player"):  # "All off" only: a TV is never switched on in bulk
             raise HTTPException(400, f"not a light or plug: {groups['media_player'][0]}")
-        return {"ok": True, "count": await call_groups(ha, body.action, groups)}
+        with acting("All off" if body.source == "all_off" else None):
+            return {"ok": True, "count": await call_groups(ha, body.action, groups)}
 
     @app.post("/api/valves/temperature")
     async def set_valves(body: ValvesBody):
@@ -567,8 +609,10 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
         if mode not in ("away", "home"):
             raise HTTPException(400, "mode must be away or home")
         async with automations.lock:
-            r = await (go_away() if mode == "away" else go_home())
+            with acting("Away mode" if mode == "away" else "Home mode"):
+                r = await (go_away() if mode == "away" else go_home())
             automations.presence.manual(mode)  # set by hand: Auto Away holds off
+            activity.record("mode", mode=mode, user=request.state.user)
             return r
 
     @app.put("/api/mode/settings")
@@ -685,6 +729,15 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
     async def get_standby():
         plugs, _ = await plug_devices()
         return await energy.standby(plugs, store.get())
+
+    # ---- activity timeline (backend/activity.py), outdoor weather (backend/weather.py) ----
+    async def ensure_states():
+        await devices()
+        if not live.fresh():
+            live.load_states(await ha.states())
+
+    activity_api.add_routes(app, activity)
+    weather_api.add_routes(app, weather, ensure_states, json_body)
 
     # ---- Auto Away (backend/presence.py), standby saver (backend/standby.py) ----
     presence_api.add_routes(app, automations.presence, devices, live, ha, json_body, automations.wake.set)

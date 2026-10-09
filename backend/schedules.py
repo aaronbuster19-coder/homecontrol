@@ -21,6 +21,7 @@ import threading
 import time
 from datetime import date, datetime, time as dtime, timedelta
 
+from .activity import acting
 from .geometry import placed_in
 from .sun import sun_event
 
@@ -371,6 +372,7 @@ class ScheduleEngine:
                     plan[e] = ("light" if d.kind == "light" else "switch", f"turn_{a['type']}", ())
                 owner[e] = s["id"]
             self.store.put_run(s["id"], day, s["rev"], now, "running")
+        by_id = {s["id"]: s for s, _ in due}
         groups: dict[tuple, list[str]] = {}
         for e, key in plan.items():
             groups.setdefault(key, []).append(e)
@@ -380,7 +382,9 @@ class ScheduleEngine:
             data = {"entity_id": sorted(ids), **dict(extra)}
             calls.append({"domain": domain, "service": service, "data": data})
             try:
-                await self.call(domain, service, data)
+                names = sorted({by_id[owner[x]]["name"] for x in ids})
+                with acting("schedule " + ", ".join(f"“{n}”" for n in names)):
+                    await self.call(domain, service, data)
             except Exception as e:
                 log.warning("schedule call %s.%s %s failed: %s", domain, service, ids, e)
                 failed |= {owner[x] for x in ids}
