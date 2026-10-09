@@ -1,0 +1,41 @@
+/* ---------- floor-plan photo underlay (underlay.js) — colours from style.css variables ---------- */
+#underlay { pointer-events: none; }
+#underlay image { image-rendering: auto; }
+:root[data-theme="dark"] #underlay.inv image { filter: invert(1) hue-rotate(180deg); }
+#plan.uly-on .room rect, #plan.uly-on .room polygon { fill-opacity: .35; } /* the photo shows through the rooms */
+.ul-outline { fill: none; stroke: none; vector-effect: non-scaling-stroke; }
+#underlay.adjusting .ul-outline { stroke: var(--accent); stroke-width: 2; stroke-dasharray: 6 4; }
+body.ul-adjust #plan { cursor: move; }
+body.wall #underlay { display: none; } /* wall tablet: the plan stays clean */
+#ulBtn .ul-ic { vertical-align: -2px; }
+
+.ul-panel { position: fixed; z-index: 30; right: 16px; bottom: 16px; width: 330px; max-height: calc(100vh - 140px); overflow-y: auto;
+  overscroll-behavior: contain; background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 14px;
+  padding: 12px 14px 10px; box-shadow: 0 10px 30px var(--shadow-color); }
+.ul-panel[hidden] { display: none; }
+.ul-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.ul-head h3 { margin: 0; font-size: 15px; }
+.ul-close { border: 0; background: none; font-size: 22px; line-height: 1; padding: 2px 6px; color: var(--muted); }
+.ul-panel .hint { margin: 4px 0 8px; }
+.ul-btns { display: flex; gap: 8px; margin: 4px 0 8px; }
+.ul-btns button { flex: 1; }
+.ul-danger { color: var(--open-ink); }
+.ul-row { display: flex; align-items: center; gap: 10px; margin: 6px 0; font-size: 13px; color: var(--muted); }
+.ul-row > span:first-child { width: 52px; flex: none; }
+.ul-row input[type=range] { flex: 1; min-width: 0; accent-color: var(--accent); touch-action: none; height: 28px; margin: 0; }
+.ul-row input[type=number] { width: 72px; padding: 6px 8px; background: var(--bg); color: var(--text); border: 1px solid var(--line);
+  border-radius: 8px; font: inherit; font-size: 14px; }
+.ul-row output { width: 42px; text-align: right; color: var(--text); font-variant-numeric: tabular-nums; }
+.ul-u { color: var(--text); }
+.ul-check { display: flex; align-items: center; gap: 8px; margin: 7px 0; font-size: 13.5px; }
+.ul-check input { width: 18px; height: 18px; margin: 0; flex: none; accent-color: var(--accent); }
+.ul-check small { color: var(--muted); }
+.ul-note { font-size: 12px; margin-bottom: 0; }
+@media (max-width: 700px) {
+  .ul-panel { left: 8px; right: 8px; bottom: max(8px, env(safe-area-inset-bottom)); width: auto; max-height: 46vh; padding: 10px 12px 8px; }
+  .ul-row { margin: 4px 0; }
+  .ul-check { margin: 5px 0; }
+  .ul-note { display: none; }
+  body.ul-adjust .ul-more { display: none; } /* moving it: just Done / Fit, so the plan stays in view */
+  body.ul-adjust .ul-panel .ul-btns { margin-bottom: 4px; }
+}

@@ -135,6 +135,7 @@ function el(tag, attrs = {}, parent) {
 function render() {
   if (!st.drag) st.viewBox = computeViewBox();
   svg.setAttribute("viewBox", st.viewBox.join(" "));
+  if (typeof renderUnderlay === "function") renderUnderlay(); // floor-plan photo under the rooms (underlay.js)
   const L = cur();
   const roomsG = $("rooms"), markersG = $("markers");
   roomsG.replaceChildren(); markersG.replaceChildren();
