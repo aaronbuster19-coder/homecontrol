@@ -11,7 +11,7 @@
 .pl-sheet label.check { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-size: 14px; cursor: pointer; min-width: 0; }
 .pl-sheet label.check input { width: 20px; height: 20px; margin: 0; accent-color: var(--accent); flex: none; }
 .pl-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pl-phase { flex: none; max-width: 58%; font-size: 12px; line-height: 1.3; padding: 3px 8px; border-radius: 999px; text-align: right;
+.pl-phase { flex: none; max-width: 60%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 12px; line-height: 1.3; padding: 3px 8px; border-radius: 999px; text-align: right;
   color: var(--muted); border: 1px solid var(--line); background: var(--bg); }
 .pl-phase.on { color: var(--on-ink); border-color: var(--on); }
 .pl-phase.ready { color: var(--closed-ink); border-color: var(--closed); }

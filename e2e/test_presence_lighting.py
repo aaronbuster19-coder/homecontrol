@@ -96,7 +96,7 @@ def test_door_after_dark_then_quiet(clock_stack, open_page, size, theme):
     ha.set(DOOR, "off")
     d = wait_api(page, st, "/api/presence-lighting", lambda d: room(d, "hall")["phase"] == "on")
     reopen(page)
-    expect(page.locator('#plRooms li[data-room="hall"] .pl-phase')).to_have_text(re.compile(r"^Lights on — off at \d\d:\d\d if quiet$"))
+    expect(page.locator('#plRooms li[data-room="hall"] .pl-phase')).to_have_text(re.compile(r"^On · off at \d\d:\d\d$"))
     expect(page.locator(f'#plan .marker[data-dev="{KITCHEN}"] circle').first).to_have_attribute("fill", "var(--on)")
     shot(page, f"plight-{size}-{theme}-on")
     assert len(ha.calls("turn_on")) == 1
@@ -140,7 +140,7 @@ def test_manual_change_daylight_and_away(clock_stack, open_page):
     ha.set(KITCHEN, "off")  # by hand
     d = wait_api(page, st, "/api/presence-lighting", lambda d: room(d, "hall")["phase"] == "paused")
     reopen(page)
-    expect(page.locator('#plRooms li[data-room="hall"] .pl-phase')).to_have_text(re.compile(r"^Paused \(switched by hand\) until \d\d:\d\d if quiet$"))
+    expect(page.locator('#plRooms li[data-room="hall"] .pl-phase')).to_have_text(re.compile(r"^Paused until \d\d:\d\d$"))
     shot(page, "plight-desktop-paused")
     ha.set(DOOR, "on"); ha.set(DOOR, "off")
     page.wait_for_timeout(1500)

@@ -55,8 +55,8 @@ function plDarkText(d) {
 }
 function plPhase(r) {
   switch (r.phase) {
-    case "on": return ["on", `Lights on — off at ${plHm(r.off_at)} if quiet`];
-    case "paused": return ["paused", `Paused (switched by hand) until ${plHm(r.paused_until)} if quiet`];
+    case "on": return ["on", `On · off at ${plHm(r.off_at)}`, "Its lights go off then unless a door opens or closes first"];
+    case "paused": return ["paused", `Paused until ${plHm(r.paused_until)}`, "A light was switched by hand: automatic again after the quiet period"];
     case "setup": return ["warn", r.sensors.length ? "Pick the lights" : "Pick a door sensor"];
     case "away": return ["", "Away"];
     case "ready": return ["ready", "Ready"];
@@ -102,7 +102,7 @@ function plRoom(d, r) {
   cb.onchange = () => plSend(path, { enabled: cb.checked }, `${r.name}: ${cb.checked ? "on" : "off"}`);
   lab.append(cb, ple("span", "pl-name", r.name)); head.append(lab);
   const ph = plPhase(r);
-  if (ph) { const p = ple("span", `pl-phase ${ph[0]}`, ph[1]); head.append(p); }
+  if (ph) { const p = ple("span", `pl-phase ${ph[0]}`, ph[1]); if (ph[2]) p.title = ph[2]; head.append(p); }
   li.append(head);
   if (!r.enabled) return li;
 
