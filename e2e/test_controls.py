@@ -64,6 +64,10 @@ def test_light_sheet_brightness_colour_kelvin(stack, ha, open_page):
     hold(page, marker(page, "light.lounge").locator("circle").first, 700)
     rng = page.locator("#sheetContent .light-ctl label.ctl").first.locator("input[type=range]")
     page.evaluate("window.__inputs = 0")
+    # Time the sends where the browser makes them: on a busy CI host the requests can reach the fake HA bunched up.
+    page.evaluate("""() => { window.__sends = []; const f = window.fetch;
+      window.fetch = (u, o) => { if (String(u).endsWith('/light') && o?.body?.includes('brightness_pct'))
+        window.__sends.push({t: performance.now() / 1000, v: JSON.parse(o.body).brightness_pct}); return f(u, o); }; }""")
     rng.evaluate("r => r.addEventListener('input', () => window.__inputs++)")
     # Drag the brightness slider from left to right for about a second.
     b = rng.bounding_box()
@@ -77,17 +81,17 @@ def test_light_sheet_brightness_colour_kelvin(stack, ha, open_page):
     inputs = page.evaluate("window.__inputs")
     final = int(rng.input_value())
     assert final == 100 and inputs >= 15, (final, inputs)
-    page.wait_for_timeout(600)
-    bright = [c for c in ha.calls("turn_on") if "brightness_pct" in c["data"]]
-    sent = [c["data"]["brightness_pct"] for c in bright]
-    # Throttled: far fewer calls than slider events, at most one per ~300 ms.
-    span = bright[-1]["t"] - bright[0]["t"]
-    # at most one call per 300 ms over the drag, plus the final value on release (and far fewer than slider events)
+    sends = page.evaluate("window.__sends")
+    sent = [x["v"] for x in sends]
+    # Every send reaches HA before moving on, so a late one can't spill into the next test.
+    bright = ha.wait_calls(len(sends), "turn_on")
+    assert [c["data"]["brightness_pct"] for c in bright if "brightness_pct" in c["data"]] == sent
+    # Throttled: far fewer calls than slider events, at most one per ~300 ms over the drag, plus the final value on release.
+    span = sends[-1]["t"] - sends[0]["t"]
     assert 2 <= len(sent) <= span / 0.3 + 2 and len(sent) < inputs, f"{inputs} slider events -> {len(sent)} calls over {span:.2f}s: {sent}"
-    gaps = [b["t"] - a["t"] for a, b in zip(bright, bright[1:])]
-    # Throttled sends are ~300 ms apart (measured where the fake HA receives them, so allow some jitter); the last call
-    # is the final value on release and may follow the previous one immediately.
-    assert sorted(gaps)[len(gaps) // 2] >= 0.25 and min(gaps[:-1] or [1]) > 0.15, gaps
+    gaps = [b["t"] - a["t"] for a, b in zip(sends, sends[1:])]
+    # Throttled sends are ~300 ms apart; the last is the final value on release and may follow the previous one at once.
+    assert sorted(gaps)[len(gaps) // 2] >= 0.25 and min(gaps[:-1] or [1]) > 0.2, gaps
     assert sent == sorted(sent) and sent[-1] == 100
     assert all(c["domain"] == "light" and c["data"]["entity_id"] == "light.lounge" for c in ha.calls())
     expect(page.locator("#sheetContent .ctl-val").first).to_have_text("100 %")
