@@ -227,12 +227,13 @@ function snapCut(d, pt) {
 
 // ---------- tidy up ----------
 function applyTidy(moves) {
-  // Decide what each room carries before anything moves; a device/opening goes with the first room that has it.
+  // Decide what each room carries before anything moves; a device/opening/piece of furniture goes with the first room that has it.
   // Rooms that only grow or shrink a side carry nothing.
   const taken = new Set(), plan = [];
   for (const r of st.draft.rooms) {
     const m = moves.find((x) => x.id === r.id) || { dx: 0, dy: 0 };
-    const items = [...st.draft.placements.filter((p) => inRoom(r, p)), ...openingsOnRoom(r)].filter((p) => !taken.has(p));
+    const items = [...st.draft.placements.filter((p) => inRoom(r, p)), ...openingsOnRoom(r),
+      ...(st.draft.furniture || []).filter((f) => inRoom(r, f))].filter((p) => !taken.has(p));
     items.forEach((p) => taken.add(p));
     plan.push({ r, m, items });
   }

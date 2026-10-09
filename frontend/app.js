@@ -191,6 +191,7 @@ function render() {
       }
     }
   }
+  if (typeof renderFurniture === "function") renderFurniture(markersG);
   renderFloorplanHandles(markersG);
   renderSide();
   $("deleteSel").disabled = !st.sel;
@@ -374,6 +375,7 @@ svg.addEventListener("pointerdown", (e) => {
     return;
   }
   if (st.picked && !mk) { placeDevice(st.picked, pt); return; }
+  if (!mk && typeof furniturePointerDown === "function" && furniturePointerDown(e, pt)) return;
   let target = null;
   if (mk) { const p = st.draft.placements.find((p) => p.entity_id === mk.dataset.dev); target = { type: "dev", id: p.entity_id, obj: p }; }
   else if (rm) { const r = st.draft.rooms.find((r) => r.id === rm.dataset.room); target = { type: "room", id: r.id, obj: r }; }
@@ -386,6 +388,7 @@ svg.addEventListener("pointerdown", (e) => {
     st.drag.carried = st.draft.placements.filter((p) => inRoom(r, p))
       .map((p) => ({ p, ox: p.x, oy: p.y }));
     st.drag.carried.push(...openingsOnRoom(r).map((p) => ({ p, ox: p.x, oy: p.y })));
+    if (typeof furnitureInRoom === "function") st.drag.carried.push(...furnitureInRoom(r).map((p) => ({ p, ox: p.x, oy: p.y })));
   }
   svg.setPointerCapture(e.pointerId);
   render();
@@ -403,6 +406,7 @@ svg.addEventListener("pointermove", (e) => {
   if (!d.moved && Math.hypot(dx, dy) < 0.08) return;
   d.moved = true;
   if (floorplanPointerMove(d, pt, dx, dy)) { render(); return; }
+  if (d.fur) { furniturePointerMove(d, pt, dx, dy); render(); return; }
   if (d.resize) { resizeRoom(d.obj, d.orig, d.resize, dx, dy); snapResize(d, dx, dy); clampCut(d.obj); render(); return; }
   if (!d.carried) { d.obj.x = snap(d.ox + dx); d.obj.y = snap(d.oy + dy); render(); return; }
   snapMove(d, dx, dy); // a room snaps to the others; what it carries moves by the same amount
@@ -493,6 +497,8 @@ $("deleteSel").onclick = () => {
     const r = st.draft.rooms.find((r) => r.id === st.sel.id);
     if (!confirm(`Delete room "${r.name}"? Devices inside stay where they are.`)) return;
     st.draft.rooms = st.draft.rooms.filter((x) => x.id !== st.sel.id);
+  } else if (st.sel.type === "fur") {
+    deleteFurniture(st.sel.id);
   } else if (st.sel.type === "open") {
     st.draft.openings = (st.draft.openings || []).filter((o) => o.id !== st.sel.id);
   } else {
