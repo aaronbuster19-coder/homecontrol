@@ -91,3 +91,12 @@ def test_layout_openings_and_cut(client):
 def test_frontend_served(client):
     r = client.get("/")
     assert r.status_code == 200 and "homecontrol" in r.text.lower()
+
+
+def test_frontend_files_always_revalidate(client):
+    # Browsers must not keep stale JS/CSS after a deploy (mixed old/new files broke the UI once).
+    for path in ("/app.js", "/style.css", "/furniture.js"):
+        r = client.get(path)
+        assert r.status_code == 200 and r.headers["cache-control"] == "no-cache", path
+        assert r.headers.get("etag")
+        assert client.get(path, headers={"If-None-Match": r.headers["etag"]}).status_code == 304

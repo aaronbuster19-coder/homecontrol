@@ -6,6 +6,16 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+
+
+class RevalidatingStaticFiles(StaticFiles):
+    """The app's files always revalidate (ETag -> cheap 304s): without this, browsers guessed a freshness lifetime from
+    Last-Modified and could keep an old furniture.js/style.css next to a new appliances.js after a deploy."""
+
+    def file_response(self, *args, **kwargs):
+        resp = super().file_response(*args, **kwargs)
+        resp.headers["Cache-Control"] = "no-cache"
+        return resp
 from pydantic import BaseModel
 
 from .appliances import linked, protected_plugs
@@ -649,6 +659,6 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
         return FileResponse(FRONTEND_DIR / "manifest.webmanifest", media_type="application/manifest+json")
 
     if FRONTEND_DIR.is_dir():
-        app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
+        app.mount("/", RevalidatingStaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
     return app
 

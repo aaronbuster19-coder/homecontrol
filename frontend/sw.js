@@ -1,6 +1,6 @@
 "use strict";
 // Bump VERSION when the shell changes shape; content updates arrive anyway (network-first).
-const VERSION = "hc-v15";
+const VERSION = "hc-v16";
 const SHELL = ["/", "/index.html", "/app.js", "/floorplan.js", "/controls.js", "/alerts.js", "/modes.js", "/history.js", "/automations.js", "/style.css", "/login.html", "/login.js", "/manifest.webmanifest", "/wall.js", "/snap.js", "/energy.js", "/schedules.js", "/quiet.js", "/dehumidifier.js", "/roomview.js", "/furniture.js", "/appliances.js", "/presence.js", "/standby.js",
   "/icons/icon-192.png", "/icons/icon-512.png", "/icons/icon-maskable-512.png", "/icons/apple-touch-icon.png"];
 const API_CACHED = ["/api/layout", "/api/devices"];
@@ -8,7 +8,7 @@ const API_CACHED = ["/api/layout", "/api/devices"];
 self.addEventListener("install", (e) => {
   // Shell entries behind login ("/", app.js) fail before sign-in; cache what we can.
   e.waitUntil(caches.open(VERSION).then((c) => Promise.all(SHELL.map((u) =>
-    fetch(u, { credentials: "same-origin" }).then((r) => cacheable(r) && c.put(u, r)).catch(() => {}))))
+    fetch(u, { credentials: "same-origin", cache: "no-cache" }).then((r) => cacheable(r) && c.put(u, r)).catch(() => {}))))
     .then(() => self.skipWaiting()));
 });
 
@@ -35,7 +35,8 @@ self.addEventListener("fetch", (e) => {
 async function networkFirst(req, key) {
   const cache = await caches.open(VERSION);
   try {
-    const r = await fetch(req);
+    // no-cache: always revalidate with the server, never take a stale copy from the browser's HTTP cache
+    const r = await fetch(req, { cache: "no-cache" });
     if (cacheable(r)) cache.put(key, r.clone());
     return r;
   } catch (err) {
