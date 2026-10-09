@@ -230,6 +230,9 @@ body.drawing .opening { pointer-events: none; }
   border: 1px solid var(--line); border-radius: 12px; padding: 6px; box-shadow: 0 10px 30px var(--shadow-color);
   display: flex; flex-direction: column; }
 .more-menu[hidden] { display: none; }
+/* A long menu (an admin's) scrolls inside a short phone screen instead of running off it. */
+.more-menu { max-height: calc(100dvh - 72px); overflow-y: auto; overscroll-behavior: contain; }
+.more-menu > * { flex-shrink: 0; }
 .more-menu > button, .more-row { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
   background: none; border: 0; border-radius: 8px; padding: 9px 10px; min-height: 42px; font-size: 15px; cursor: pointer; }
 .more-menu > button:hover, .more-row:hover { background: rgba(var(--hl), .06); }
