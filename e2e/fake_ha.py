@@ -508,4 +508,6 @@ async def websocket(ws: WebSocket):
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host=sys.argv[2] if len(sys.argv) > 2 else "127.0.0.1", port=int(sys.argv[1]), log_level="warning")
+    # Keep-alive far longer than any test, so it never closes an idle connection the app is about to reuse (conftest.py).
+    uvicorn.run(app, host=sys.argv[2] if len(sys.argv) > 2 else "127.0.0.1", port=int(sys.argv[1]), log_level="warning",
+                timeout_keep_alive=600)

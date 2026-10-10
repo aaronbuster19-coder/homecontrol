@@ -161,9 +161,11 @@ class Stack:
                "APP_PASSWORD": PASSWORD, "DB_PATH": str(tmp / "layout.db"), "TZ_NAME": "Europe/London"}
         # clock=True: the test-only factory in e2e/clock_app.py, whose server clock POST /_test/clock moves.
         target = ["--app-dir", str(ROOT / "e2e"), "clock_app:create"] if clock else ["backend.app:create_app"]
+        # Keep-alive far longer than any test: with uvicorn's 5 s the server closes an idle connection just as a
+        # starved client reuses it, and the request fails with ECONNRESET (seen under --cpus=1).
         self.app_proc = subprocess.Popen(
             [sys.executable, "-m", "uvicorn", *target, "--factory", "--host", HOST,
-             "--port", str(app_port), "--log-level", "warning"], cwd=ROOT, env=env)
+             "--port", str(app_port), "--log-level", "warning", "--timeout-keep-alive", "600"], cwd=ROOT, env=env)
         try:
             wait_http(f"http://{HOST}:{app_port}/healthz", self.app_proc)
         except Exception:
