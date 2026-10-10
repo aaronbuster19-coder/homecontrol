@@ -120,6 +120,24 @@ Afterwards check Settings → Actions → Runners: only `homecontrol-ci-hyperv`,
 - Bridged container traffic gets no DNS behind the host NAT, so the workflow uses `docker build --network=host` and
   runs the e2e container with `--network=host` (`E2E_DOCKER_ARGS`).
 
+## Capacity (recommendation, not applied)
+
+The `e2e` job's container alone uses about 500–650 MB while the suite runs (Chromium, the app, the fake HA and
+pytest; measured with `docker stats` on the v10/ops branch). On top of that are the OS, dockerd and the runner
+container. With `MEMORY_MB=1024`, a VM running e2e is at or past its RAM and pages to the 4 GB swap file. That
+makes the browser tests slow and bursty, which is when timing-sensitive tests failed (brightness throttle, import
+dialog, theme socket timeout).
+
+The tests now wait on real conditions with generous ceilings, so they pass under that pressure: the `e2e-slow` job
+runs the whole suite with `--cpus=1` on every push. The VMs are still the bottleneck for speed. If the PC has the
+memory to spare next to Luna's VMs, the recommended change is:
+
+- **`MEMORY_MB=2048`** in `.env` (then token + `tofu apply -parallelism=1`). This is the change that matters: e2e
+  stays out of swap. Three VMs then hold 6 GB.
+- **Keep `RUNNER_COUNT=3`**. A push now runs `test`, `e2e` and `e2e-slow` at the same time, one per VM. A 4th runner
+  would only help when two pushes overlap, which `cancel-in-progress` mostly avoids anyway.
+- **Keep 2 vCPU.** CPU wasn't the limit (`--cpus=1` passes), and Hyper-V vCPUs are shared with the desktop anyway.
+
 ## Names
 
 | Luna | here |

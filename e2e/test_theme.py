@@ -168,7 +168,8 @@ def test_colours_differ_and_light_text_contrast(stack, ha, open_page, size):
 @pytest.mark.parametrize("scheme", ["light", "dark"])
 def test_every_screen_renders(stack, ha, open_page, size, scheme):
     """Screenshots of the main screens in both themes (looked at by hand), plus a few colour checks."""
-    page = open_page(stack, size, layout=FURNISHED, color_scheme=scheme)
+    # By day: the wall part below is dark at night whatever the theme (on the real clock this failed after 23:00).
+    page = open_page(stack, size, layout=FURNISHED, color_scheme=scheme, clock="2026-10-09T12:00:00+01:00")
     tag = f"{scheme}-{size}"
     assert theme(page) == scheme
     expect(page.locator("#furniture .fur").first).to_be_visible()

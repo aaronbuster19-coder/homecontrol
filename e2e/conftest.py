@@ -21,7 +21,7 @@ import urllib.request
 from pathlib import Path
 
 import pytest
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import expect, sync_playwright
 
 ROOT = Path(__file__).resolve().parent.parent
 SHOTS = Path(os.environ.get("SHOTS", ROOT / "e2e" / "screenshots"))
@@ -29,6 +29,12 @@ ARTIFACTS = Path(os.environ.get("E2E_ARTIFACTS", ROOT / "e2e" / "artifacts"))
 TRACE = os.environ.get("E2E_TRACE") == "1"  # record a Playwright trace per context, kept for failed tests
 HOST = "127.0.0.1"
 USER, PASSWORD = "me", "pw-for-tests"
+
+# Waits end as soon as their condition holds, so a generous ceiling costs nothing on a fast machine and keeps a slow,
+# contended CI runner (or the --cpus=1 e2e-slow job) from failing a test that was only late.
+WAIT = float(os.environ.get("E2E_WAIT", "15"))  # seconds
+expect.set_options(timeout=WAIT * 1000)
+LIVE_PAGES = []  # every open page, so waits on the fake HA can also wait for the browsers' requests to land
 
 # name -> browser context options
 SIZES = {
@@ -108,7 +114,7 @@ class FakeHA:
         req = urllib.request.Request(self.base + path, method="POST" if body is not None else "GET",
                                      data=json.dumps(body).encode() if body is not None else None,
                                      headers={"Content-Type": "application/json"})
-        return json.load(urllib.request.urlopen(req, timeout=5))
+        return json.load(urllib.request.urlopen(req, timeout=WAIT))
 
     def calls(self, service=None):
         return [c for c in self._req("/fake/calls") if service is None or c["service"] == service]
@@ -122,7 +128,7 @@ class FakeHA:
             body["state"] = state
         return self._req("/fake/set", body)
 
-    def wait_call(self, pred, timeout=5):
+    def wait_call(self, pred, timeout=WAIT):
         end = time.time() + timeout
         while time.time() < end:
             hit = [c for c in self.calls() if pred(c)]
@@ -131,11 +137,14 @@ class FakeHA:
             time.sleep(0.05)
         raise AssertionError(f"no matching call in {self.calls()}")
 
-    def wait_calls(self, n, service=None, timeout=5):
-        """Wait until at least n calls (of that service) arrived, then a little longer to catch extras."""
+    def wait_calls(self, n, service=None, timeout=WAIT):
+        """Wait until at least n calls (of that service) arrived and every open page's requests have landed, then a
+        little longer to catch extras a browser timer (e.g. a throttle) still sends."""
         end = time.time() + timeout
         while time.time() < end and len(self.calls(service)) < n:
             time.sleep(0.05)
+        for page in LIVE_PAGES:
+            settle(page, max(end - time.time(), 1))
         time.sleep(0.4)
         return self.calls(service)
 
@@ -169,7 +178,7 @@ class Stack:
         auth = base64.b64encode(f"{USER}:{PASSWORD}".encode()).decode()
         req = urllib.request.Request(self.url + "/_test/clock", data=json.dumps({"t": t}).encode(), method="POST",
                                      headers={"Content-Type": "application/json", "Authorization": f"Basic {auth}"})
-        return json.load(urllib.request.urlopen(req, timeout=5))["now"]
+        return json.load(urllib.request.urlopen(req, timeout=WAIT))["now"]
 
     def close(self):
         stop(self.app_proc, self.ha_proc)
@@ -179,7 +188,7 @@ class Stack:
         req = urllib.request.Request(self.url + "/_test/clock", data=json.dumps({"t": t}).encode(), method="POST",
                                      headers={"Content-Type": "application/json", "Authorization": "Basic " +
                                               base64.b64encode(f"{USER}:{PASSWORD}".encode()).decode()})
-        return json.load(urllib.request.urlopen(req, timeout=5))["now"]
+        return json.load(urllib.request.urlopen(req, timeout=WAIT))["now"]
 
 
 @pytest.fixture(scope="module")
@@ -242,6 +251,31 @@ def browser():
         b.close()
 
 
+def track_requests(page):
+    """Count the page's requests in flight (not its never-ending /api/events stream), for settle()."""
+    page.inflight = set()
+
+    def started(r):
+        if r.resource_type not in ("eventsource", "websocket") and "/api/events" not in r.url:
+            page.inflight.add(r)
+    def done(r):
+        page.inflight.discard(r)
+    page.on("request", started)
+    page.on("requestfinished", done)
+    page.on("requestfailed", done)
+
+
+def settle(page, timeout=WAIT):
+    """Wait until every request the page started has finished. The app answers a control request only after HA got
+    the call, so then the fake HA's call log is complete: nothing from this test can land in the next one."""
+    end = time.time() + timeout
+    while getattr(page, "inflight", None) and time.time() < end:
+        try:
+            page.wait_for_timeout(50)  # lets Playwright deliver the finished events
+        except Exception:  # page or context already closed
+            return
+
+
 def login(page, base, user=USER, password=PASSWORD):
     page.goto(base + "/login.html")
     page.fill("[name=username]", user)
@@ -272,7 +306,9 @@ def open_page(browser, request):
         page = ctx.new_page()
         page.errors, page.allow_errors, page.size = [], False, size
         page.on("pageerror", lambda e: page.errors.append(str(e)))
+        track_requests(page)
         pages.append(page)
+        LIVE_PAGES.append(page)
         if clock:
             page.clock.install(time=clock)
         if signed_in:
@@ -288,6 +324,9 @@ def open_page(browser, request):
         return page
 
     yield make
+    for page in pages:  # isolation: the test's last calls land before the next test resets the fake HA
+        settle(page)
+        LIVE_PAGES.remove(page)
     failed = getattr(request.node, "rep_call", None) and request.node.rep_call.failed
     if failed:
         ARTIFACTS.mkdir(parents=True, exist_ok=True)

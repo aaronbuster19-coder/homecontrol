@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 import pytest
 from playwright.sync_api import expect
 
-from conftest import shot
+from conftest import WAIT, shot
 
 ALEX, SAM = "person.alex", "person.sam"
 LONDON = ZoneInfo("Europe/London")
@@ -24,7 +24,7 @@ def api(page, stack, path):
     return r.json()
 
 
-def wait_api(page, stack, path, pred, timeout=8):
+def wait_api(page, stack, path, pred, timeout=WAIT):
     end = time.time() + timeout
     while True:
         d = api(page, stack, path)
