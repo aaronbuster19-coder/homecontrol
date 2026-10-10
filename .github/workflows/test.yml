@@ -1,7 +1,10 @@
 name: test
 
 on:
+  # Branches run CI through their pull request; a push to every branch as well ran each suite twice at once on the
+  # three VMs, and both runs timed out. main still runs on push (publish needs it).
   push:
+    branches: [main]
   pull_request:
 
 jobs:
@@ -38,7 +41,7 @@ jobs:
     # on the same machine; on the CI VMs it uses the VM's network (E2E_DOCKER_ARGS below), where no live app runs.
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, homecontrol-ci]   # the runners in ci-runner/ (Hyper-V VMs on Aaron's desktop)
-    timeout-minutes: 30   # ~15 min on the VMs; the ceiling is slack for a busy desktop, not a target
+    timeout-minutes: 60   # ~30 min on the VMs since v10; the ceiling is slack for a busy desktop, not a target
     concurrency:
       group: e2e-${{ github.ref }}
       cancel-in-progress: true
@@ -77,7 +80,7 @@ jobs:
     # same time as e2e: a test that only passes on an idle machine fails here first, not some days later on main.
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, homecontrol-ci]
-    timeout-minutes: 45
+    timeout-minutes: 90
     concurrency:
       group: e2e-slow-${{ github.ref }}
       cancel-in-progress: true
