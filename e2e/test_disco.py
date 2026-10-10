@@ -82,12 +82,14 @@ def test_start_from_menu_then_stop_restores(stack, ha, open_page, size, theme):
     expect(page.locator("#discoBarTitle")).to_have_text("Disco · Rainbow fade")
     expect(page.locator("#discoBarSub")).to_have_text("2 lights · stops in 30 min")
     # batched: one light.turn_on for both lights per step; never twice a second per light
-    got = wait_until(lambda: len(steps(ha)) >= 3 and steps(ha), what="three disco steps")
+    got = wait_until(lambda: len(steps(ha)) >= 4 and steps(ha), what="four disco steps")
     assert all(c["data"]["entity_id"] == ["light.lounge", "light.strip"] for c in got)
-    ts = [c["t"] for c in got]
-    # Times are when the fake HA received each step, so they carry the network's jitter on a busy runner (a step
-    # sent 1.0 s after the last can land 0.9 s after it). The exact one-change-per-second rule is unit-tested with an
-    # injected clock (backend/tests/test_disco.py); here: about a second apart on average, and never close together.
+    # Times are when the fake HA received each step, so they carry delivery jitter on a busy runner. The first step
+    # (sent by start() on a fresh connection to HA) can land late, which makes the next gap look short (0.79 s seen on
+    # one CPU) though the server paced it from when it sent. So: the gaps after the first, about a second apart on
+    # average and never close together. The exact one-change-per-second rule is unit-tested with an injected clock
+    # (backend/tests/test_disco.py).
+    ts = [c["t"] for c in got][1:]
     assert (ts[-1] - ts[0]) / (len(ts) - 1) >= 0.95 and all(b - a >= 0.6 for a, b in zip(ts, ts[1:])), ts
     shot(page, f"disco-running-{size}-{theme}")
     n = len(ha.calls())

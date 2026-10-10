@@ -41,7 +41,7 @@ jobs:
     # on the same machine; on the CI VMs it uses the VM's network (E2E_DOCKER_ARGS below), where no live app runs.
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, homecontrol-ci]   # the runners in ci-runner/ (Hyper-V VMs on Aaron's desktop)
-    timeout-minutes: 90   # ~55 min on the VMs since v10; the ceiling is slack for a busy desktop, not a target
+    timeout-minutes: 150  # 55-105 min on the VMs since v10; the ceiling is slack for a busy desktop, not a target
     concurrency:
       group: e2e-${{ github.ref }}
       cancel-in-progress: true

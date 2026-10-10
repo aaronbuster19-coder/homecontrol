@@ -15,7 +15,7 @@ from zoneinfo import ZoneInfo
 import pytest
 from playwright.sync_api import expect
 
-from conftest import LAYOUT, Stack, Touch, login, plan_xy, shot
+from conftest import LAYOUT, WAIT, Stack, Touch, login, plan_xy, shot
 
 LONDON = ZoneInfo("Europe/London")
 WASHER = {"id": "washer", "type": "washer", "x": 6.75, "y": 1.35, "w": 0.6, "h": 0.6, "rot": 0, "plug": "switch.washer"}
@@ -196,7 +196,7 @@ def test_washer_run_logged_with_cost_and_note(tstack, tha, open_page, size, them
     tha.set("sensor.washer_power", "480")                 # the drum starts
     page.wait_for_function("st.devices.get('switch.washer').power === 480")
     tstack.set_clock(t0 + 130)                            # running after 2 min
-    end = time.time() + 10
+    end = time.time() + WAIT
     while time.time() < end and not runs()["current"]:
         page.wait_for_timeout(200)
     assert runs()["current"]["start"] == int(t0 * 1000) or abs(runs()["current"]["start"] - t0 * 1000) < 5000
@@ -204,7 +204,7 @@ def test_washer_run_logged_with_cost_and_note(tstack, tha, open_page, size, them
     tha.set("sensor.washer_power", "1.1")                 # done
     page.wait_for_function("st.devices.get('switch.washer').power === 1.1")
     tstack.set_clock(t0 + 63 * 60 + 5)                    # quiet for 3 min: finished
-    end = time.time() + 15
+    end = time.time() + WAIT
     while time.time() < end and len(runs()["runs"]) == before:
         tstack.set_clock(t0 + 63 * 60 + 10)               # wakes the loops again (the order they run in varies)
         page.wait_for_timeout(300)

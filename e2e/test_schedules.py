@@ -19,6 +19,8 @@ from zoneinfo import ZoneInfo
 import pytest
 from playwright.sync_api import expect, sync_playwright
 
+from conftest import WAIT
+
 ROOT = Path(__file__).resolve().parent.parent
 SHOTS = Path(os.environ.get("SHOTS", ROOT / "e2e" / "screenshots"))
 USER, PASSWORD = "me", "pw-for-tests"
@@ -190,7 +192,7 @@ def test_schedule_create_edit_toggle_run_delete(browser, servers, ha, size):
     # ---- fast-forward the server clock: the fake HA gets exactly one call ----
     due = page.request.get(servers["app"] + "/api/schedules").json()["schedules"][0]["next"] / 1000
     set_clock(page, servers, due - 2)
-    end = time.time() + 15
+    end = time.time() + WAIT
     while time.time() < end and not [c for c in ha.calls() if c["domain"] == "light"]:
         time.sleep(0.2)
     calls = [c for c in ha.calls() if c["domain"] == "light"]
