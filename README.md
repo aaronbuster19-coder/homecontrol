@@ -888,12 +888,10 @@ appliance (“Fridge · Plug 2”). ‹ / › go through the months (up to 12 ba
 `GET /api/summary/latest` (404 until the first one) · `POST /api/summary/preview` ·
 `GET /api/history/{entity_id}?range=24h|7d|30d` (`series` `[{name, unit, points: [[t_ms, v|null]]}]`, `timeline` `[{state, start, end}]`, plugs: `energy_kwh`) ·
 `GET /api/doors/log?range=24h|7d&tz=Europe/London` (per door: `events` `[{t, state, open_ms}]` newest first, `summary`) ·
-`GET /api/activity` (see *Activity*) · `GET`/`POST /api/disco…` (see *Disco mode*) · `…/api/scenes…` (see *Scenes*) ·
-`…/api/timers…` (see *Sleep timers*) · `GET /api/weather` · `PUT /api/weather/settings` · `POST /api/weather/refresh` (see *Weather*)
-
-`GET /api/activity` (see *Activity*) · `GET`/`PUT`/`POST /api/tariff…`, `GET`/`PUT /api/appliances/{id}/runs…` (see *Octopus tariff and run log*) · `GET`/`POST /api/disco…` (see *Disco mode*) · `GET /api/weather` · `PUT /api/weather/settings` · `POST /api/weather/refresh` (see *Weather*)
-
-`GET /api/activity` (see *Activity*) · `GET`/`POST /api/disco…` (see *Disco mode*) · `/api/guest/…` (see *Guest links*) · `GET /api/weather` · `PUT /api/weather/settings` · `POST /api/weather/refresh` (see *Weather*)
+`GET /api/activity` (see *Activity*) · `GET`/`PUT`/`POST /api/tariff…`, `GET`/`PUT /api/appliances/{id}/runs…` (see *Octopus
+tariff and run log*) · `GET`/`POST /api/disco…` (see *Disco mode*) · `…/api/scenes…` (see *Scenes*) · `…/api/timers…` (see
+*Sleep timers*) · `/api/guest/…` (see *Guest links*) · `GET /api/weather` · `PUT /api/weather/settings` ·
+`POST /api/weather/refresh` (see *Weather*)
 
 Devices carry `power` (W), `energy_today` (kWh), `battery` (%) and `battery_low` (bool) when HA knows them.
 
