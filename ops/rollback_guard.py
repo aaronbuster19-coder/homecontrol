@@ -4,10 +4,11 @@ never gets healthy.
 Runs as its own small container in the Dockge stack (dockge/compose.yaml), next to Watchtower, with the Docker socket.
 Every POLL seconds it inspects the app container (GUARD_TARGET, default "homecontrol"):
 
-- Healthy (Docker health check passing, or running without one): that image becomes the known-good one. Older
-  images of the app are removed (Watchtower runs without --cleanup so the previous image stays for a rollback).
+- Healthy (Docker health check passing, or running without one): that image becomes the known-good one and is
+  tagged <repo>:rollback, so Docker keeps it after Watchtower moves :latest on. Older images of the app are removed
+  (Watchtower runs without --cleanup; the guard does the cleaning once a new image is healthy).
 - A new image (not the known-good one) that is not healthy for ROLLBACK_AFTER seconds in a row (default 150):
-  the container is recreated from the known-good image (tagged <repo>:rollback), with the same settings and its
+  the container is recreated from the known-good image (<repo>:rollback), with the same settings and its
   Watchtower label set to "false" so Watchtower leaves it alone. The failed container is kept, stopped, as
   "<name>-failed" for its logs. Updates are then paused.
 - While paused, every CHECK_EVERY seconds (default 300) it asks the registry for <repo>:<tag>'s digest. When a
@@ -279,6 +280,7 @@ class Guard:
         self.enabled, self.log = enabled, log
         self.state = self._load()
         self._said = None
+        self._protected = set()
 
     # state: good {id, digest, ref}, watch {id, since}, paused {bad_id, bad_digest, ref, label, at, seen}, retry_at
     def _load(self):
@@ -327,8 +329,11 @@ class Guard:
             if not good or good["id"] != img:
                 s["good"] = {"id": img, "digest": self._digest(img, repo), "ref": ref}
                 self.log(f"{self.target} healthy on {short(img)}: now the known-good image")
+                self._protect(repo, img)
                 self._prune(repo, img)
                 result = "good"
+            elif img not in self._protected:  # e.g. after the guard restarted
+                self._protect(repo, img)
             self._save()
         elif not good or good["id"] == img:
             self._say_once(f"{self.target} is {h} on {short(img)}" + (", the known-good image: not rolling back" if good else
@@ -349,11 +354,21 @@ class Guard:
             result = self._maybe_resume(now) or result
         return result
 
+    def _protect(self, repo, image_id):
+        """Tag the known-good image <repo>:rollback straight away. An untagged image can be deleted as soon as no
+        container uses it (Docker's containerd image store does, right after Watchtower replaces the container), and
+        the rollback needs it later. The tag moves only when a newer image has proved healthy."""
+        try:
+            self.docker.tag(image_id, repo, "rollback")
+            self._protected = {image_id}
+        except Exception as e:
+            self.log(f"tagging the known-good image {short(image_id)} as {repo}:rollback failed: {e}")
+
     def _rollback(self, c, ref, repo, good, now):
         s = self.state
         bad = c["Image"]
         try:
-            if not self.docker.image(good["id"]):
+            if not self.docker.image(good["id"]):  # the :rollback tag normally keeps it; else it comes back by digest
                 if not good.get("digest"):
                     raise DockerError(404, f"known-good image {short(good['id'])} is gone and has no registry digest")
                 self.log(f"pulling the known-good image {good['digest']}")
@@ -408,22 +423,19 @@ class Guard:
         return "resumed"
 
     def _prune(self, repo, keep):
-        """Remove the app's other images now that `keep` is healthy. Never the guard's own image; Docker itself
-        refuses images a container (e.g. <name>-failed) still uses, which just stay."""
+        """Remove the app's untagged images now that `keep` is healthy: the ones left behind when :latest and
+        :rollback moved on. Never a tagged image (a :latest Watchtower just pulled may not be running yet, and the
+        guard's own :guard); Docker itself refuses images a container (e.g. <name>-failed) still uses."""
         try:
             images = self.docker.images()
         except Exception as e:
             self.log(f"listing images: {e}")
             return
         for im in images:
-            names = (im.get("RepoTags") or []) + (im.get("RepoDigests") or [])
-            if im["Id"] == keep or any(n.startswith(repo + ":guard") for n in names) or \
-                    not any(n.startswith(repo + ":") or n.startswith(repo + "@") for n in names):
+            tags = [t for t in im.get("RepoTags") or [] if t != "<none>:<none>"]
+            if im["Id"] == keep or tags or not any(d.startswith(repo + "@") for d in im.get("RepoDigests") or []):
                 continue
             try:
-                tags = im.get("RepoTags") or []
-                for t in tags[1:]:  # untag first: removing a multi-tagged image by id needs force
-                    self.docker.remove_image(t)
                 self.docker.remove_image(im["Id"])
                 self.log(f"removed old image {short(im['Id'])}")
             except Exception as e:

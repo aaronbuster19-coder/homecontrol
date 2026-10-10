@@ -85,8 +85,10 @@ Watchtower doesn't roll back, so the stack runs a small **rollback guard** next 
 (`homecontrol-rollback-guard`, image `:guard`, code in `ops/rollback_guard.py`). It looks at the app's Docker
 health check every 10 s:
 
-- When the app is healthy, its image is the *known-good* one (older app images are then removed; Watchtower runs
-  without `--cleanup` so the previous image is still there for a rollback).
+- When the app is healthy, its image is the *known-good* one and is tagged `…/homecontrol:rollback` straight away.
+  The tag keeps it on disk after Watchtower moves `:latest` on: with Docker's containerd image store an untagged
+  image is deleted as soon as no container uses it. Once a newer image is healthy the tag moves to it, and the
+  untagged leftovers are removed (Watchtower runs without `--cleanup`; the guard does the cleaning).
 - When Watchtower has started a **new** image and it isn't healthy for **2.5 minutes** in a row (`ROLLBACK_AFTER`,
   seconds; crashing and restarting counts as not healthy), the guard recreates `homecontrol` from the known-good
   image with the same settings, volumes and network. The failed container is kept, stopped, as

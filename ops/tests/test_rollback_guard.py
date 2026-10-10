@@ -91,7 +91,8 @@ class FakeDocker:
 
     def tag(self, iid, repo, tag):
         self.ops.append(("tag", iid, f"{repo}:{tag}"))
-        self.add_image(iid, self.images_[iid]["RepoTags"] + [f"{repo}:{tag}"],
+        tags = self.images_[iid]["RepoTags"]
+        self.add_image(iid, tags + [f"{repo}:{tag}"] if f"{repo}:{tag}" not in tags else tags,
                        (self.images_[iid]["RepoDigests"] or ["@"])[0].partition("@")[2] or None)
 
     def remove_image(self, ref):
@@ -189,6 +190,10 @@ def publish(d, iid, digest_char):
     old = d.by_name("homecontrol")
     del d.containers[old["Id"]]
     d.run("homecontrol", iid)
+    # Docker's containerd image store drops an image once it has no tag and no container (seen on Docker 29):
+    # only the guard's :rollback tag keeps the known-good image.
+    for i in [i for i in d.images_.values() if not i["RepoTags"] and not any(c["Image"] == i["Id"] for c in d.containers.values())]:
+        del d.images_[i["Id"]]
 
 
 def run_for(guard, clock, seconds, step=10):
@@ -207,9 +212,14 @@ def test_healthy_app_becomes_known_good(env):
     g = guard()
     assert g.step() == "good"
     assert g.state["good"] == {"id": OLD, "digest": f"{REPO}@sha256:" + "1" * 64, "ref": LATEST}
+    # Tagged at once: an untagged image can vanish once Watchtower replaces its container.
+    assert d.images_[OLD]["RepoTags"] == [LATEST, f"{REPO}:rollback"]
     assert g.step() == "idle"
-    # state survives a restart of the guard
-    assert guard().state["good"]["id"] == OLD
+    # state survives a restart of the guard, which re-tags the known-good image if the tag went missing
+    d.images_[OLD]["RepoTags"] = [LATEST]
+    g2 = guard()
+    assert g2.state["good"]["id"] == OLD and g2.step() == "idle"
+    assert f"{REPO}:rollback" in d.images_[OLD]["RepoTags"]
 
 
 def test_good_update_is_kept_and_old_image_pruned(env):
@@ -223,6 +233,7 @@ def test_good_update_is_kept_and_old_image_pruned(env):
     assert g.step() == "good"
     assert g.state["good"]["id"] == NEW and "watch" not in g.state
     assert ("rmi", OLD) in d.ops and OLD not in d.images_
+    assert d.images_[NEW]["RepoTags"] == [LATEST, f"{REPO}:rollback"]   # the tag moved to the new known-good image
     assert not [o for o in d.ops if o[0] in ("stop", "create")]
 
 
@@ -241,6 +252,7 @@ def test_unhealthy_update_rolls_back_after_150s(env):
     assert labels[WT_LABEL] == "false" and labels[FROM_LABEL] == f"{REPO}@sha256:" + "2" * 64 and labels[AT_LABEL]
     assert labels["com.docker.compose.project"] == "homecontrol"
     assert labels["com.docker.compose.image"] == OLD   # so Dockge → Update sees it differs from :latest and recreates
+    assert not [o for o in d.ops if o[0] == "pull"]     # the :rollback tag kept the image: no registry needed
     # The failed image's own defaults don't leak into the rolled-back container; the stack's settings do carry over.
     assert new["Config"]["Env"] == IMAGE_ENV[OLD] + ["HA_URL=http://ha:8123", "DB_PATH=/data/layout.db"]
     assert new["Config"]["Healthcheck"] == {"Test": ["CMD", "aa"]}
@@ -438,6 +450,17 @@ def test_missing_container_waits(env):
     g = guard()
     d.containers.clear()
     assert g.step() == "missing" and g.step() == "missing" and len(logs) == 1
+
+
+def test_tagged_images_never_pruned(env):
+    """A :latest Watchtower has pulled but not started yet must survive the known-good image being marked."""
+    d, clock, guard, logs = env
+    g = guard()
+    d.add_image(NEW, [LATEST], "sha256:" + "2" * 64)   # pulled; the app still runs OLD (now untagged but :rollback)
+    d.images_[OLD]["RepoTags"] = []                     # the guard restarted and never tagged it
+    d.images_[OLD]["RepoDigests"] = [f"{REPO}@sha256:" + "1" * 64]
+    assert g.step() == "good"
+    assert NEW in d.images_ and d.images_[OLD]["RepoTags"] == [f"{REPO}:rollback"]
 
 
 def test_guard_image_never_pruned(env):
