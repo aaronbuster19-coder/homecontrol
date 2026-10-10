@@ -444,6 +444,12 @@ class Activity:
                         "user_password_reset": "reset the password of", "password_changed": "changed the password of"}
                 add(t, "security", "login", f"{x.get('by') or 'Someone'} {what.get(x.get('action'), 'changed')} "
                     f"user {x.get('username') or '?'}")
+            elif k == "guest_link":  # backend/guest_links.py: a QR / link made, opened on a phone, revoked
+                label = x.get("label") or "?"
+                text = {"created": f"{x.get('by') or 'Someone'} made guest link “{label}”",
+                        "revoked": f"{x.get('by') or 'Someone'} revoked guest link “{label}”",
+                        "opened": f"Guest link “{label}” opened"}.get(x.get("action"), f"Guest link “{label}” changed")
+                add(t, "security", "login", text, detail=x.get("ip") and f"from {x['ip']}")
             elif k == "push":
                 sent = x.get("sent")
                 add(t, "alerts", "push", f"Notification: {x['title']}", detail=x.get("body") or None,

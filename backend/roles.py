@@ -10,6 +10,8 @@ A route that is NOT in the table is admin-only, so a new endpoint is safe by def
 until it is classified. To open a new endpoint to members or guests add one line here, e.g.
     ("GET", "/api/brief"): MEMBER,
 LIGHTS: guests may call it only for a light.* {entity_id}; members and admins always.
+LINK: only a guest-link session (role "link", backend/guest_links.py: a QR code for one room's lights) — and that role
+gets nothing but LINK routes, so it can't reach anything else, today's routes or tomorrow's.
 """
 import json
 
@@ -19,6 +21,7 @@ from .auth import is_public
 
 GUEST, MEMBER, ADMIN = "guest", "member", "admin"
 LIGHTS = "lights"
+LINK = "link"  # both the level of the guest-link session routes and the role of such a session
 RANK = {GUEST: 0, MEMBER: 1, ADMIN: 2}
 
 POLICY: dict[tuple[str, str], str] = {
@@ -135,13 +138,24 @@ POLICY: dict[tuple[str, str], str] = {
     ("PUT", "/api/tariff/settings"): ADMIN,
     ("GET", "/api/appliances/{fid}/runs"): MEMBER,
     ("PUT", "/api/appliances/{fid}/runs/{rid}"): MEMBER,  # a note on a run, not a setting
+    # guest links / QR codes (backend/guest_links.py): admins make and revoke them; a link session gets only LINK routes
+    ("GET", "/api/guest/links"): ADMIN,
+    ("POST", "/api/guest/links"): ADMIN,
+    ("DELETE", "/api/guest/links/{lid}"): ADMIN,
+    ("POST", "/api/guest/redeem"): GUEST,  # public: swaps the link's token for a cookie, rate-limited
+    ("GET", "/api/guest/session"): LINK,
+    ("GET", "/api/guest/session/events"): LINK,
+    ("POST", "/api/guest/session/devices/{entity_id}/toggle"): LINK,
+    ("POST", "/api/guest/session/devices/{entity_id}/light"): LINK,
     ("GET", "/openapi.json"): ADMIN,
     ("GET", "/docs"): ADMIN,
     ("GET", "/docs/oauth2-redirect"): ADMIN,
     ("GET", "/redoc"): ADMIN,
 }
 
-DENIED = {GUEST: "Guests can only switch the lights.", MEMBER: "Only an admin can change settings."}
+DENIED = {GUEST: "Guests can only switch the lights.", MEMBER: "Only an admin can change settings.",
+          LINK: "A guest link only switches its own lights."}
+LINK_ONLY = "Only a guest link can use this."  # an account on a LINK route
 
 
 def route_key(route, method: str) -> tuple[str, str]:
@@ -155,6 +169,8 @@ def level_for(key: tuple[str, str]) -> str:
 
 
 def allowed(role: str | None, level: str, params: dict) -> bool:
+    if role == LINK or level == LINK:  # a link session: LINK routes and nothing else; LINK routes: link sessions only
+        return role == level
     if role not in RANK:
         return False
     if level == LIGHTS:
@@ -205,11 +221,12 @@ class RoleMiddleware:
         level = level_for(route_key(route, scope["method"]))
         if allowed(role, level, child.get("path_params") or {}):
             return await self.app(scope, receive, send)
-        await self._deny(send, role)
+        await self._deny(send, role, level)
 
     @staticmethod
-    async def _deny(send, role):
-        body = json.dumps({"detail": DENIED.get(role, "Only an admin can do that.")}).encode()
+    async def _deny(send, role, level=None):
+        detail = LINK_ONLY if level == LINK and role in RANK else DENIED.get(role, "Only an admin can do that.")
+        body = json.dumps({"detail": detail}).encode()
         await send({"type": "http.response.start", "status": 403,
                     "headers": [(b"content-type", b"application/json"), (b"cache-control", b"no-store")]})
         await send({"type": "http.response.body", "body": body})
