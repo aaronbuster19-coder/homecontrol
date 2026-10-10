@@ -85,6 +85,7 @@ class FakeHA:
 def quiet_automations(monkeypatch):
     """The background automation loop stays idle in API tests; automation tests drive tick() themselves."""
     monkeypatch.setattr("backend.automations.STARTUP_DELAY", 3600)
+    monkeypatch.setattr("backend.tariff.STARTUP_DELAY", 3600)  # tariff tests drive tick() themselves
 
 
 @pytest.fixture(autouse=True)

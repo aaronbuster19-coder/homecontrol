@@ -5,15 +5,20 @@ import re
 import pytest
 from playwright.sync_api import expect
 
-from conftest import PASSWORD, USER, hold, marker, marker_center, shot, toggles
+from conftest import PASSWORD, USER, WAIT, hold, marker, marker_center, shot, toggles
 
 SIZES = ["tablet", "portrait", "phone"]
+
+
+DAY = "2026-10-09T12:00:00+01:00"
 
 
 @pytest.fixture
 def new_page(stack, ha, open_page):
     """Signed in, wall-test layout saved, not navigated yet."""
-    return lambda size="tablet", clock=None, **kw: open_page(stack, size, goto=None, clock=clock, **kw)
+    # By day unless a test says otherwise: at night (23:00-07:00 by the browser's clock) the wall dims sooner and is
+    # always dark, so on the real clock these tests failed every night.
+    return lambda size="tablet", clock=DAY, **kw: open_page(stack, size, goto=None, clock=clock, **kw)
 
 
 def set_settings(page, **vals):
@@ -79,7 +84,7 @@ def test_wall_url_tap_longpress_and_screens(new_page, stack, ha, size):
     page.click("#sheetClose")
     # Dim with a short idle timeout set through the settings dialog.
     set_settings(page, idle=3)
-    expect(page.locator("#wallDim")).to_be_visible(timeout=6000)
+    expect(page.locator("#wallDim")).to_be_visible(timeout=WAIT * 1000)
     expect(page.locator("#wallDimTime")).to_have_text(re.compile(r"^\d\d:\d\d$"))
     expect(page.locator("#wallDimInfo")).to_contain_text("86.4 W")
     expect(page.locator("#wallPower")).to_be_visible()
@@ -108,12 +113,12 @@ def test_away_home_and_all_off(new_page, stack, ha):
     page.click("#modeOk")
     ha.wait_call(lambda c: c["service"] == "set_temperature")
     ha.wait_call(lambda c: c["service"] == "turn_off")
-    expect(page.locator("#wallAway .st")).to_have_text("Away", timeout=3000)
+    expect(page.locator("#wallAway .st")).to_have_text("Away", timeout=WAIT * 1000)
     expect(page.locator("#wallAway")).to_have_class(re.compile("away"))
     shot(page, "wall-tablet-away")
     # Back home, then All off with its confirmation.
     page.click("#wallAway"); page.click("#modeOk")
-    expect(page.locator("#wallAway .st")).to_have_text("Home", timeout=3000)
+    expect(page.locator("#wallAway .st")).to_have_text("Home", timeout=WAIT * 1000)
     ha.reset()  # back to lounge, strip and TV on; wait until the page has those states, not a fixed delay
     page.wait_for_function("['light.lounge', 'light.strip', 'switch.tv'].every((e) => st.devices.get(e)?.state === 'on')")
     asked = []

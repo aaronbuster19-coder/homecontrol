@@ -11,6 +11,11 @@ Test controls: GET /fake/calls (service call log), POST /fake/reset (calls + sta
 also as /_state), POST /fake/forecast {"cold": true} (tonight drops to 1°) or {"error": 500} (get_forecasts fails)
 and GET /fake/forecast_calls (get_forecasts requests, kept out of /fake/calls). POST /fake/fail {"service": "turn_on",
 "count": n, "status": 500} makes the next n calls of that service fail (logged in /fake/calls as "failed": true).
+Fake Octopus Energy API (the app's OCTOPUS_API points here in the browser tests): GET /octopus/v1/products/<product>/
+electricity-tariffs/<code>/standard-unit-rates/ — deterministic half-hourly prices for any period (7.5p 01:00–04:00,
+35p 16:00–19:00 London time, 18–24p otherwise); products other than AGILE-*/GO-* answer 404. POST /fake/octopus
+{"fail": true} makes it answer 503, {"tomorrow": false} withholds the last day of the requested period; GET
+/fake/octopus_calls lists the requests (kept out of /fake/calls).
 With FAKE_HA_TV=1 a Samsung TV (media_player, with a SmartThings duplicate on the same device), a speaker, and
 GET /api/media_player_proxy/<entity> (the TV's artwork, a PNG) exist (e2e/test_tv.py).
 """
@@ -93,6 +98,9 @@ def initial_states():
         # presence for Auto Away (HA person entities; the companion app's zone: home / not_home / a zone name)
         s("person.alex", "home", friendly_name="Alex", source="device_tracker.alex_phone"),
         s("person.sam", "home", friendly_name="Sam", source="device_tracker.sam_phone"),
+        # HA's sun (presence lighting: below_horizon = dark); the tests set the state they need
+        s("sun.sun", "above_horizon", next_setting="2026-10-09T17:24:00+00:00", next_rising="2026-10-10T06:13:00+00:00",
+          friendly_name="Sun"),
         # outdoor weather: the Met.no entity HA creates by default (forecasts via weather.get_forecasts)
         s("weather.forecast_home", "partlycloudy", temperature=12.4, apparent_temperature=10.2, humidity=71, wind_speed=16.1,
           wind_bearing=225, temperature_unit="°C", wind_speed_unit="km/h", pressure=1012, friendly_name="Forecast Home"),
@@ -180,6 +188,7 @@ app.state.sockets = set()
 app.state.changes = {}   # entity id -> [(before, after)] state dicts: real changes, merged into the history
 app.state.forecast = {}  # {"cold": bool, "error": status}
 app.state.forecast_calls = []
+app.state.octopus, app.state.octopus_calls = {}, []  # fake Octopus settings, requests
 app.state.fail = {}  # service -> {"count": n, "status": code}: the next n calls of it fail (disco error tests)
 
 
@@ -234,7 +243,7 @@ def forecast(kind: str) -> list[dict]:
         for i in range(36):
             t = now + timedelta(hours=i)
             h = t.astimezone(LONDON).hour
-            night = h >= 20 or h < 7
+            night = h >= 20 or h < 8  # the app's "tonight" runs to 08:00
             temp = (1.0 if cold else 7.0) + (0 if night else 6 + 4 * math.sin((h - 9) / 10 * math.pi))
             out.append({"datetime": t.isoformat(), "condition": "clear-night" if night else ["sunny", "partlycloudy", "rainy"][i % 3],
                         "temperature": round(temp, 1), "precipitation": 0.4 if i % 3 == 2 else 0.0,
@@ -354,17 +363,18 @@ def _rows(eid: str, start: datetime, end: datetime, with_attrs: bool) -> list[di
             if tt >= start:
                 row(tt, state, {"humidity": target, "current_humidity": cur_h})
         return out if with_attrs else [{**r, "attributes": {}} for r in out]
+    quiet = end - timedelta(minutes=5)  # no generated switching in the last minutes: a test's own change is the newest
     if eid.startswith(("light.", "switch.")):
         on = False
-        while t < end:
+        while t < quiet:
             row(t, "on" if on else "off")
             t += timedelta(minutes=rnd.randint(20, 40) if on else rnd.randint(60, 200))
             on = not on
     elif eid.startswith("binary_sensor."):
-        while t < end:
+        while t < quiet:
             row(t, "off")
             t += timedelta(minutes=rnd.randint(50, 240))
-            if t >= end:
+            if t >= quiet:
                 break
             row(t, "on")
             t += timedelta(minutes=rnd.randint(1, 25))
@@ -425,6 +435,38 @@ async def history(start: str, request: Request):
     return out
 
 
+# ---------- fake Octopus Energy API ----------
+def octo_price(t: datetime) -> float:
+    loc = t.astimezone(LONDON)
+    if 1 <= loc.hour < 4:
+        return 7.5
+    if 16 <= loc.hour < 19:
+        return 35.0
+    return round(21 + 3 * math.sin(loc.hour / 24 * 2 * math.pi), 2)
+
+
+@app.get("/octopus/v1/products/{product}/electricity-tariffs/{code}/standard-unit-rates/")
+async def octopus_rates(product: str, code: str, request: Request):
+    q = request.query_params
+    app.state.octopus_calls.append({"product": product, "code": code, **dict(q)})
+    if app.state.octopus.get("fail"):
+        return JSONResponse({"detail": "Service unavailable"}, 503)
+    if not product.startswith(("AGILE-", "GO-")) or not code.startswith(f"E-1R-{product}-"):
+        return JSONResponse({"detail": "No EnergyTariff matches the given query."}, 404)
+    t0 = datetime.fromisoformat(q["period_from"].replace("Z", "+00:00"))
+    t1 = datetime.fromisoformat(q["period_to"].replace("Z", "+00:00"))
+    if app.state.octopus.get("tomorrow") is False:  # the last local day isn't published yet
+        last = (t1 - timedelta(seconds=1)).astimezone(LONDON).date()
+        t1 = datetime.combine(last, datetime.min.time(), tzinfo=LONDON).astimezone(timezone.utc)
+    out, t = [], t0
+    while t < t1:
+        out.append({"value_exc_vat": round(octo_price(t) / 1.05, 4), "value_inc_vat": octo_price(t),
+                    "valid_from": t.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "valid_to": (t + timedelta(minutes=30)).strftime("%Y-%m-%dT%H:%M:%SZ"), "payment_method": None})
+        t += timedelta(minutes=30)
+    return {"count": len(out), "next": None, "previous": None, "results": out[::-1]}
+
+
 @app.get("/api/media_player_proxy/{entity_id}")
 async def media_proxy(entity_id: str):
     from fastapi.responses import Response
@@ -445,6 +487,8 @@ async def reset():
     app.state.changes.clear()
     app.state.forecast = {}
     app.state.fail = {}
+    app.state.octopus = {}
+    app.state.octopus_calls.clear()
     app.state.states = initial_states()
     for eid in app.state.states:
         await broadcast(eid)
@@ -471,6 +515,17 @@ async def set_fail(request: Request):
     body = await request.json()
     app.state.fail[body["service"]] = {"count": int(body.get("count", 1)), "status": int(body.get("status", 500))}
     return app.state.fail
+
+
+@app.post("/fake/octopus")
+async def set_octopus(request: Request):
+    app.state.octopus = await request.json()
+    return app.state.octopus
+
+
+@app.get("/fake/octopus_calls")
+async def octopus_calls():
+    return app.state.octopus_calls
 
 
 @app.get("/fake/forecast_calls")
@@ -507,4 +562,6 @@ async def websocket(ws: WebSocket):
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host=sys.argv[2] if len(sys.argv) > 2 else "127.0.0.1", port=int(sys.argv[1]), log_level="warning")
+    # Keep-alive far longer than any test, so it never closes an idle connection the app is about to reuse (conftest.py).
+    uvicorn.run(app, host=sys.argv[2] if len(sys.argv) > 2 else "127.0.0.1", port=int(sys.argv[1]), log_level="warning",
+                timeout_keep_alive=600)

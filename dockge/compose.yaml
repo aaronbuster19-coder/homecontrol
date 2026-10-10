@@ -1,4 +1,5 @@
-# Dockge stack: runs the image CI publishes after the tests pass on main; Watchtower pulls new versions.
+# Dockge stack: runs the image CI publishes after the tests pass on main; Watchtower pulls new versions and the
+# rollback guard puts the last healthy version back if a new one doesn't get healthy (README → Auto deploy).
 # Set HA_URL, HA_TOKEN, APP_USER, APP_PASSWORD (and optionally WEB_PORT) in the stack's .env.
 # While the ghcr.io package is private, run `docker login ghcr.io` on this host once (GitHub user + a token with
 # read:packages); Watchtower uses those credentials.
@@ -27,11 +28,30 @@ services:
     image: containrrr/watchtower:1.7.1
     container_name: homecontrol-watchtower
     restart: unless-stopped
-    # Only containers labelled above; check every 5 minutes; remove the old image after updating.
-    command: --label-enable --interval 300 --cleanup
+    # Only containers labelled above; check every 5 minutes. No --cleanup: the previous image stays for a rollback,
+    # and the rollback guard removes old images once a new version is healthy.
+    command: --label-enable --interval 300
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /root/.docker/config.json:/config.json:ro
 
+  rollback-guard:
+    # ops/rollback_guard.py, published by CI as :guard. Not labelled for Watchtower: it changes only when you
+    # redeploy the stack. If homecontrol runs a new image that isn't healthy for ROLLBACK_AFTER seconds, it recreates
+    # it from the last healthy image (:rollback) and pauses updates until a newer :latest is published.
+    # `docker logs homecontrol-rollback-guard` shows what it did; ROLLBACK_ENABLED=false makes it only watch.
+    image: ghcr.io/aaronbuster19-coder/homecontrol:guard
+    container_name: homecontrol-rollback-guard
+    restart: unless-stopped
+    environment:
+      GUARD_TARGET: homecontrol
+      ROLLBACK_AFTER: ${ROLLBACK_AFTER:-150}
+      ROLLBACK_ENABLED: ${ROLLBACK_ENABLED:-true}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /root/.docker/config.json:/config.json:ro
+      - rollback-guard:/state
+
 volumes:
   homecontrol-data:
+  rollback-guard:

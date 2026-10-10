@@ -114,7 +114,8 @@ def on(p, state="on"):
     ("kettle", on(1000.0), "Idle"),          # over, not at, the threshold
     ("kettle", on(0.0, "off"), "Off"),
     ("kettle", {"state": "unavailable"}, "Offline"),
-    ("fan", on(35.04), "On · 35 W"),
+    ("fan", on(35.04), "On"),
+    ("fan", on(0.0), "Idle"),               # plug on, fan itself switched off
     ("fan", on(None), "On"),
     ("fridge", on(85.0), "Cooling"),
     ("fridge", on(30.0), "Idle"),
@@ -145,7 +146,7 @@ def test_threshold_ranges():
         with pytest.raises(ValueError):
             validate_thresholds(bad, "kettle")
     with pytest.raises(ValueError):
-        validate_thresholds({"on_w": 10}, "fan")  # "on" rule: no thresholds at all
+        validate_thresholds({"on_w": 10}, "floor_lamp")  # "on" rule: no thresholds at all
 
 
 # ---------------- cycle detector ----------------

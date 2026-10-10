@@ -197,6 +197,8 @@ def test_glow_and_watts_follow_power(appliance_stack, aha, open_page, size):
     aha.set("switch.plug_3", "on")
     aha.set("sensor.plug_3_power", "35")
     expect(tag(page, "fan")).to_have_text("On · 35 W")
+    aha.set("sensor.plug_3_power", "0")  # plug on, fan itself switched off
+    expect(tag(page, "fan")).to_have_text("Idle · 0 W")
     expect(tag(page, "fridge")).to_have_text("Idle · 2.1 W")
     aha.set("sensor.fridge_power", "84")
     expect(tag(page, "fridge")).to_have_text("Cooling · 84 W")
@@ -635,6 +637,9 @@ def test_server_is_protected_and_pc_status(appliance_stack, aha, open_page, size
     # The PC toggles on a tap like any appliance…
     tap(page, *appl_center(page, "pc"))
     aha.wait_call(lambda c: c["service"] == "toggle" and c["data"] == {"entity_id": "switch.pc"})
+    # Wait for the plan to show the PC off: the re-render that follows the toggle would otherwise land in the middle
+    # of the next tap on a busy runner, replacing the element under the finger so the tap's click never fires.
+    expect(tag(page, "pc")).to_have_count(0)
     # …the server opens its sheet instead.
     tap(page, *appl_center(page, "server"))
     expect(page.locator("#sheet")).to_be_visible()

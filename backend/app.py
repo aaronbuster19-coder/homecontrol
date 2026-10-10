@@ -17,7 +17,7 @@ class RevalidatingStaticFiles(StaticFiles):
         resp = super().file_response(*args, **kwargs)
         resp.headers["Cache-Control"] = "no-cache"
         return resp
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from . import activity as activity_api, weather as weather_api
 from . import brief as brief_api
@@ -39,12 +39,16 @@ from .live import Live, build_device, ws_url
 from .schedules import ScheduleError, validate_schedule
 from .schedules import validate_settings as validate_schedule_settings
 from . import media, presence as presence_api, standby as standby_api
+from . import presence_lighting as presence_lighting_api
 from . import underlay as underlay_api
 from . import tiles as tiles_api
+from . import runlog as runlog_api, tariff as tariff_api
 from .modes import ModeError, ModeStore, current_targets, now_iso, public, restore_groups, validate_mode_settings
 from .summary import local_tz
 from . import climate as climate_api
 from . import disco as disco_api
+from . import scenes as scenes_api, sleeptimer as sleep_api
+from . import guest_links as guest_api
 from .store import NAME_MAX, LayoutError, LayoutStore, carry_settings, stored_media, stored_plugs, stored_refs, validate_energy, validate_layout
 
 CACHE_TTL = 300
@@ -105,6 +109,13 @@ def light_data(b: LightBody) -> dict:
     return data
 
 
+def guest_light_data(data) -> dict:
+    try:
+        return light_data(LightBody.model_validate(data))
+    except ValidationError:
+        raise HTTPException(400, "send brightness_pct, hs_color, rgb_color or color_temp_kelvin")
+
+
 def on_off_groups(devs: dict[str, Device], entity_ids) -> dict[str, list[str]]:
     """Split lights/plugs (and dehumidifiers and TVs, for "All off") by HA domain; raises ValueError naming the first id that
     isn't one."""
@@ -158,7 +169,9 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
         alerts.start()
         automations.start()
         weather.start()
+        timers.start()  # sleep timers (backend/sleeptimer.py): their end times survive a restart
         yield
+        await timers.stop()
         await weather.stop()
         await automations.stop()
         await alerts.stop()
@@ -246,6 +259,9 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
                             devices, store.get, live.broadcast, activity.record, clock)
     app.state.disco = disco
     live.add_observer(disco.observe)
+    timers = sleep_api.SleepTimers(sleep_api.TimerStore(settings.db_path), lambda *a: ha.call_service(*a), devices,
+                                   lambda: live.states, store.get, live.broadcast, activity.record, disco.interrupt, clock)
+    app.state.timers = timers
     hold_push = automations.quiet.store.add
 
     def logged_hold(key: str, category: str, payload: dict, at: float):
@@ -773,6 +789,8 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
     # ---- Auto Away (backend/presence.py), standby saver (backend/standby.py) ----
     presence_api.add_routes(app, automations.presence, devices, live, ha, json_body, automations.wake.set)
     standby_api.add_routes(app, automations.standby, devices, plug_devices, energy, store.get, live, json_body, automations.wake.set)
+    presence_lighting_api.add_routes(app, automations.lighting, devices, ensure_states, live, store.get, json_body,
+                                     automations.wake.set)  # door opens after dark -> room lights
 
     # ---- Smart preheat + damp warnings (backend/climate.py): own loop, own routes ----
     climate_api.add_routes(app, climate_api.Climate(
@@ -782,6 +800,26 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
     app.include_router(underlay_api.router(settings.db_path))
     # ---- quick tiles: pinned favourites for /?view=tiles (backend/tiles.py) ----
     tiles_api.add_routes(app, tiles_api.TileStore(settings.db_path), devices, json_body)
+    # ---- scenes (backend/scenes.py) and sleep timers (backend/sleeptimer.py) ----
+    scenes_api.add_routes(app, scenes_api.Scenes(scenes_api.SceneStore(settings.db_path), lambda *a: ha.call_service(*a),
+                                                 devices, lambda: live.states, store.get, disco, clock), ensure_states, json_body)
+    sleep_api.add_routes(app, timers, ensure_states, json_body)
+    # ---- Octopus tariff (backend/tariff.py) + appliance run log (backend/runlog.py): own loop, own routes ----
+    runs = runlog_api.RunLog(runlog_api.RunStore(settings.db_path), automations.store, store.get, automations.appliances,
+                             lambda p, a, b: tariff.run_price(p, a, b), clock)
+    live.add_observer(runs.observe)
+    tariff = tariff_api.Tariff(automations.store, tariff_api.RateStore(settings.db_path), store.get, live, runs,
+                               automations.appliances, appliance_stats, devices, lambda p: automations._notify(p, "tariff"),
+                               lambda: automations.quiet.state()["active"], clock, local_tz())
+    energy.pricer, energy.tariff_info = tariff.pricer, tariff.info  # half-hourly rates in the Energy sheet's costs
+    tariff_api.add_routes(app, tariff, json_body)
+    runlog_api.add_routes(app, runs, json_body)
+    # ---- guest links / QR codes: one room's lights or chosen devices, nothing else (backend/guest_links.py) ----
+    guest_links = guest_api.GuestLinks(guest_api.LinkStore(settings.db_path, clock), devices, store.get, live,
+                                       ensure_states, clock)
+    guest_api.add_routes(app, guest_links, json_body, guest_light_data, lambda ids: disco.interrupt("manual", ids),
+                         lambda *a: ha.call_service(*a), activity.record)
+    app.add_middleware(guest_api.GuestLinkMiddleware, links=guest_links)  # outermost: link cookies on its routes only
 
     @app.get("/sw.js", include_in_schema=False)
     async def service_worker():

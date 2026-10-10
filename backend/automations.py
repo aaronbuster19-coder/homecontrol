@@ -19,6 +19,7 @@ from .dehumidifier import TankAlert
 from .geometry import opening_rooms, placed_in
 from .live import build_device
 from .presence import Presence
+from .presence_lighting import PresenceLighting
 from .quiet import HeldStore, Quiet
 from .schedules import ScheduleEngine, ScheduleStore
 from .standby import StandbySaver
@@ -34,7 +35,8 @@ WEEK = 7 * 24 * 3600
 BATTERY_LOW, BATTERY_OK = 15, 20  # alert below 15 %, consider it replaced at 20 % (no flapping around 15)
 RECOVER_SECS = 120      # "back online" only once a device has stayed available this long
 UNAVAILABLE_GRACE = 3600  # a window sensor that drops out keeps the hold this long, then the radiator is released
-ACTORS = {"window heating": "window heating", "auto away": "Auto Away", "standby saver": "standby saver"}
+ACTORS = {"window heating": "window heating", "auto away": "Auto Away", "standby saver": "standby saver",
+          "presence lighting": "presence lighting"}
 
 
 class AutoStore:
@@ -310,6 +312,8 @@ class Automations:
         self.schedules = ScheduleEngine(ScheduleStore(store.path), ha.call_service, layout_store.get, mode, self.window, clock, tz)
         self.presence = Presence(store, lambda p: self._notify(p, "presence"), mode, clock, tz)  # Auto Away
         self.standby = StandbySaver(store, ha.call_service, ha, layout_store.get, mode, clock, tz)
+        self.lighting = PresenceLighting(store, ha.call_service, layout_store.get, mode,  # backend/presence_lighting.py
+                                         self.schedules.store.settings, clock, tz)
         self.wake = asyncio.Event()
         self._task: asyncio.Task | None = None
         live.add_observer(self.on_device)
@@ -329,6 +333,8 @@ class Automations:
             self.standby.observe(item)
         if item.get("kind") in ("sensor", "person") or self.tank.observe(item):
             self.wake.set()
+        if self.lighting.observe(item):
+            self.wake.set()
         try:
             if self.appliances.observe(item):
                 self.wake.set()
@@ -347,6 +353,7 @@ class Automations:
                                ("window heating", lambda: self._window(devices, states)),
                                ("auto away", lambda: self._locked(self.presence.tick(devices, states))),
                                ("standby saver", lambda: self._locked(self.standby.tick(devices, states))),
+                               ("presence lighting", lambda: self._locked(self.lighting.tick(devices, states))),
                                ("device health", lambda: self.health.tick(devices, states)),
                                ("dehumidifier tank", lambda: self.tank.tick(
                                    [build_device(d, states) for d in devices.values() if d.kind == "dehumidifier"])),
@@ -396,7 +403,8 @@ class Automations:
                 log.warning("automations check failed: %s", e)
             wait = every
             try:  # wake up right when the next schedule / Auto Away / standby saver step is due
-                due = min((t for t in (self.schedules.next_due(), self.presence.next_due(), self.standby.next_due())
+                due = min((t for t in (self.schedules.next_due(), self.presence.next_due(), self.standby.next_due(),
+                                                  self.lighting.next_due())
                            if t is not None), default=None)
                 if due is not None:
                     wait = min(every, max(0.5, due - self.clock() + 0.1))

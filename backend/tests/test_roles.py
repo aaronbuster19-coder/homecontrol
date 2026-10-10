@@ -7,7 +7,7 @@ import pytest
 from starlette.routing import Route
 
 from backend import roles
-from backend.roles import ADMIN, GUEST, LIGHTS, MEMBER, POLICY, allowed, classified_routes
+from backend.roles import ADMIN, GUEST, LIGHTS, LINK, MEMBER, POLICY, allowed, classified_routes
 
 MEMBER_PW, GUEST_PW = "member-pass-1", "guest-pass-1"
 
@@ -35,7 +35,7 @@ def test_every_route_is_classified(client):
 
 
 def test_policy_levels_are_known():
-    assert set(POLICY.values()) <= {GUEST, MEMBER, ADMIN, LIGHTS}
+    assert set(POLICY.values()) <= {GUEST, MEMBER, ADMIN, LIGHTS, LINK}
 
 
 def test_allowed_matrix():
@@ -47,6 +47,12 @@ def test_allowed_matrix():
     assert allowed(MEMBER, LIGHTS, {"entity_id": "switch.fan"})
     assert not allowed(None, GUEST, {}) and not allowed("root", GUEST, {})
     assert not allowed(MEMBER, "typo", {}) and allowed(ADMIN, "typo", {})
+    # A guest-link session gets LINK routes and nothing else; LINK routes are for link sessions only.
+    assert allowed(LINK, LINK, {"entity_id": "switch.fan"})
+    for level in (GUEST, MEMBER, ADMIN, LIGHTS, "typo"):
+        assert not allowed(LINK, level, {"entity_id": "light.kitchen"}), level
+    for role in (GUEST, MEMBER, ADMIN, None):
+        assert not allowed(role, LINK, {}), role
 
 
 def test_unclassified_route_is_admin_only(client, people):
@@ -93,7 +99,7 @@ def test_every_route_per_role(client, people, fake_ha, role):
             assert r.status_code != 403, (role, method, url, r.text)
         else:
             assert r.status_code == 403, (role, method, url, r.status_code)
-            assert r.json()["detail"] in roles.DENIED.values()
+            assert r.json()["detail"] in (*roles.DENIED.values(), roles.LINK_ONLY)
             assert len(fake_ha.service_calls()) == before, (role, method, url)
 
 

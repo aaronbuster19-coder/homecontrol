@@ -46,7 +46,8 @@ signed in for 90 days (an HttpOnly cookie, `Secure` when served over https). Sig
 - Changing `APP_PASSWORD` signs that account out everywhere; changing `SESSION_SECRET` signs everyone out.
 - 10 wrong passwords from one client within 10 minutes → locked out for the rest of that window (HTTP 429).
 - `curl -u user:pass` (HTTP Basic) still works for the API; the browser never gets a Basic popup.
-- Public without login: `/healthz`, the login page, manifest, icons, service worker.
+- Public without login: `/healthz`, the login page, manifest, icons, service worker, and the guest-link page
+  (`/guest.html`, see [Guest links](#guest-links-qr-codes)).
 
 ### Install the app
 
@@ -71,14 +72,53 @@ While the package is private, log in once on dockerbox so Docker and Watchtower 
 ### Auto deploy
 
 When a push to `main` passes the tests, the `publish` job in `.github/workflows/test.yml` (on the Hyper-V CI runners)
-builds that exact commit and pushes it to ghcr.io as `:latest` and `:<commit sha>`. The stack's Watchtower container
+builds that exact commit and pushes it to ghcr.io as `:latest` and `:<commit sha>` (and the rollback guard as `:guard`). The stack's Watchtower container
 checks every 5 minutes, pulls a new `:latest` and recreates the app. No runner is needed on dockerbox.
 
 - Switch auto deploy off: repository variable `AUTO_DEPLOY=false`
   (GitHub → Settings → Secrets and variables → Actions → Variables), or stop the Watchtower container.
-- Roll back: set `image: ghcr.io/aaronbuster19-coder/homecontrol:<older commit sha>` in the stack, stop Watchtower,
-  and redeploy; put `:latest` back (and start Watchtower) when fixed.
-- Watchtower doesn't roll back by itself: if a new version is unhealthy, `docker ps` shows it as unhealthy.
+- Roll back by hand: set `image: ghcr.io/aaronbuster19-coder/homecontrol:<older commit sha>` in the stack, stop
+  Watchtower, and redeploy; put `:latest` back (and start Watchtower) when fixed.
+
+### Automatic rollback
+
+Watchtower doesn't roll back, so the stack runs a small **rollback guard** next to it
+(`homecontrol-rollback-guard`, image `:guard`, code in `ops/rollback_guard.py`). It looks at the app's Docker
+health check every 10 s:
+
+- When the app is healthy, its image is the *known-good* one and is tagged `…/homecontrol:rollback` straight away.
+  The tag keeps it on disk after Watchtower moves `:latest` on: with Docker's containerd image store an untagged
+  image is deleted as soon as no container uses it. Once a newer image is healthy the tag moves to it, and the
+  untagged leftovers are removed (Watchtower runs without `--cleanup`; the guard does the cleaning).
+- When Watchtower has started a **new** image and it isn't healthy for **2.5 minutes** in a row (`ROLLBACK_AFTER`,
+  seconds; crashing and restarting counts as not healthy), the guard recreates `homecontrol` from the known-good
+  image with the same settings, volumes and network. The failed container is kept, stopped, as
+  `homecontrol-failed` so you can read its logs.
+- Updates are then **paused**: the rolled-back container carries `com.centurylinklabs.watchtower.enable=false`, so
+  Watchtower leaves it alone. Every 5 minutes the guard asks ghcr.io for `:latest`; as soon as a newer image than
+  the failed one is published (your fix, after CI), it pulls it, puts the app back on `:latest` with Watchtower on,
+  and the new image gets the same 2.5-minute probation.
+- An image that was healthy once is never rolled back later (e.g. while HA is down), and with no known-good image
+  (a fresh install that never got healthy) there is nothing to roll back to: the guard only logs.
+
+**See a rollback:**
+```sh
+docker logs homecontrol-rollback-guard        # "ROLLED BACK homecontrol: … Updates paused until …"
+docker ps -a --filter name=homecontrol        # homecontrol on …:rollback, homecontrol-failed (Exited)
+docker inspect homecontrol --format '{{json .Config.Labels}}'   # homecontrol.rollback.from / .at
+docker logs homecontrol-failed                # why the new version failed
+docker exec homecontrol-rollback-guard python /guard/rollback_guard.py status   # known-good image, pause
+```
+
+**Undo it** (run the new version anyway): Dockge → the stack → *Update* (or
+`docker compose up -d --force-recreate homecontrol` in the stack folder). That recreates `homecontrol` from the compose file on `:latest` with Watchtower on, which ends the pause.
+If that version is still unhealthy the guard rolls it back again after 2.5 minutes; to stop that, set
+`ROLLBACK_ENABLED=false` in the stack's `.env` and update the stack (the guard then only watches and logs), or stop
+`homecontrol-rollback-guard`. `docker rm homecontrol-failed` once you've read its logs.
+
+The guard itself is not updated by Watchtower: it changes when you *Update* the stack in Dockge. It needs the
+Docker socket and the same `/root/.docker/config.json` as Watchtower (to read `:latest`'s digest and, if the
+known-good image was deleted, pull it back by digest); its state lives in the `rollback-guard` volume.
 
 ## Using it
 
@@ -333,7 +373,11 @@ play_pause, next, previous, sound_mode}, the attributes above and `picture` (art
 The ⋯ button at the right of the header holds: Away / I'm home, *Auto Away…* (see *Auto Away*), Wall mode, *Schedules…* (see *Schedules*), *Activity* and *Weather settings…* (see *Activity*, *Weather*), *Show temperature & humidity on plan*, *Show furniture* (see *Furniture*), Energy, Hidden devices, Export layout,
 Import layout, Units (m/ft), Refresh devices and Sign out. It closes on a tap outside or Escape.
 The ⋯ button at the right of the header holds: Away / I'm home, *Auto Away…* (see *Auto Away*), Wall mode, *Schedules…* (see *Schedules*), *Show temperature & humidity on plan*, *Show furniture* (see *Furniture*), Energy, Hidden devices, Export layout,
-Import layout, Units (m/ft), Theme (see *Theme*), Refresh devices and Sign out. It closes on a tap outside or Escape.
+Import layout, Units (m/ft), Theme (see *Theme*), Refresh devices and Sign out — plus *Disco…* and *Scenes…* (see *Disco
+mode*, *Scenes*). It closes on a tap outside or Escape.
+
+Import layout, Units (m/ft), Theme (see *Theme*), Refresh devices and Sign out — plus *Tariff…* after Energy (see
+*Octopus tariff and run log*). It closes on a tap outside or Escape.
 
 - **Temperatures on the plan:** every room with a radiator valve in it (L-shapes respected) is tinted by the
   valve's current temperature — blue at 16° or less, neutral around 19–20°, orange at 23° or more — with the
@@ -512,6 +556,64 @@ the whole flat.**
   `GET /api/energy/standby` → `{from, to, nights, rate_p, plugs: [{entity_id, name, hidden, avg_w, coverage_h,
   year_kwh, year_p}]}` (`avg_w` null with under an hour of overnight data).
 
+## Octopus tariff and run log
+
+⋯ → **Tariff…** uses your Octopus Energy tariff's half-hourly prices (Agile, Go, Intelligent Go, or any other product
+code). **Off by default**; an admin switches it on in that sheet. Nothing here ever switches an appliance on.
+
+- **Settings** (admins): *Tariff* — Agile Octopus (`AGILE-24-10-01`), Octopus Go (`GO-VAR-22-10-14`), Intelligent
+  Octopus Go (`INTELLI-VAR-22-10-14`) or *Other product code…*; *Region* — the letter A–P at the end of the tariff code
+  on your bill (`E-1R-AGILE-24-10-01-C` → C, London; default C). An unknown code shows Octopus's “check the product
+  code” in the sheet.
+- **Prices:** the price now (green when cheap, amber average, red dear — against the day's average; blue when Agile
+  pays you to use power), and today's / tomorrow's prices as half-hour bars (tap or hover one for its price). Agile
+  publishes tomorrow's prices at about 16:00; until then the sheet says so.
+- **From Octopus's public API** (no account or key): `GET https://api.octopus.energy/v1/products/<product>/
+  electricity-tariffs/E-1R-<product>-<region>/standard-unit-rates/`, one request each time (`page_size` 1500), when
+  switched on or the tariff / region changes, from 15:45 every 15 min until tomorrow's prices are in, otherwise every
+  6 h; after an error 5, 10, 20 … min, at most hourly. Prices (p/kWh incl. VAT) are kept in SQLite (`tariff_rates`,
+  120 days), so the app **works offline with the last known prices** (“Showing the last known prices from 16:05 …”)
+  and after restarts; the browser also keeps the last answer for when the phone is offline. `OCTOPUS_API` (env)
+  replaces the API's base URL — the tests point it at a fake.
+- **Best time to run:** for each linked **washing machine, dishwasher and tumble dryer** (see *Appliances*): the
+  cheapest stretch of its typical run length among the prices known from now on — starting now or on a half hour —
+  e.g. “01:00–03:00 tomorrow · avg 7.5p/kWh · ≈ 19p a run · 31p less than now”. The typical length is the average cycle
+  from its *Usage* stats (HA history, the same cycle rules), else its last runs in the run log, else 2 h (dishwasher
+  2½ h), and the sheet says which. “≈ a run” assumes an even draw over the cycle. Also shown in the appliance's sheet
+  (*Cheapest time to run*, *Prices →*).
+- **Reminder** (off by default; *Remind me before the cheapest time*, 5 min – 2 h before): one push, “Cheap electricity
+  from 01:00 — Good time to start the Washing machine: 01:00–03:00 averages 7.5p/kWh … Nothing is switched on
+  automatically.”, at most once per appliance per window and per 12 h, marked as sent before it goes out (no repeats
+  after a restart). Not while the appliance is running, not when the window is less than 0.5p/kWh cheaper than now, and
+  **never during quiet hours**: it's skipped, not held for the morning digest. Tapping it opens the sheet (`/?tariff`).
+- **Energy costs:** with *Price energy costs with these half-hourly rates* (default on while the tariff is on) the
+  Energy sheet prices each half-hour of each plug at its own rate (“Priced at Agile Octopus half-hourly rates
+  (London).”); a half-hour without a known price uses the flat unit rate (*Energy costs*), else the average of the known
+  prices. The plug sheet's “Today … · 10p”, the weekly summary, the morning brief and the monthly report still use the
+  flat unit rate.
+
+**Run log** — each run of a linked appliance, in its sheet under **Run history** (newest first, 20 at a time, *Load
+older*): “Sat 17 Oct · 10:00–11:00 · 1 h · 0.48 kWh · 11p”, and the run going on now (“Running since 10:00 · 0.3 kWh
+so far”). **+ Add note** / **✎ Edit note** (members and admins; up to 200 characters, e.g. “40° cotton, towels”).
+
+- What a run is: washer / dryer / dishwasher — a cycle as the *Running … / Finished* status sees it (switched off
+  mid-cycle: “switched off before it finished”); hoover — a charge until *Charged*; everything else — the plug drawing
+  more than the appliance's busy level (3 W for fans, lamps and the like) until it has stayed below it for 1 min
+  (kettle, microwave, coffee machine, toaster) or 10 min (the rest, so a heater's thermostat pauses don't split a run),
+  or the plug goes off. Runs under 20 s don't count. Fridges, freezers and home servers are always on: no run log.
+- Energy is integrated from the plug's live power readings (no extra HA calls); cost at the half-hourly prices when the
+  tariff prices costs, else at the flat unit rate (none set: kWh only). A run that began before a restart is marked
+  “energy since a restart only”. Kept 400 days in SQLite (`appliance_runs`); timers survive restarts.
+- API: `GET /api/tariff` → `{settings, enabled, product, name, region, region_name, code, now, current: {start, end, p},
+  next, today / tomorrow: {date, label, slots: [{start, p}], complete, known, min, max, avg, cheapest}, fetched_at,
+  next_fetch, error, stale, costs, flat_rate_p, suggestions: [{fid, name, type, plug, minutes, source:
+  history|runs|default, kwh, running, start, end, avg_p, est_p, now_avg_p, saving_p, starts_now}], regions, presets}`
+  (times in ms, prices in p/kWh) · `PUT /api/tariff/settings` (admin, partial) `{"enabled", "product", "region",
+  "use_for_costs", "remind", "remind_lead_min"}` · `POST /api/tariff/refresh` (at most every 30 s) ·
+  `GET /api/appliances/{id}/runs?before=<ms>&limit=20` → `{fid, tracked, now, current, runs: [{id, start, end, minutes,
+  kwh, cost_p, partial, outcome: finished|charged|stopped, note}], next_before}` · `PUT /api/appliances/{id}/runs/{run id}`
+  `{"note"}`. Guests get none of it. `GET /api/energy` adds `tariff` (`{name, product, region, region_name}` or null).
+
 ## Auto Away
 
 ⋯ → **Auto Away…** (also *Automatic…* in the Away dialog) switches to Away when everyone has left and back Home
@@ -542,6 +644,40 @@ off except keep-on, radiators to the away temperature with their targets remembe
   out_since, away_at, blocked: null|"manual"|"hours", manual_until, arrival_at, last, log}` ·
   `PUT /api/presence/settings` `{"enabled", "people": null|[ids], "away_minutes", "come_home", "only_between",
   "from", "to", "notify"}` (partial updates).
+
+## Presence lighting
+
+⋯ → **Presence lighting…**: when a door opens after dark, that room's lights come on; they go off again once there
+has been no door activity for a while. **Off by default, twice:** a master switch, then each room on its own.
+
+- **Per room:** the *door sensors* (default: the sensors linked to the doors on its walls — a door on a shared wall
+  counts for both rooms) and the *lights* (default: the lights placed in it). Pick others under *N doors · N lights*;
+  *Use the plan's defaults* goes back. Only `light.*` entities can be chosen, so plugs (fridge, home server, keep-on)
+  are never switched. **Off after N min without door activity** (default 10, 1–120).
+- **Dark** is Home Assistant's `sun.sun` (`below_horizon`). Without it, sunset / sunrise are computed for the
+  schedules' location (London unless changed in ⋯ → Schedules) in `TZ_NAME`. The sheet says which, and until when.
+- **On:** a door contact opening (closed → open) after dark switches on the room's lights that are off — one
+  `light.turn_on` per room, at most every 10 s (debounced). Lights that were already on aren't touched and never
+  switched off by it. Daylight openings switch nothing.
+- **Off:** any door activity (open or close) restarts the quiet period; after it, the lights it switched on that are
+  still on go off.
+- **Never fights you:** a room light switched on or off by anyone else (wall switch, the app, a schedule) pauses the
+  room until the next quiet period (N min without door activity), and the lights it had switched on become yours —
+  it never switches them off. Its own changes are recognised (the state it asked for, within a minute).
+- **Never while Away:** nothing switches on; Away's own switch-off isn't counted as a hand change.
+- Safety: decisions run in the automations loop (woken by door / light changes and when a quiet period ends); what it
+  switched on, pauses and timers are kept in SQLite, so a restart still switches its lights off, and door events from
+  before a restart are never replayed. A failed switch-on is not retried (the next opening may try after a minute); a
+  failed switch-off is retried after 1, then 2 min, then given up. Turning the master switch or a room off forgets
+  what it had switched on. Actions show in *Activity* as “presence lighting” and in the sheet's *Recent* list.
+- Roles: admins change it; members see the sheet read-only; guests don't see it (the server answers 403).
+- API: `GET /api/presence-lighting` → `{enabled, now, mode, dark: {dark, source: "ha"|"computed", until},
+  rooms: [{id, name, enabled, quiet_minutes, sensors, lights, auto_sensors, auto_lights, suggested_sensors,
+  room_lights, phase: "off"|"setup"|"daylight"|"ready"|"on"|"paused"|"away", owned, off_at, paused_until}],
+  all_sensors, all_lights, log}` · `PUT /api/presence-lighting/settings` `{"enabled"}` ·
+  `PUT /api/presence-lighting/rooms/{room_id}` `{"enabled", "sensors": null|[ids], "lights": null|[ids],
+  "quiet_minutes"}` (partial updates; `null` = the plan's defaults). Settings live in the automations' SQLite table,
+  not in the layout, so layout JSON is unchanged.
 
 ## Standby saver
 
@@ -748,10 +884,14 @@ appliance (“Fridge · Plug 2”). ‹ / › go through the months (up to 12 ba
 `GET /api/alerts/quiet` · `POST /api/alerts/mute` · `GET`/`POST /api/schedules` · `PUT`/`DELETE /api/schedules/{id}` ·
 `PUT /api/schedules/settings` · `GET /api/automations/status` (`windows_linked`, `held`) ·
 `GET /api/presence` · `PUT /api/presence/settings` · `GET /api/standby` · `PUT /api/standby/{entity_id}` ·
+`GET /api/presence-lighting` · `PUT /api/presence-lighting/settings` · `PUT /api/presence-lighting/rooms/{room_id}` ·
 `GET /api/summary/latest` (404 until the first one) · `POST /api/summary/preview` ·
 `GET /api/history/{entity_id}?range=24h|7d|30d` (`series` `[{name, unit, points: [[t_ms, v|null]]}]`, `timeline` `[{state, start, end}]`, plugs: `energy_kwh`) ·
 `GET /api/doors/log?range=24h|7d&tz=Europe/London` (per door: `events` `[{t, state, open_ms}]` newest first, `summary`) ·
-`GET /api/activity` (see *Activity*) · `GET`/`POST /api/disco…` (see *Disco mode*) · `GET /api/weather` · `PUT /api/weather/settings` · `POST /api/weather/refresh` (see *Weather*)
+`GET /api/activity` (see *Activity*) · `GET`/`PUT`/`POST /api/tariff…`, `GET`/`PUT /api/appliances/{id}/runs…` (see *Octopus
+tariff and run log*) · `GET`/`POST /api/disco…` (see *Disco mode*) · `…/api/scenes…` (see *Scenes*) · `…/api/timers…` (see
+*Sleep timers*) · `/api/guest/…` (see *Guest links*) · `GET /api/weather` · `PUT /api/weather/settings` ·
+`POST /api/weather/refresh` (see *Weather*)
 
 Devices carry `power` (W), `energy_today` (kWh), `battery` (%) and `battery_low` (bool) when HA knows them.
 
@@ -768,11 +908,14 @@ deploys it.
   (from Microsoft's registry, not Docker Hub) with its own network namespace, so the test servers on 127.0.0.1 inside
   the container never meet the live app. On failure, screenshots and Playwright traces are uploaded as an artifact
   (`e2e-failure-…`, kept 7 days; open a trace with `playwright show-trace <file>.zip` or at trace.playwright.dev).
-- `publish` (main only) needs both.
+- `e2e-slow`: the same browser suite at the same time on another runner, with the container held to one CPU
+  (`--cpus=1`), so a test that only passes on an idle machine fails here first.
+- `publish` (main only) needs all three, and also pushes the rollback guard as `:guard`
+  (see [Automatic rollback](#automatic-rollback)).
 
 ```sh
 pip install -r requirements-dev.txt
-python -m pytest backend/tests          # HA is mocked; no real devices touched
+python -m pytest backend/tests ops/tests   # HA and Docker are mocked; no real devices or containers touched
 docker build --target test .            # same, inside the image
 node --test tests/*.test.js            # snapping / wall maths (frontend/snap.js), plain Node, no npm
 HA_URL=… HA_TOKEN=… APP_USER=u APP_PASSWORD=p DB_PATH=./data/layout.db \
@@ -903,12 +1046,65 @@ Colour lights (the TP-Link L530 / L630 / L430C, anything HA says can do hs/rgb c
   carries the same status on every start / stop. 400 for a bad request or no colour lights on, 403 for a light the role
   can't control.
 
+## Scenes
+One-tap presets — *Movie night*, *Bedtime*, *Morning* — for lights, plugs and TVs, run by the server.
+- **Make one:** ⋯ → **Scenes…** → **+ New scene**. Give it a name and, optionally, a room (*Show in*: the device list
+  then shows that room's devices first, and the scene gets a chip in that room's view). **Tick devices: each starts as it
+  is right now** (on/off, brightness, white temperature or colour, a TV's source), so setting the room up by hand and
+  then ticking everything captures it. Then change anything: **On / Off**; for lights the brightness, *White* (kelvin)
+  or *Colour* (swatches) or *keep as it is*; for TVs the source. **Use current state** reads every ticked device from
+  Home Assistant again. Up to 30 scenes of up to 40 devices. *Edit* in the list changes or deletes one.
+- **Optional disco:** a scene with a colour light it switches on can *Then start a disco with its colour lights*
+  (Rainbow fade or Slow chill, a speed, stops after 10 min … 2 h — see *Disco mode*). Party flash isn't offered: it
+  needs its photosensitivity warning every time.
+- **Run it:** tap it in ⋯ → *Scenes…*, its chip in the room view (▶ *Bedtime*), or the **Scenes** row above the quick
+  tiles (*/?view=tiles*). The status line says what happened and names anything skipped.
+- **One batched set of HA calls:** one call per distinct payload (every light going to 40 % warm white in one
+  `light.turn_on`), switch-ons first, then TV sources, then switch-offs; a disco it holds starts after that.
+  Something already in the scene's state (a TV already off, already on that source) sends nothing. Tapping it twice
+  within 2 s doesn't send it twice.
+- **Safe:** fridge / freezer / home-server plugs and *Keep on* plugs are never switched off — the Off choice is
+  disabled for them and the server refuses such a scene; one that became protected later is skipped. Unavailable
+  devices, ones gone from Home Assistant and TV sources the TV no longer has are skipped (and reported), never retried;
+  one failed call doesn't stop the rest. A disco running on the scene's lights lets go of them first. The calls show in
+  *Activity* as “by Scene “Bedtime””.
+- **Roles:** members and admins make, edit and run scenes; **guests see and run only the scenes made of lights alone**.
+- Stored in SQLite (table `scenes`, not in the layout). API: `GET /api/scenes` → `{scenes: [{id, name, room, actions,
+  disco, guest_ok}], max, max_actions, disco_presets, disco_speeds}` · `POST /api/scenes` / `PUT /api/scenes/{id}`
+  `{name, room?, actions: [{entity_id, on, brightness_pct?, hs_color? | color_temp_kelvin? | rgb_color?, source?}],
+  disco?: {preset, speed, minutes}}` · `DELETE /api/scenes/{id}` · `POST /api/scenes/capture` `{entity_ids}` →
+  `{actions, skipped}` (the current state as actions; saves nothing) · `POST /api/scenes/{id}/run` →
+  `{ok, calls, skipped, failed, disco, repeat?}`. 400 for a bad scene, 403 for a role that can't.
+
+## Sleep timers
+“Off in 15 / 30 / 60 minutes” — or any number up to 12 h — for a light, a plug, a TV or a whole room.
+- **Set one:** in a light's, plug's or TV's sheet (long-press it on the plan) under **Sleep timer**: *15 min*, *30 min*,
+  *1 h* or *Custom* (type the minutes, *Set*). For a room: the **Sleep** chip in its room view, which lists what it will
+  switch off (the room's lights, plugs and TVs). Setting it again replaces the old time.
+- **See it:** running timers show above the device list with a countdown (× cancels), in the device's sheet (“Off in
+  23 min · 23:45”, *Cancel*) and on the room chip (“Off in 15 min”). Every signed-in screen updates at once (SSE `timers`).
+- **Server-side:** the end time is stored (SQLite table `sleep_timers`), so the timer keeps going while the phone sleeps
+  and **survives a restart** (a deploy) without restarting its countdown. A timer that came due while the app was down
+  still fires if it is at most 15 minutes late; an older one is dropped and noted in *Activity* (“missed”).
+- **When it fires:** one `turn_off` per kind (lights, plugs, TVs) for whatever is **still on**; nothing is ever switched
+  on. If Home Assistant fails it tries again after 30 s, three attempts in all, then gives up (shown in *Activity*).
+  Fridge / freezer / home-server plugs and *Keep on* plugs can't get a timer and are never part of a room's.
+- **Roles:** guests can set and cancel timers for lights (a guest's room timer takes the room's lights only); members
+  and admins for everything. A guest sees others' timers but can't cancel one that switches more than lights.
+- API: `GET /api/timers` → `{now, timers: [{id, target: entity|room, entity_id, room, name, entity_ids, minutes,
+  created_at, ends_at, user, retrying, may_cancel}], presets, max_minutes, last}` (times in ms) · `POST /api/timers`
+  `{entity_id | room, minutes: 1–720}` · `DELETE /api/timers/{id}`. 400 for something a timer can't switch off, 403 for
+  a role that can't.
+
 ## Users and roles
 Everyone gets their own login, with one of three roles:
 | Role | Can |
 |---|---|
 | **Admin** | everything: settings, layout (Edit), schedules, Auto Away, standby saver, names, users |
 | **Member** | control every device, Heating / All off, Away / I'm home, mute pushes, alerts on their own phone; read history, energy, activity. No settings, layout or user changes |
+| **Guest** | see the plan and switch / dim the **lights** (start / stop a disco, run light-only scenes, set sleep timers for lights); nothing else. Optional expiry (1 day … 1 month) |
+
+| **Member** | control every device, Heating / All off, Away / I'm home, mute pushes, alerts on their own phone; read history, energy, activity, tariff prices; add notes to appliance runs. No settings, layout or user changes |
 | **Guest** | see the plan and switch / dim the **lights** (and start / stop a disco with them); nothing else. Optional expiry (1 day … 1 month) |
 - **Upgrading needs nothing:** the `APP_USER` / `APP_PASSWORD` login becomes the first admin on start (its existing
   cookies stay valid). That account is always an admin and can't be removed or demoted from the app; its password stays
@@ -924,7 +1120,8 @@ Everyone gets their own login, with one of three roles:
 - The UI hides what a role can't use, but every route is enforced on the server (HTTP 403 with a short reason).
   Additions and changes to accounts show in *Activity* under *Security*.
 **For developers — classifying routes.** `backend/roles.py` has one `POLICY` table: `(METHOD, path template) -> least
-role` (`GUEST`, `MEMBER`, `ADMIN`, or `LIGHTS` = guests only for a `light.*` `{entity_id}`). `RoleMiddleware` (inside the
+role` (`GUEST`, `MEMBER`, `ADMIN`, `LIGHTS` = guests only for a `light.*` `{entity_id}`, or `LINK` = guest-link
+sessions only, which get nothing else — see *Guest links*). `RoleMiddleware` (inside the
 auth guard) finds the route a request will hit and checks it, so **a route missing from the table is admin-only**.
 `backend/tests/test_roles.py::test_every_route_is_classified` fails until each new route has a line, e.g.
 `("GET", "/api/brief"): MEMBER,` — and it calls every listed route as each role to check the 403s.
@@ -933,3 +1130,33 @@ fresh cookie) · admin: `GET /api/users` · `POST /api/users` `{username, passwo
 seconds, guests only, within a year) · `PATCH /api/users/{username}` `{role?, expires?}` ·
 `PUT /api/users/{username}/password` `{password}` · `DELETE /api/users/{username}`. Writes need
 `Content-Type: application/json`. Passwords: 8–256 characters; usernames: 1–32 of letters, digits, `. _ @ -`.
+
+## Guest links (QR codes)
+Let a visitor switch the lights without an account: **⋯ → Guest links…** (admins) makes a link and a QR code that
+works for a set time and only for **one room's lights**, or for **lights and plugs you pick**.
+- **Make one:** a name (who it's for), *Can switch* (a room — only rooms with lights on the plan are offered — or
+  *Lights and plugs I choose…*), *Works for* (2 hours … 30 days, default 1 day) → *Create link*. The sheet shows the QR
+  code (made in the browser by the vendored `frontend/qr.js`, no CDN), the link with *Copy link* / *Share…*. It is shown
+  **only then**: the server keeps just a SHA-256 of it, so a lost link can't be shown again — revoke it and make a new
+  one. At most 20 live links.
+- **The visitor** scans it and gets a simple page (`/guest.html`): big on/off buttons for those lights, a brightness
+  slider and colour swatches where the bulb has them, live as they change. Nothing else in the flat appears — no plan,
+  no other device names or states. Fridges, home servers and *Keep on* plugs can never be in a link (and drop out of
+  one if marked later). A room link follows the plan: lights moved into or out of the room are in or out at once.
+- **Ends by itself** at its time, or at once on **Revoke** (the list shows each link's room / devices, until when, how
+  often it was opened, and Active / Expired / Revoked; ended links drop off after a week). An open guest page then says
+  “This link has stopped working”. Making, opening and revoking links show in *Activity* under *Security*.
+- **How it's kept safe:** the token is 32 random bytes in the URL *fragment* (`/guest.html#…`), which browsers never
+  send to a server or in a Referer; the page swaps it for an HttpOnly, SameSite=Strict cookie limited to `/api/guest`
+  and removes it from the address bar. A link session is its own role (`link` in `backend/roles.py`): it may call the
+  `/api/guest/session…` routes below and nothing else — every other route, including ones added later, answers 401 /
+  403 — and each request re-checks expiry and revocation. Wrong tokens (on redeem or as a cookie) are rate-limited: 10
+  per client per 10 minutes, then HTTP 429.
+- API — admin: `GET /api/guest/links` · `POST /api/guest/links` `{label, room | devices: [entity ids], minutes:
+  15–43200}` → the link with `token` and `path` (once) · `DELETE /api/guest/links/{id}` (revoke). Public:
+  `POST /api/guest/redeem` `{token}` (sets the cookie). Link session only: `GET /api/guest/session` →
+  `{label, room, expires, devices: [{entity_id, kind, name, state, brightness?, …}]}` · `GET /api/guest/session/events`
+  (SSE: `snapshot`, `device` for its own devices only, `end` when the link stops) ·
+  `POST /api/guest/session/devices/{entity_id}/toggle` · `POST /api/guest/session/devices/{entity_id}/light`
+  (`brightness_pct`, `hs_color`, `color_temp_kelvin`, as for `/api/devices/{id}/light`). Out-of-scope or unknown
+  devices: 404.
