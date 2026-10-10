@@ -372,7 +372,8 @@ play_pause, next, previous, sound_mode}, the attributes above and `picture` (art
 The ⋯ button at the right of the header holds: Away / I'm home, *Auto Away…* (see *Auto Away*), Wall mode, *Schedules…* (see *Schedules*), *Activity* and *Weather settings…* (see *Activity*, *Weather*), *Show temperature & humidity on plan*, *Show furniture* (see *Furniture*), Energy, Hidden devices, Export layout,
 Import layout, Units (m/ft), Refresh devices and Sign out. It closes on a tap outside or Escape.
 The ⋯ button at the right of the header holds: Away / I'm home, *Auto Away…* (see *Auto Away*), Wall mode, *Schedules…* (see *Schedules*), *Show temperature & humidity on plan*, *Show furniture* (see *Furniture*), Energy, Hidden devices, Export layout,
-Import layout, Units (m/ft), Theme (see *Theme*), Refresh devices and Sign out. It closes on a tap outside or Escape.
+Import layout, Units (m/ft), Theme (see *Theme*), Refresh devices and Sign out — plus *Disco…* and *Scenes…* (see *Disco
+mode*, *Scenes*). It closes on a tap outside or Escape.
 
 - **Temperatures on the plan:** every room with a radiator valve in it (L-shapes respected) is tinted by the
   valve's current temperature — blue at 16° or less, neutral around 19–20°, orange at 23° or more — with the
@@ -790,7 +791,8 @@ appliance (“Fridge · Plug 2”). ‹ / › go through the months (up to 12 ba
 `GET /api/summary/latest` (404 until the first one) · `POST /api/summary/preview` ·
 `GET /api/history/{entity_id}?range=24h|7d|30d` (`series` `[{name, unit, points: [[t_ms, v|null]]}]`, `timeline` `[{state, start, end}]`, plugs: `energy_kwh`) ·
 `GET /api/doors/log?range=24h|7d&tz=Europe/London` (per door: `events` `[{t, state, open_ms}]` newest first, `summary`) ·
-`GET /api/activity` (see *Activity*) · `GET`/`POST /api/disco…` (see *Disco mode*) · `GET /api/weather` · `PUT /api/weather/settings` · `POST /api/weather/refresh` (see *Weather*)
+`GET /api/activity` (see *Activity*) · `GET`/`POST /api/disco…` (see *Disco mode*) · `…/api/scenes…` (see *Scenes*) ·
+`…/api/timers…` (see *Sleep timers*) · `GET /api/weather` · `PUT /api/weather/settings` · `POST /api/weather/refresh` (see *Weather*)
 
 Devices carry `power` (W), `energy_today` (kWh), `battery` (%) and `battery_low` (bool) when HA knows them.
 
@@ -945,13 +947,63 @@ Colour lights (the TP-Link L530 / L630 / L430C, anything HA says can do hs/rgb c
   carries the same status on every start / stop. 400 for a bad request or no colour lights on, 403 for a light the role
   can't control.
 
+## Scenes
+One-tap presets — *Movie night*, *Bedtime*, *Morning* — for lights, plugs and TVs, run by the server.
+- **Make one:** ⋯ → **Scenes…** → **+ New scene**. Give it a name and, optionally, a room (*Show in*: the device list
+  then shows that room's devices first, and the scene gets a chip in that room's view). **Tick devices: each starts as it
+  is right now** (on/off, brightness, white temperature or colour, a TV's source), so setting the room up by hand and
+  then ticking everything captures it. Then change anything: **On / Off**; for lights the brightness, *White* (kelvin)
+  or *Colour* (swatches) or *keep as it is*; for TVs the source. **Use current state** reads every ticked device from
+  Home Assistant again. Up to 30 scenes of up to 40 devices. *Edit* in the list changes or deletes one.
+- **Optional disco:** a scene with a colour light it switches on can *Then start a disco with its colour lights*
+  (Rainbow fade or Slow chill, a speed, stops after 10 min … 2 h — see *Disco mode*). Party flash isn't offered: it
+  needs its photosensitivity warning every time.
+- **Run it:** tap it in ⋯ → *Scenes…*, its chip in the room view (▶ *Bedtime*), or the **Scenes** row above the quick
+  tiles (*/?view=tiles*). The status line says what happened and names anything skipped.
+- **One batched set of HA calls:** one call per distinct payload (every light going to 40 % warm white in one
+  `light.turn_on`), switch-ons first, then TV sources, then switch-offs; a disco it holds starts after that.
+  Something already in the scene's state (a TV already off, already on that source) sends nothing. Tapping it twice
+  within 2 s doesn't send it twice.
+- **Safe:** fridge / freezer / home-server plugs and *Keep on* plugs are never switched off — the Off choice is
+  disabled for them and the server refuses such a scene; one that became protected later is skipped. Unavailable
+  devices, ones gone from Home Assistant and TV sources the TV no longer has are skipped (and reported), never retried;
+  one failed call doesn't stop the rest. A disco running on the scene's lights lets go of them first. The calls show in
+  *Activity* as “by Scene “Bedtime””.
+- **Roles:** members and admins make, edit and run scenes; **guests see and run only the scenes made of lights alone**.
+- Stored in SQLite (table `scenes`, not in the layout). API: `GET /api/scenes` → `{scenes: [{id, name, room, actions,
+  disco, guest_ok}], max, max_actions, disco_presets, disco_speeds}` · `POST /api/scenes` / `PUT /api/scenes/{id}`
+  `{name, room?, actions: [{entity_id, on, brightness_pct?, hs_color? | color_temp_kelvin? | rgb_color?, source?}],
+  disco?: {preset, speed, minutes}}` · `DELETE /api/scenes/{id}` · `POST /api/scenes/capture` `{entity_ids}` →
+  `{actions, skipped}` (the current state as actions; saves nothing) · `POST /api/scenes/{id}/run` →
+  `{ok, calls, skipped, failed, disco, repeat?}`. 400 for a bad scene, 403 for a role that can't.
+
+## Sleep timers
+“Off in 15 / 30 / 60 minutes” — or any number up to 12 h — for a light, a plug, a TV or a whole room.
+- **Set one:** in a light's, plug's or TV's sheet (long-press it on the plan) under **Sleep timer**: *15 min*, *30 min*,
+  *1 h* or *Custom* (type the minutes, *Set*). For a room: the **Sleep** chip in its room view, which lists what it will
+  switch off (the room's lights, plugs and TVs). Setting it again replaces the old time.
+- **See it:** running timers show above the device list with a countdown (× cancels), in the device's sheet (“Off in
+  23 min · 23:45”, *Cancel*) and on the room chip (“Off in 15 min”). Every signed-in screen updates at once (SSE `timers`).
+- **Server-side:** the end time is stored (SQLite table `sleep_timers`), so the timer keeps going while the phone sleeps
+  and **survives a restart** (a deploy) without restarting its countdown. A timer that came due while the app was down
+  still fires if it is at most 15 minutes late; an older one is dropped and noted in *Activity* (“missed”).
+- **When it fires:** one `turn_off` per kind (lights, plugs, TVs) for whatever is **still on**; nothing is ever switched
+  on. If Home Assistant fails it tries again after 30 s, three attempts in all, then gives up (shown in *Activity*).
+  Fridge / freezer / home-server plugs and *Keep on* plugs can't get a timer and are never part of a room's.
+- **Roles:** guests can set and cancel timers for lights (a guest's room timer takes the room's lights only); members
+  and admins for everything. A guest sees others' timers but can't cancel one that switches more than lights.
+- API: `GET /api/timers` → `{now, timers: [{id, target: entity|room, entity_id, room, name, entity_ids, minutes,
+  created_at, ends_at, user, retrying, may_cancel}], presets, max_minutes, last}` (times in ms) · `POST /api/timers`
+  `{entity_id | room, minutes: 1–720}` · `DELETE /api/timers/{id}`. 400 for something a timer can't switch off, 403 for
+  a role that can't.
+
 ## Users and roles
 Everyone gets their own login, with one of three roles:
 | Role | Can |
 |---|---|
 | **Admin** | everything: settings, layout (Edit), schedules, Auto Away, standby saver, names, users |
 | **Member** | control every device, Heating / All off, Away / I'm home, mute pushes, alerts on their own phone; read history, energy, activity. No settings, layout or user changes |
-| **Guest** | see the plan and switch / dim the **lights** (and start / stop a disco with them); nothing else. Optional expiry (1 day … 1 month) |
+| **Guest** | see the plan and switch / dim the **lights** (start / stop a disco, run light-only scenes, set sleep timers for lights); nothing else. Optional expiry (1 day … 1 month) |
 - **Upgrading needs nothing:** the `APP_USER` / `APP_PASSWORD` login becomes the first admin on start (its existing
   cookies stay valid). That account is always an admin and can't be removed or demoted from the app; its password stays
   in `.env`. Renaming `APP_USER` replaces it.

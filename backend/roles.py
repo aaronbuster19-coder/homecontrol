@@ -114,6 +114,17 @@ POLICY: dict[tuple[str, str], str] = {
     ("GET", "/api/disco"): GUEST,
     ("POST", "/api/disco/start"): GUEST,
     ("POST", "/api/disco/stop"): GUEST,
+    # scenes (backend/scenes.py): guests see and run the scenes made of lights alone (the handler checks); members edit
+    ("GET", "/api/scenes"): GUEST,
+    ("POST", "/api/scenes/{sid}/run"): GUEST,
+    ("POST", "/api/scenes"): MEMBER,
+    ("POST", "/api/scenes/capture"): MEMBER,
+    ("PUT", "/api/scenes/{sid}"): MEMBER,
+    ("DELETE", "/api/scenes/{sid}"): MEMBER,
+    # sleep timers (backend/sleeptimer.py): guests for lights only (the handlers check every device a timer switches)
+    ("GET", "/api/timers"): GUEST,
+    ("POST", "/api/timers"): GUEST,
+    ("DELETE", "/api/timers/{tid}"): GUEST,
     ("GET", "/openapi.json"): ADMIN,
     ("GET", "/docs"): ADMIN,
     ("GET", "/docs/oauth2-redirect"): ADMIN,

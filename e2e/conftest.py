@@ -163,11 +163,12 @@ class Stack:
         target = ["--app-dir", str(ROOT / "e2e"), "clock_app:create"] if clock else ["backend.app:create_app"]
         # Keep-alive far longer than any test: with uvicorn's 5 s the server closes an idle connection just as a
         # starved client reuses it, and the request fails with ECONNRESET (seen under --cpus=1).
-        self.app_proc = subprocess.Popen(
-            [sys.executable, "-m", "uvicorn", *target, "--factory", "--host", HOST,
-             "--port", str(app_port), "--log-level", "warning", "--timeout-keep-alive", "600"], cwd=ROOT, env=env)
+        self._app_cmd = ([sys.executable, "-m", "uvicorn", *target, "--factory", "--host", HOST,
+                          "--port", str(app_port), "--log-level", "warning",
+                          "--timeout-keep-alive", "600"], env, f"http://{HOST}:{app_port}/healthz")
+        self.app_proc = subprocess.Popen(self._app_cmd[0], cwd=ROOT, env=env)
         try:
-            wait_http(f"http://{HOST}:{app_port}/healthz", self.app_proc)
+            wait_http(self._app_cmd[2], self.app_proc)
         except Exception:
             stop(self.ha_proc)
             raise
@@ -184,6 +185,12 @@ class Stack:
 
     def close(self):
         stop(self.app_proc, self.ha_proc)
+
+    def restart_app(self):
+        """Stop the app and start it again on the same port and database (the fake HA keeps running)."""
+        stop(self.app_proc)
+        self.app_proc = subprocess.Popen(self._app_cmd[0], cwd=ROOT, env=self._app_cmd[1])
+        wait_http(self._app_cmd[2], self.app_proc)
 
     def set_clock(self, t):
         """Clock stacks only: set the server clock to epoch seconds t (it keeps ticking) and wake the automations."""
