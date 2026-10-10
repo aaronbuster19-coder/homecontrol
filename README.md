@@ -71,14 +71,53 @@ While the package is private, log in once on dockerbox so Docker and Watchtower 
 ### Auto deploy
 
 When a push to `main` passes the tests, the `publish` job in `.github/workflows/test.yml` (on the Hyper-V CI runners)
-builds that exact commit and pushes it to ghcr.io as `:latest` and `:<commit sha>`. The stack's Watchtower container
+builds that exact commit and pushes it to ghcr.io as `:latest` and `:<commit sha>` (and the rollback guard as `:guard`). The stack's Watchtower container
 checks every 5 minutes, pulls a new `:latest` and recreates the app. No runner is needed on dockerbox.
 
 - Switch auto deploy off: repository variable `AUTO_DEPLOY=false`
   (GitHub → Settings → Secrets and variables → Actions → Variables), or stop the Watchtower container.
-- Roll back: set `image: ghcr.io/aaronbuster19-coder/homecontrol:<older commit sha>` in the stack, stop Watchtower,
-  and redeploy; put `:latest` back (and start Watchtower) when fixed.
-- Watchtower doesn't roll back by itself: if a new version is unhealthy, `docker ps` shows it as unhealthy.
+- Roll back by hand: set `image: ghcr.io/aaronbuster19-coder/homecontrol:<older commit sha>` in the stack, stop
+  Watchtower, and redeploy; put `:latest` back (and start Watchtower) when fixed.
+
+### Automatic rollback
+
+Watchtower doesn't roll back, so the stack runs a small **rollback guard** next to it
+(`homecontrol-rollback-guard`, image `:guard`, code in `ops/rollback_guard.py`). It looks at the app's Docker
+health check every 10 s:
+
+- When the app is healthy, its image is the *known-good* one and is tagged `…/homecontrol:rollback` straight away.
+  The tag keeps it on disk after Watchtower moves `:latest` on: with Docker's containerd image store an untagged
+  image is deleted as soon as no container uses it. Once a newer image is healthy the tag moves to it, and the
+  untagged leftovers are removed (Watchtower runs without `--cleanup`; the guard does the cleaning).
+- When Watchtower has started a **new** image and it isn't healthy for **2.5 minutes** in a row (`ROLLBACK_AFTER`,
+  seconds; crashing and restarting counts as not healthy), the guard recreates `homecontrol` from the known-good
+  image with the same settings, volumes and network. The failed container is kept, stopped, as
+  `homecontrol-failed` so you can read its logs.
+- Updates are then **paused**: the rolled-back container carries `com.centurylinklabs.watchtower.enable=false`, so
+  Watchtower leaves it alone. Every 5 minutes the guard asks ghcr.io for `:latest`; as soon as a newer image than
+  the failed one is published (your fix, after CI), it pulls it, puts the app back on `:latest` with Watchtower on,
+  and the new image gets the same 2.5-minute probation.
+- An image that was healthy once is never rolled back later (e.g. while HA is down), and with no known-good image
+  (a fresh install that never got healthy) there is nothing to roll back to: the guard only logs.
+
+**See a rollback:**
+```sh
+docker logs homecontrol-rollback-guard        # "ROLLED BACK homecontrol: … Updates paused until …"
+docker ps -a --filter name=homecontrol        # homecontrol on …:rollback, homecontrol-failed (Exited)
+docker inspect homecontrol --format '{{json .Config.Labels}}'   # homecontrol.rollback.from / .at
+docker logs homecontrol-failed                # why the new version failed
+docker exec homecontrol-rollback-guard python /guard/rollback_guard.py status   # known-good image, pause
+```
+
+**Undo it** (run the new version anyway): Dockge → the stack → *Update* (or
+`docker compose up -d --force-recreate homecontrol` in the stack folder). That recreates `homecontrol` from the compose file on `:latest` with Watchtower on, which ends the pause.
+If that version is still unhealthy the guard rolls it back again after 2.5 minutes; to stop that, set
+`ROLLBACK_ENABLED=false` in the stack's `.env` and update the stack (the guard then only watches and logs), or stop
+`homecontrol-rollback-guard`. `docker rm homecontrol-failed` once you've read its logs.
+
+The guard itself is not updated by Watchtower: it changes when you *Update* the stack in Dockge. It needs the
+Docker socket and the same `/root/.docker/config.json` as Watchtower (to read `:latest`'s digest and, if the
+known-good image was deleted, pull it back by digest); its state lives in the `rollback-guard` volume.
 
 ## Using it
 
@@ -768,11 +807,14 @@ deploys it.
   (from Microsoft's registry, not Docker Hub) with its own network namespace, so the test servers on 127.0.0.1 inside
   the container never meet the live app. On failure, screenshots and Playwright traces are uploaded as an artifact
   (`e2e-failure-…`, kept 7 days; open a trace with `playwright show-trace <file>.zip` or at trace.playwright.dev).
-- `publish` (main only) needs both.
+- `e2e-slow`: the same browser suite at the same time on another runner, with the container held to one CPU
+  (`--cpus=1`), so a test that only passes on an idle machine fails here first.
+- `publish` (main only) needs all three, and also pushes the rollback guard as `:guard`
+  (see [Automatic rollback](#automatic-rollback)).
 
 ```sh
 pip install -r requirements-dev.txt
-python -m pytest backend/tests          # HA is mocked; no real devices touched
+python -m pytest backend/tests ops/tests   # HA and Docker are mocked; no real devices or containers touched
 docker build --target test .            # same, inside the image
 node --test tests/*.test.js            # snapping / wall maths (frontend/snap.js), plain Node, no npm
 HA_URL=… HA_TOKEN=… APP_USER=u APP_PASSWORD=p DB_PATH=./data/layout.db \

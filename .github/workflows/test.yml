@@ -24,9 +24,12 @@ jobs:
       - name: Build production image
         run: docker build --network=host -t homecontrol-ci:${{ github.run_id }} .
 
+      - name: Build rollback guard image
+        run: docker build --network=host --target guard -t homecontrol-ci:guard-${{ github.run_id }} .
+
       - name: Clean up CI images
         if: always()
-        run: docker image rm -f homecontrol-ci:test-${{ github.run_id }} homecontrol-ci:${{ github.run_id }} || true
+        run: docker image rm -f homecontrol-ci:test-${{ github.run_id }} homecontrol-ci:${{ github.run_id }} homecontrol-ci:guard-${{ github.run_id }} || true
 
   e2e:
     # Browser tests (Playwright, e2e/) + the Node unit tests (tests/*.test.js), against the real app and a fake HA.
@@ -35,7 +38,7 @@ jobs:
     # on the same machine; on the CI VMs it uses the VM's network (E2E_DOCKER_ARGS below), where no live app runs.
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, homecontrol-ci]   # the runners in ci-runner/ (Hyper-V VMs on Aaron's desktop)
-    timeout-minutes: 20
+    timeout-minutes: 30   # ~15 min on the VMs; the ceiling is slack for a busy desktop, not a target
     concurrency:
       group: e2e-${{ github.ref }}
       cancel-in-progress: true
@@ -69,11 +72,48 @@ jobs:
           docker rm -f "$E2E_CONTAINER" >/dev/null 2>&1 || true
           rm -rf "$E2E_OUT"
 
+  e2e-slow:
+    # The same browser suite with the container held to one CPU (E2E_DOCKER_ARGS --cpus=1), on another runner at the
+    # same time as e2e: a test that only passes on an idle machine fails here first, not some days later on main.
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, homecontrol-ci]
+    timeout-minutes: 45
+    concurrency:
+      group: e2e-slow-${{ github.ref }}
+      cancel-in-progress: true
+    env:
+      E2E_CONTAINER: homecontrol-e2e-slow-${{ github.run_id }}-${{ github.run_attempt }}
+      E2E_DOCKER_ARGS: --network=host --cpus=1
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Output folder (screenshots, failure traces)
+        run: echo "E2E_OUT=$RUNNER_TEMP/e2e-slow-$GITHUB_RUN_ID" >> "$GITHUB_ENV"
+
+      - name: Browser tests on one CPU
+        run: e2e/docker.sh
+
+      - name: Upload failure screenshots and traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-slow-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.E2E_OUT }}
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Clean up
+        if: always()
+        run: |
+          docker rm -f "$E2E_CONTAINER" >/dev/null 2>&1 || true
+          rm -rf "$E2E_OUT"
+
   publish:
     # Only main, only after the unit and browser tests pass: push the tested image to GitHub's container registry.
-    # dockerbox runs no runner; Watchtower there pulls :latest and restarts the app (see dockge/compose.yaml).
+    # dockerbox runs no runner; Watchtower there pulls :latest and restarts the app (see dockge/compose.yaml), and the
+    # rollback guard (:guard) puts the previous image back if the new one isn't healthy.
     # Set the repository variable AUTO_DEPLOY=false to switch this off.
-    needs: [test, e2e]
+    needs: [test, e2e, e2e-slow]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.AUTO_DEPLOY != 'false'
     runs-on: [self-hosted, homecontrol-ci]
     timeout-minutes: 15
@@ -89,11 +129,15 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Build the tested commit
-        run: docker build -t "$IMAGE:${{ github.sha }}" -t "$IMAGE:latest" .
+        run: |
+          docker build --network=host -t "$IMAGE:${{ github.sha }}" -t "$IMAGE:latest" .
+          docker build --network=host --target guard -t "$IMAGE:guard-${{ github.sha }}" -t "$IMAGE:guard" .
 
       - name: Push to ghcr.io
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker push "$IMAGE:guard-${{ github.sha }}"
+          docker push "$IMAGE:guard"
           docker push "$IMAGE:${{ github.sha }}"
           docker push "$IMAGE:latest"
 
@@ -101,4 +145,4 @@ jobs:
         if: always()
         run: |
           docker logout ghcr.io || true
-          docker image rm -f "$IMAGE:${{ github.sha }}" "$IMAGE:latest" || true
+          docker image rm -f "$IMAGE:${{ github.sha }}" "$IMAGE:latest" "$IMAGE:guard-${{ github.sha }}" "$IMAGE:guard" || true

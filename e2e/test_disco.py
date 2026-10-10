@@ -7,7 +7,7 @@ import time
 import pytest
 from playwright.sync_api import expect
 
-from conftest import login, shot
+from conftest import WAIT, login, shot
 
 SIZES_THEMES = [("desktop", "dark"), ("phone", "light"), ("desktop", "light"), ("phone", "dark")]
 LOUNGE = {"entity_id": ["light.lounge"], "brightness": 200, "color_temp_kelvin": 2700}  # how the fake HA starts
@@ -18,7 +18,7 @@ def press(page, locator):
     locator.tap() if page.size == "phone" else locator.click()
 
 
-def wait_until(fn, timeout=8.0, what="condition"):
+def wait_until(fn, timeout=WAIT, what="condition"):
     end = time.time() + timeout
     while time.time() < end:
         v = fn()

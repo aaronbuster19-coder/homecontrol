@@ -8,7 +8,16 @@ COPY frontend ./frontend
 
 FROM base AS test
 COPY requirements-dev.txt .
-RUN pip install --no-cache-dir -r requirements-dev.txt && python -m pytest -q backend/tests
+COPY ops ./ops
+RUN pip install --no-cache-dir -r requirements-dev.txt && python -m pytest -q backend/tests ops/tests
+
+# The rollback guard for dockerbox (ops/rollback_guard.py, dockge/compose.yaml), published as :guard. Standard library
+# only, so it shares the app's base layers and nothing else.
+FROM python:3.13-slim AS guard
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+COPY ops/rollback_guard.py /guard/rollback_guard.py
+VOLUME /state
+CMD ["python", "/guard/rollback_guard.py"]
 
 FROM base
 RUN useradd --system --uid 10001 app && mkdir -p /data && chown app /data

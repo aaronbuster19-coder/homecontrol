@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 import pytest
 from playwright.sync_api import expect
 
-from conftest import hold, marker, shot
+from conftest import WAIT, hold, marker, shot
 
 LONDON = ZoneInfo("Europe/London")
 TV = "switch.tv"
@@ -36,7 +36,7 @@ def saver(page, stack):
     return r.json()
 
 
-def wait_log(page, stack, action, timeout=8):
+def wait_log(page, stack, action, timeout=WAIT):
     end = time.time() + timeout
     while True:
         log = saver(page, stack)["log"]

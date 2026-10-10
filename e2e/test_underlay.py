@@ -7,7 +7,7 @@ import zlib
 import pytest
 from playwright.sync_api import expect
 
-from conftest import hold, plan_xy, shot
+from conftest import WAIT, hold, plan_xy, shot
 
 
 def plan_png(w=480, h=360) -> bytes:
@@ -54,7 +54,7 @@ def upload(page, tmp_path, data=None, name="plan.png", mime="image/png"):
     page.set_input_files("#ulFile", files=[{"name": name, "mimeType": mime, "buffer": f.read_bytes()}])
 
 
-def wait_saved(page, stack, pred, timeout=5000):
+def wait_saved(page, stack, pred, timeout=WAIT * 1000):  # a slow save on a busy runner
     page.wait_for_function("() => !ul.timer && !Object.keys(ul.pending).length", timeout=timeout)
     end = page.evaluate("Date.now()") + timeout
     while True:

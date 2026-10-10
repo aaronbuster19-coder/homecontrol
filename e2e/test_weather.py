@@ -6,14 +6,14 @@ import urllib.request
 import pytest
 from playwright.sync_api import expect
 
-from conftest import shot
+from conftest import WAIT, shot
 
 JSON = {"Content-Type": "application/json"}
 
 
 def forecast(stack, **body):
     req = urllib.request.Request(stack.ha.base + "/fake/forecast", data=json.dumps(body).encode(), method="POST", headers=JSON)
-    urllib.request.urlopen(req, timeout=5).read()
+    urllib.request.urlopen(req, timeout=WAIT).read()
 
 
 def refresh(page, stack):
@@ -81,7 +81,9 @@ def test_cold_night_hint_wall_panel_and_dim(stack, ha, open_page, size):
         page.click("#sheetClose")
 
         # Wall mode: the weather panel in the bar, and the outdoor temperature on the dim screen
-        page.evaluate("localStorage.setItem('hc.wall.settings', JSON.stringify({start: '23:00', end: '07:00', idle: 3, nightIdle: 3}))")
+        # Long idle while the panel is checked (a 3 s one could dim over it on a slow runner), then 3 s for the dim.
+        wall = "localStorage.setItem('hc.wall.settings', JSON.stringify({start: '23:00', end: '07:00', idle: %d, nightIdle: %d}))"
+        page.evaluate(wall % (3600, 3600))
         page.goto(stack.url + "/?wall")
         panel = page.locator("#wallWx")
         expect(panel).to_be_visible()
@@ -92,7 +94,10 @@ def test_cold_night_hint_wall_panel_and_dim(stack, ha, open_page, size):
         panel.click()
         expect(page.locator("#weather")).to_be_visible()
         page.click("#sheetClose")
-        expect(page.locator("#wallDim")).to_be_visible(timeout=8000)
+        expect(page.locator("#wallDim")).to_be_hidden()
+        page.evaluate(wall % (3, 3))
+        page.reload()
+        expect(page.locator("#wallDim")).to_be_visible(timeout=WAIT * 1000)
         expect(page.locator("#wallDimInfo")).to_contain_text("12°")
         expect(page.locator("#wallDimInfo svg.wx-ic")).to_have_count(1)
         page.wait_for_timeout(900)  # fade-in
