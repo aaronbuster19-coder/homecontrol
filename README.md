@@ -375,6 +375,9 @@ The ⋯ button at the right of the header holds: Away / I'm home, *Auto Away…*
 Import layout, Units (m/ft), Theme (see *Theme*), Refresh devices and Sign out — plus *Disco…* and *Scenes…* (see *Disco
 mode*, *Scenes*). It closes on a tap outside or Escape.
 
+Import layout, Units (m/ft), Theme (see *Theme*), Refresh devices and Sign out — plus *Tariff…* after Energy (see
+*Octopus tariff and run log*). It closes on a tap outside or Escape.
+
 - **Temperatures on the plan:** every room with a radiator valve in it (L-shapes respected) is tinted by the
   valve's current temperature — blue at 16° or less, neutral around 19–20°, orange at 23° or more — with the
   temperature next to the room name (several valves in a room are averaged). Updates live; hidden in edit mode.
@@ -551,6 +554,64 @@ the whole flat.**
   standing_total_p, plugs: [{entity_id, name, hidden, kwh, cost_p, source: meter|history}]}` ·
   `GET /api/energy/standby` → `{from, to, nights, rate_p, plugs: [{entity_id, name, hidden, avg_w, coverage_h,
   year_kwh, year_p}]}` (`avg_w` null with under an hour of overnight data).
+
+## Octopus tariff and run log
+
+⋯ → **Tariff…** uses your Octopus Energy tariff's half-hourly prices (Agile, Go, Intelligent Go, or any other product
+code). **Off by default**; an admin switches it on in that sheet. Nothing here ever switches an appliance on.
+
+- **Settings** (admins): *Tariff* — Agile Octopus (`AGILE-24-10-01`), Octopus Go (`GO-VAR-22-10-14`), Intelligent
+  Octopus Go (`INTELLI-VAR-22-10-14`) or *Other product code…*; *Region* — the letter A–P at the end of the tariff code
+  on your bill (`E-1R-AGILE-24-10-01-C` → C, London; default C). An unknown code shows Octopus's “check the product
+  code” in the sheet.
+- **Prices:** the price now (green when cheap, amber average, red dear — against the day's average; blue when Agile
+  pays you to use power), and today's / tomorrow's prices as half-hour bars (tap or hover one for its price). Agile
+  publishes tomorrow's prices at about 16:00; until then the sheet says so.
+- **From Octopus's public API** (no account or key): `GET https://api.octopus.energy/v1/products/<product>/
+  electricity-tariffs/E-1R-<product>-<region>/standard-unit-rates/`, one request each time (`page_size` 1500), when
+  switched on or the tariff / region changes, from 15:45 every 15 min until tomorrow's prices are in, otherwise every
+  6 h; after an error 5, 10, 20 … min, at most hourly. Prices (p/kWh incl. VAT) are kept in SQLite (`tariff_rates`,
+  120 days), so the app **works offline with the last known prices** (“Showing the last known prices from 16:05 …”)
+  and after restarts; the browser also keeps the last answer for when the phone is offline. `OCTOPUS_API` (env)
+  replaces the API's base URL — the tests point it at a fake.
+- **Best time to run:** for each linked **washing machine, dishwasher and tumble dryer** (see *Appliances*): the
+  cheapest stretch of its typical run length among the prices known from now on — starting now or on a half hour —
+  e.g. “01:00–03:00 tomorrow · avg 7.5p/kWh · ≈ 19p a run · 31p less than now”. The typical length is the average cycle
+  from its *Usage* stats (HA history, the same cycle rules), else its last runs in the run log, else 2 h (dishwasher
+  2½ h), and the sheet says which. “≈ a run” assumes an even draw over the cycle. Also shown in the appliance's sheet
+  (*Cheapest time to run*, *Prices →*).
+- **Reminder** (off by default; *Remind me before the cheapest time*, 5 min – 2 h before): one push, “Cheap electricity
+  from 01:00 — Good time to start the Washing machine: 01:00–03:00 averages 7.5p/kWh … Nothing is switched on
+  automatically.”, at most once per appliance per window and per 12 h, marked as sent before it goes out (no repeats
+  after a restart). Not while the appliance is running, not when the window is less than 0.5p/kWh cheaper than now, and
+  **never during quiet hours**: it's skipped, not held for the morning digest. Tapping it opens the sheet (`/?tariff`).
+- **Energy costs:** with *Price energy costs with these half-hourly rates* (default on while the tariff is on) the
+  Energy sheet prices each half-hour of each plug at its own rate (“Priced at Agile Octopus half-hourly rates
+  (London).”); a half-hour without a known price uses the flat unit rate (*Energy costs*), else the average of the known
+  prices. The plug sheet's “Today … · 10p”, the weekly summary, the morning brief and the monthly report still use the
+  flat unit rate.
+
+**Run log** — each run of a linked appliance, in its sheet under **Run history** (newest first, 20 at a time, *Load
+older*): “Sat 17 Oct · 10:00–11:00 · 1 h · 0.48 kWh · 11p”, and the run going on now (“Running since 10:00 · 0.3 kWh
+so far”). **+ Add note** / **✎ Edit note** (members and admins; up to 200 characters, e.g. “40° cotton, towels”).
+
+- What a run is: washer / dryer / dishwasher — a cycle as the *Running … / Finished* status sees it (switched off
+  mid-cycle: “switched off before it finished”); hoover — a charge until *Charged*; everything else — the plug drawing
+  more than the appliance's busy level (3 W for fans, lamps and the like) until it has stayed below it for 1 min
+  (kettle, microwave, coffee machine, toaster) or 10 min (the rest, so a heater's thermostat pauses don't split a run),
+  or the plug goes off. Runs under 20 s don't count. Fridges, freezers and home servers are always on: no run log.
+- Energy is integrated from the plug's live power readings (no extra HA calls); cost at the half-hourly prices when the
+  tariff prices costs, else at the flat unit rate (none set: kWh only). A run that began before a restart is marked
+  “energy since a restart only”. Kept 400 days in SQLite (`appliance_runs`); timers survive restarts.
+- API: `GET /api/tariff` → `{settings, enabled, product, name, region, region_name, code, now, current: {start, end, p},
+  next, today / tomorrow: {date, label, slots: [{start, p}], complete, known, min, max, avg, cheapest}, fetched_at,
+  next_fetch, error, stale, costs, flat_rate_p, suggestions: [{fid, name, type, plug, minutes, source:
+  history|runs|default, kwh, running, start, end, avg_p, est_p, now_avg_p, saving_p, starts_now}], regions, presets}`
+  (times in ms, prices in p/kWh) · `PUT /api/tariff/settings` (admin, partial) `{"enabled", "product", "region",
+  "use_for_costs", "remind", "remind_lead_min"}` · `POST /api/tariff/refresh` (at most every 30 s) ·
+  `GET /api/appliances/{id}/runs?before=<ms>&limit=20` → `{fid, tracked, now, current, runs: [{id, start, end, minutes,
+  kwh, cost_p, partial, outcome: finished|charged|stopped, note}], next_before}` · `PUT /api/appliances/{id}/runs/{run id}`
+  `{"note"}`. Guests get none of it. `GET /api/energy` adds `tariff` (`{name, product, region, region_name}` or null).
 
 ## Auto Away
 
@@ -829,6 +890,8 @@ appliance (“Fridge · Plug 2”). ‹ / › go through the months (up to 12 ba
 `GET /api/activity` (see *Activity*) · `GET`/`POST /api/disco…` (see *Disco mode*) · `…/api/scenes…` (see *Scenes*) ·
 `…/api/timers…` (see *Sleep timers*) · `GET /api/weather` · `PUT /api/weather/settings` · `POST /api/weather/refresh` (see *Weather*)
 
+`GET /api/activity` (see *Activity*) · `GET`/`PUT`/`POST /api/tariff…`, `GET`/`PUT /api/appliances/{id}/runs…` (see *Octopus tariff and run log*) · `GET`/`POST /api/disco…` (see *Disco mode*) · `GET /api/weather` · `PUT /api/weather/settings` · `POST /api/weather/refresh` (see *Weather*)
+
 Devices carry `power` (W), `energy_today` (kWh), `battery` (%) and `battery_low` (bool) when HA knows them.
 
 The layout is a single JSON document in SQLite (`DB_PATH`, default `/data/layout.db`).
@@ -1039,6 +1102,9 @@ Everyone gets their own login, with one of three roles:
 | **Admin** | everything: settings, layout (Edit), schedules, Auto Away, standby saver, names, users |
 | **Member** | control every device, Heating / All off, Away / I'm home, mute pushes, alerts on their own phone; read history, energy, activity. No settings, layout or user changes |
 | **Guest** | see the plan and switch / dim the **lights** (start / stop a disco, run light-only scenes, set sleep timers for lights); nothing else. Optional expiry (1 day … 1 month) |
+
+| **Member** | control every device, Heating / All off, Away / I'm home, mute pushes, alerts on their own phone; read history, energy, activity, tariff prices; add notes to appliance runs. No settings, layout or user changes |
+| **Guest** | see the plan and switch / dim the **lights** (and start / stop a disco with them); nothing else. Optional expiry (1 day … 1 month) |
 - **Upgrading needs nothing:** the `APP_USER` / `APP_PASSWORD` login becomes the first admin on start (its existing
   cookies stay valid). That account is always an admin and can't be removed or demoted from the app; its password stays
   in `.env`. Renaming `APP_USER` replaces it.

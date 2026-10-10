@@ -11,6 +11,7 @@ from starlette.routing import Route
 
 import backend.automations as automations
 import backend.climate as climate
+import backend.tariff as tariff
 from backend.app import create_app
 
 
@@ -25,6 +26,7 @@ class Clock:
 def create():
     automations.STARTUP_DELAY = 0.5
     climate.STARTUP_DELAY = 0.5
+    tariff.STARTUP_DELAY = 0.5
     clock = Clock()
     app = create_app(clock=clock)
 
@@ -32,6 +34,7 @@ def create():
         clock.offset = float((await request.json())["t"]) - time.time()
         app.state.automations.wake.set()
         app.state.climate.wake.set()  # smart preheat / damp (backend/climate.py) run their own loop
+        app.state.tariff.wake.set()  # Octopus prices, reminders and the run log's timers (backend/tariff.py)
         return JSONResponse({"now": clock()})
 
     app.router.routes.insert(0, Route("/_test/clock", set_clock, methods=["POST"]))  # before the static "/" mount

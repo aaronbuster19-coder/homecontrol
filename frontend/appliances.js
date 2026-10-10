@@ -237,6 +237,7 @@ function applianceSheet(d, c) {
   if (remindOk(f)) sec.append(remindRow(f));
   if (APPLIANCE[f.type].rule === "charge") sec.append(autoOffRow(f));
   applianceStats(f, sec);
+  if (typeof applianceExtras === "function") applianceExtras(f, sec); // tariff.js: cheapest time to run, run history
   const keys = Object.keys(APPLIANCE[f.type].th);
   if (!keys.length) return;
   const det = an("details", "appl-th"); det.open = !!ap.thOpen;

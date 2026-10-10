@@ -90,6 +90,13 @@ class Energy:
 
     def __init__(self, ha, tz=None, clock=time.monotonic):
         self.ha, self.tz, self.clock, self.cache = ha, tz or local_tz(), clock, {}
+        # Optional half-hourly pricing (backend/tariff.py): fn(segs, a_ms, b_ms, kwh, flat_rate) -> pence | None.
+        self.pricer = None
+        self.tariff_info = None  # fn() -> {"name", "region", ...} | None while the pricer applies
+
+    def _cost(self, segs, a: int, b: int, kwh: float, rate_p) -> float | None:
+        p = self.pricer(segs, a, b, kwh, rate_p) if self.pricer else None
+        return p if p is not None else cost_p(kwh, rate_p)
 
     def _cached(self, key, ttl):
         hit = self.cache.get(key)
@@ -128,7 +135,8 @@ class Energy:
         plugs = [d for d in plugs if d.related.get("power") or (items.get(d.entity_id) or {}).get("energy_today") is not None]
         segs, _, t_mid = await self.segs(plugs, now)
         t = tariff(layout)
-        rows, total = [], 0.0
+        rows, total, total_p = [], 0.0, 0.0
+        info = self.tariff_info() if self.tariff_info else None
         for d in plugs:
             meter = (items.get(d.entity_id) or {}).get("energy_today")
             s = segs.get(d.entity_id)
@@ -136,11 +144,18 @@ class Energy:
             past_kwh = kwh_between(s, ms(start), t_mid) if s else 0.0
             kwh = past_kwh + today_kwh
             total += kwh
+            if info:  # half-hourly rates: the past days and today priced separately (today may be the plug's meter)
+                c1, c2 = self._cost(s, ms(start), t_mid, past_kwh, t["rate_p"]), self._cost(s, t_mid, ms(now), today_kwh, t["rate_p"])
+                c = round(c1 + c2, 2) if c1 is not None and c2 is not None else None
+            else:
+                c = cost_p(kwh, t["rate_p"])
+            total_p = None if total_p is None or c is None else total_p + c
             rows.append({"entity_id": d.entity_id, "name": d.name, "hidden": d.hidden, "kwh": round(kwh, 3),
-                         "cost_p": cost_p(kwh, t["rate_p"]), "source": "meter" if meter is not None else "history"})
+                         "cost_p": c, "source": "meter" if meter is not None else "history"})
         rows.sort(key=lambda r: (-r["kwh"], r["name"].lower()))
-        return {"range": rng, "start": ms(start), "end": ms(now), "days": days, **t,
-                "total_kwh": round(total, 3), "total_p": cost_p(total, t["rate_p"]),
+        return {"range": rng, "start": ms(start), "end": ms(now), "days": days, **t, "tariff": info,
+                "total_kwh": round(total, 3),
+                "total_p": (round(total_p, 2) if total_p is not None else None) if info else cost_p(total, t["rate_p"]),
                 "standing_total_p": standing_total(t["standing_p"], days), "plugs": rows}
 
     async def standby(self, plugs, layout: dict, now: datetime | None = None) -> dict:

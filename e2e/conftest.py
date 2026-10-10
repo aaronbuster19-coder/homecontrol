@@ -158,7 +158,8 @@ class Stack:
                                         env={**os.environ, "FAKE_HA_APPLIANCES": "1" if appliances else "0", "FAKE_HA_TV": "1" if tv else "0"})
         wait_http(f"http://{HOST}:{ha_port}/fake/calls", self.ha_proc)
         env = {**os.environ, "HA_URL": f"http://{HOST}:{ha_port}", "HA_TOKEN": "test-token", "APP_USER": USER,
-               "APP_PASSWORD": PASSWORD, "DB_PATH": str(tmp / "layout.db"), "TZ_NAME": "Europe/London"}
+               "APP_PASSWORD": PASSWORD, "DB_PATH": str(tmp / "layout.db"), "TZ_NAME": "Europe/London",
+               "OCTOPUS_API": f"http://{HOST}:{ha_port}/octopus/v1"}  # the fake Octopus in fake_ha.py, never the real one
         # clock=True: the test-only factory in e2e/clock_app.py, whose server clock POST /_test/clock moves.
         target = ["--app-dir", str(ROOT / "e2e"), "clock_app:create"] if clock else ["backend.app:create_app"]
         # Keep-alive far longer than any test: with uvicorn's 5 s the server closes an idle connection just as a

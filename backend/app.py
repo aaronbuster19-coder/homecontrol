@@ -42,6 +42,7 @@ from . import media, presence as presence_api, standby as standby_api
 from . import presence_lighting as presence_lighting_api
 from . import underlay as underlay_api
 from . import tiles as tiles_api
+from . import runlog as runlog_api, tariff as tariff_api
 from .modes import ModeError, ModeStore, current_targets, now_iso, public, restore_groups, validate_mode_settings
 from .summary import local_tz
 from . import climate as climate_api
@@ -795,6 +796,16 @@ def create_app(settings: Settings | None = None, ha: HAClient | None = None, liv
     scenes_api.add_routes(app, scenes_api.Scenes(scenes_api.SceneStore(settings.db_path), lambda *a: ha.call_service(*a),
                                                  devices, lambda: live.states, store.get, disco, clock), ensure_states, json_body)
     sleep_api.add_routes(app, timers, ensure_states, json_body)
+    # ---- Octopus tariff (backend/tariff.py) + appliance run log (backend/runlog.py): own loop, own routes ----
+    runs = runlog_api.RunLog(runlog_api.RunStore(settings.db_path), automations.store, store.get, automations.appliances,
+                             lambda p, a, b: tariff.run_price(p, a, b), clock)
+    live.add_observer(runs.observe)
+    tariff = tariff_api.Tariff(automations.store, tariff_api.RateStore(settings.db_path), store.get, live, runs,
+                               automations.appliances, appliance_stats, devices, lambda p: automations._notify(p, "tariff"),
+                               lambda: automations.quiet.state()["active"], clock, local_tz())
+    energy.pricer, energy.tariff_info = tariff.pricer, tariff.info  # half-hourly rates in the Energy sheet's costs
+    tariff_api.add_routes(app, tariff, json_body)
+    runlog_api.add_routes(app, runs, json_body)
 
     @app.get("/sw.js", include_in_schema=False)
     async def service_worker():

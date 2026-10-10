@@ -1,0 +1,93 @@
+/* ---------- Tariff sheet + appliance run log (tariff.js) — colours from style.css variables only ---------- */
+.tf-sheet .sheet-body { max-height: 92vh; overflow-y: auto; overscroll-behavior: contain; }
+.tf-sec { border-top: 1px solid var(--line); margin-top: 14px; padding-top: 10px; font-size: 14px; }
+.tf-sec h4 { margin: 0 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.tf-msg { margin: 0 0 12px; padding: 8px 12px; border-radius: 10px; font-size: 13px; color: var(--on-ink);
+  background: color-mix(in srgb, var(--on) 14%, transparent); overflow-wrap: anywhere; }
+.tf-msg.err { color: var(--open-ink); background: color-mix(in srgb, var(--open) 12%, transparent); }
+
+/* price now: the number takes the colour of its band */
+.tf-now { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; }
+.tf-now b { font-size: 34px; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.tf-now span { color: var(--muted); font-size: 14px; }
+.tf-now[data-band=cheap] b { color: var(--closed-ink); }
+.tf-now[data-band=mid] b { color: var(--on-ink); }
+.tf-now[data-band=dear] b { color: var(--open-ink); }
+.tf-now[data-band=neg] b { color: var(--idle-ink); }
+
+/* half-hourly bars */
+.tf-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.tf-sum { color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.tf-bars { position: relative; display: flex; align-items: stretch; gap: 1px; height: 110px; margin-top: 12px;
+  border-bottom: 1px solid var(--chart-grid); touch-action: pan-y; }
+.tf-bar { position: relative; flex: 1 1 0; min-width: 0; min-height: 0; height: 100%; padding: 0; border: 0; border-radius: 0;
+  background: none; cursor: pointer; }
+.tf-bar i { position: absolute; left: 0; right: 0; border-radius: 2px 2px 0 0; background: var(--off); }
+.tf-bar.b-cheap i { background: var(--closed); }
+.tf-bar.b-mid i { background: var(--on); }
+.tf-bar.b-dear i { background: var(--open); }
+.tf-bar.b-neg i { background: var(--idle); border-radius: 0 0 2px 2px; }
+.tf-bar.past i { opacity: .38; }
+.tf-bar.now { background: rgba(var(--hl), .07); }
+.tf-bar.now i { opacity: 1; }
+.tf-bar.now::after { content: ""; position: absolute; left: 50%; bottom: -5px; width: 4px; height: 4px; margin-left: -2px;
+  border-radius: 50%; background: var(--text); }
+.tf-bar.pick i { box-shadow: 0 0 0 1.5px var(--text); opacity: 1; }
+.tf-bar:focus-visible { outline-offset: 0; }
+.tf-axis { position: relative; height: 18px; margin-top: 6px; font-size: 11px; color: var(--muted); }
+.tf-axis span { position: absolute; top: 0; transform: translateX(-2px); font-variant-numeric: tabular-nums; }
+.tf-cap { min-height: 20px; margin-top: 2px; font-size: 13px; font-variant-numeric: tabular-nums; }
+.tf-key { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 6px; font-size: 12px; color: var(--muted); }
+.tf-key span { display: inline-flex; align-items: center; gap: 5px; }
+.tf-key i { width: 10px; height: 10px; border-radius: 2px; background: var(--off); }
+.tf-key .k-cheap i { background: var(--closed); } .tf-key .k-mid i { background: var(--on); }
+.tf-key .k-dear i { background: var(--open); } .tf-key .k-neg i { background: var(--idle); }
+
+/* best time to run */
+.tf-list { list-style: none; margin: 0; padding: 0; }
+.tf-list li { border: 1px solid var(--line); border-left: 4px solid var(--closed); border-radius: 10px; padding: 8px 10px;
+  margin-bottom: 8px; background: var(--bg); }
+.tf-row { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 10px; }
+.tf-row .name { font-weight: 600; }
+.tf-when { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--closed-ink); }
+.tf-row-sub { font-size: 13px; margin-top: 2px; }
+.tf-row-src { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+/* settings */
+.tf-settings label.check { display: flex; align-items: flex-start; gap: 8px; margin: 8px 0; font-size: 14px; cursor: pointer; }
+.tf-settings label.check input { width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--accent); flex: none; }
+.tf-opts.off { opacity: .55; }
+.tf-field { display: grid; grid-template-columns: 64px minmax(0, 1fr); align-items: center; gap: 8px; margin: 8px 0; }
+.tf-field span { color: var(--muted); }
+.tf-field select { width: 100%; min-width: 0; }
+.tf-settings input[type=text] { width: 100%; margin: 0 0 8px; padding: 7px 10px; min-height: 38px; background: var(--bg);
+  color: var(--text); border: 1px solid var(--line); border-radius: 8px; text-transform: uppercase; }
+.tf-remind { display: flex; flex-wrap: wrap; align-items: center; gap: 0 10px; }
+.tf-remind select { min-height: 34px; padding: 4px 8px; margin-left: 26px; }
+.tf-settings .hint { margin: 2px 0 8px; }
+.tf-refresh { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-top: 10px; }
+.tf-refresh .hint { margin: 0; }
+
+/* appliance sheet: cheapest time + run history */
+.tf-appl { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
+.tf-appl .sum-row { margin-bottom: 2px; }
+.tf-appl .sum-row span:last-child { color: var(--closed-ink); font-weight: 600; }
+.tf-appl .hint { margin: 0; }
+.tf-runs { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 8px; }
+.tf-runs summary { cursor: pointer; color: var(--muted); font-size: 14px; min-height: 30px; display: flex; align-items: center; }
+.tf-run-list { list-style: none; margin: 4px 0 0; padding: 0; }
+.tf-run { padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+.tf-run.cur { color: var(--on-ink); border-bottom: 0; padding-bottom: 2px; }
+.tf-run-top { display: flex; justify-content: space-between; gap: 10px; font-variant-numeric: tabular-nums; }
+.tf-run-top span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tf-run-dur { flex: none; color: var(--muted); }
+.tf-run-sub { color: var(--muted); font-size: 12.5px; margin-top: 1px; }
+.tf-note { margin-top: 4px; padding: 4px 8px; border-left: 3px solid var(--accent); background: rgba(var(--hl), .04);
+  border-radius: 0 6px 6px 0; font-size: 13px; overflow-wrap: anywhere; }
+.tf-note-btn { margin-top: 4px; }
+#runsMore { margin-top: 8px; }
+#runNoteDialog { width: min(420px, 94vw); }
+#runNoteDialog input { width: 100%; }
+
+/* roles: guests have no tariff; members see it without the settings (tariff.js leaves those out too) */
+:root[data-role=guest] #tariffMenuBtn { display: none !important; }
