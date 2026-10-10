@@ -1,14 +1,35 @@
 """Morning brief (once per morning, dismissable, ⋯ → Morning brief) and the monthly energy report (⋯ → Energy report),
 on a desktop and a 390px touch phone, in both themes. Fake HA history: e2e/fake_ha.py (TV 86.4 W 18–23 h, kettle 08:00)."""
 import json
+import time
+from datetime import datetime
 
 import pytest
 from playwright.sync_api import expect
 
-from conftest import shot
+from conftest import Stack, shot
 
 MORNING = "2026-10-09T08:00:00+01:00"
 AFTERNOON = "2026-10-09T15:00:00+01:00"
+
+
+@pytest.fixture(scope="module")
+def stack(tmp_path_factory):
+    """With a movable server clock (e2e/clock_app.py): "last night" and "yesterday" come from the server's clock, so
+    a test that pins the browser to a time pins the server there too (on the real clock they failed 00:00-07:00)."""
+    s = Stack(tmp_path_factory.mktemp("brief"), clock=True)
+    yield s
+    s.close()
+
+
+@pytest.fixture(autouse=True)
+def real_time(stack):
+    stack.set_clock(time.time())  # every test starts on the real clock unless it pins one
+
+
+def at(stack, iso):
+    stack.set_clock(datetime.fromisoformat(iso).timestamp())
+    return iso
 
 
 def tariff(page, url, rate=24.5, standing=60):
@@ -37,7 +58,7 @@ def no_overflow(page, sel):
 
 
 def test_brief_opens_once_per_morning_and_can_be_turned_off(stack, ha, open_page):
-    page = open_page(stack, "desktop", goto=None, clock=MORNING)
+    page = open_page(stack, "desktop", goto=None, clock=at(stack, MORNING))
     tariff(page, stack.url)
     auto_on(page, stack.url)
     sheet = page.locator("#briefSheet")
@@ -88,7 +109,7 @@ def test_brief_opens_once_per_morning_and_can_be_turned_off(stack, ha, open_page
 
 
 def test_brief_not_in_the_afternoon_and_rows_open_the_device(stack, ha, open_page):
-    page = open_page(stack, "phone", goto=None, clock=AFTERNOON)
+    page = open_page(stack, "phone", goto=None, clock=at(stack, AFTERNOON))
     auto_on(page, stack.url)
     page.locator("#plan .marker").first.wait_for()
     expect(page.locator("#wxChip")).to_be_visible()
@@ -137,7 +158,7 @@ def test_report_months_and_rows(stack, ha, open_page):
 @pytest.mark.parametrize("scheme", ["dark", "light"])
 @pytest.mark.parametrize("size", ["desktop", "phone"])
 def test_looks(stack, ha, open_page, size, scheme):
-    page = open_page(stack, size, clock=MORNING, color_scheme=scheme)
+    page = open_page(stack, size, clock=at(stack, MORNING), color_scheme=scheme)
     tariff(page, stack.url)
     assert page.evaluate("document.documentElement.dataset.theme") == scheme
     menu(page, "#briefBtn")

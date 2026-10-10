@@ -13,7 +13,7 @@
 // (controls.js All off, modes.js Away).
 const CYCLE_TH = { run_w: 10, run_min: 2, idle_w: 5, idle_min: 3 };
 const APPLIANCE = { // keep in step with APPLIANCES in backend/appliances.py
-  fan: { rule: "on", th: {} },
+  fan: { rule: "busy", busy: "On", idle: "Idle", th: { on_w: 1 } },
   floor_lamp: { rule: "on", th: {} },
   tv: { rule: "busy", busy: "On", idle: "Standby", th: { on_w: 15 } },
   heater: { rule: "busy", busy: "Heating", idle: "Idle", th: { on_w: 100 } },
@@ -237,6 +237,7 @@ function applianceSheet(d, c) {
   if (remindOk(f)) sec.append(remindRow(f));
   if (APPLIANCE[f.type].rule === "charge") sec.append(autoOffRow(f));
   applianceStats(f, sec);
+  if (typeof applianceExtras === "function") applianceExtras(f, sec); // tariff.js: cheapest time to run, run history
   const keys = Object.keys(APPLIANCE[f.type].th);
   if (!keys.length) return;
   const det = an("details", "appl-th"); det.open = !!ap.thOpen;

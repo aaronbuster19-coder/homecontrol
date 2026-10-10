@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#14171c">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex">
+<link rel="icon" href="/icons/icon-192.png" type="image/png">
+<title>Guest lights · homecontrol</title>
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="guest.css">
+<script>/* theme before first paint: follows the phone (or this device's ⋯ → Theme, if it has one) */
+(function () {
+  var d = document.documentElement, q = matchMedia("(prefers-color-scheme: light)"), mode = "auto";
+  try { mode = localStorage.getItem("hc.theme") || "auto"; } catch (e) {}
+  if (!/^(auto|light|dark)$/.test(mode)) mode = "auto";
+  function apply() {
+    var t = mode === "auto" ? (q.matches ? "light" : "dark") : mode;
+    d.dataset.theme = t;
+    var m = document.querySelector('meta[name="theme-color"]'); if (m) m.content = t === "light" ? "#eeebe6" : "#14171c";
+  }
+  apply();
+  q.addEventListener("change", apply);
+})();
+</script>
+</head>
+<body class="guest-page">
+<div class="guest" id="guest" role="main">
+  <div class="guest-head">
+    <img src="/icons/icon-192.png" alt="" width="40" height="40">
+    <div class="guest-titles">
+      <h1 id="guestTitle">Guest lights</h1>
+      <p id="guestSub" class="guest-sub"></p>
+    </div>
+  </div>
+  <p id="guestStatus" class="guest-status" role="status">Opening…</p>
+  <ul id="guestDevices" class="guest-devices"></ul>
+  <section id="guestGone" class="guest-gone" hidden>
+    <h2>This link has stopped working</h2>
+    <p>It has run out or been switched off. Ask whoever sent it for a new one.</p>
+  </section>
+</div>
+<script src="guest.js"></script>
+</body>
+</html>

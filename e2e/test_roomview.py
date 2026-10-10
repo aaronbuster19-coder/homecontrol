@@ -4,7 +4,7 @@ import re
 
 from playwright.sync_api import expect
 
-from conftest import LAYOUT, Touch, center, marker, marker_center, plan_xy, shot, toggles
+from conftest import LAYOUT, WAIT, Touch, center, marker, marker_center, plan_xy, shot, toggles
 
 WHOLE = [-0.5, -0.5, 9.4, 8.6]  # computeViewBox() of LAYOUT: rooms 0..8.4 × 0..7.6, 0.5 m margin
 PAD = 0.4
@@ -328,7 +328,7 @@ def test_wall_mode_room_view(stack, ha, open_page):
     page.click('[data-roomopen="bed"]')
     expect(page.locator("body")).to_have_class(re.compile(r"\broom-view\b"))
     page.evaluate("localStorage.setItem('hc.wall.settings', JSON.stringify({start: '23:00', end: '07:00', idle: 1, nightIdle: 1}))")
-    expect(page.locator("#wallDim")).to_be_visible(timeout=8000)
+    expect(page.locator("#wallDim")).to_be_visible(timeout=WAIT * 1000)
     expect(page.locator("body")).not_to_have_class(re.compile(r"\broom-view\b"))
     wait_viewbox(page, WHOLE)
     page.wait_for_function("u => location.href === u", arg=stack.url + "/?wall")

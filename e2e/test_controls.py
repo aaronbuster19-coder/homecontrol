@@ -2,7 +2,7 @@
 import pytest
 from playwright.sync_api import expect
 
-from conftest import LAYOUT, Touch, center, hold, marker, marker_center, shot, toggles
+from conftest import LAYOUT, WAIT, Touch, center, hold, marker, marker_center, shot, toggles
 
 
 def tap(page, x, y):
@@ -63,12 +63,12 @@ def test_light_sheet_brightness_colour_kelvin(stack, ha, open_page):
     page = open_page(stack)
     hold(page, marker(page, "light.lounge").locator("circle").first, 700)
     rng = page.locator("#sheetContent .light-ctl label.ctl").first.locator("input[type=range]")
-    page.evaluate("window.__inputs = 0")
+    page.evaluate("window.__inputs = 0; window.__inputTimes = []")
     # Time the sends where the browser makes them: on a busy CI host the requests can reach the fake HA bunched up.
     page.evaluate("""() => { window.__sends = []; const f = window.fetch;
       window.fetch = (u, o) => { if (String(u).endsWith('/light') && o?.body?.includes('brightness_pct'))
         window.__sends.push({t: performance.now() / 1000, v: JSON.parse(o.body).brightness_pct}); return f(u, o); }; }""")
-    rng.evaluate("r => r.addEventListener('input', () => window.__inputs++)")
+    rng.evaluate("r => r.addEventListener('input', () => { window.__inputs++; window.__inputTimes.push(performance.now() / 1000); })")
     # Drag the brightness slider from left to right for about a second.
     b = rng.bounding_box()
     y = b["y"] + b["height"] / 2
@@ -86,9 +86,14 @@ def test_light_sheet_brightness_colour_kelvin(stack, ha, open_page):
     # Every send reaches HA before moving on, so a late one can't spill into the next test.
     bright = ha.wait_calls(len(sends), "turn_on")
     assert [c["data"]["brightness_pct"] for c in bright if "brightness_pct" in c["data"]] == sent
-    # Throttled: far fewer calls than slider events, at most one per ~300 ms over the drag, plus the final value on release.
+    # Throttled: at most one call per ~300 ms over the drag, plus the final value on release. Fewer calls than slider
+    # events only when the events came faster than that: on a starved CPU each mouse move can itself take >300 ms.
     span = sends[-1]["t"] - sends[0]["t"]
-    assert 2 <= len(sent) <= span / 0.3 + 2 and len(sent) < inputs, f"{inputs} slider events -> {len(sent)} calls over {span:.2f}s: {sent}"
+    assert 2 <= len(sent) <= span / 0.3 + 2 and len(sent) <= inputs, f"{inputs} slider events -> {len(sent)} calls over {span:.2f}s: {sent}"
+    times = page.evaluate("window.__inputTimes")
+    input_gaps = sorted(b - a for a, b in zip(times, times[1:]))
+    if input_gaps[len(input_gaps) // 2] < 0.15:
+        assert len(sent) < inputs, f"{inputs} fast slider events -> {len(sent)} calls: {sent}"
     gaps = [b["t"] - a["t"] for a, b in zip(sends, sends[1:])]
     # Throttled sends are ~300 ms apart; the last is the final value on release and may follow the previous one at once.
     assert sorted(gaps)[len(gaps) // 2] >= 0.25 and min(gaps[:-1] or [1]) > 0.2, gaps
@@ -210,5 +215,5 @@ def test_heating_sheet_sets_all_valves(stack, ha, open_page, size):
     # One valve on its own: −, debounced into a single call.
     rows.nth(1).locator("button", has_text="−").click()
     rows.nth(1).locator("button", has_text="−").click()
-    calls = ha.wait_calls(2, timeout=4)
+    calls = ha.wait_calls(2)
     assert [c["data"] for c in calls[1:]] == [{"entity_id": "climate.lounge_valve", "temperature": 21}]

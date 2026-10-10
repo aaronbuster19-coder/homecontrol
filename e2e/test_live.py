@@ -4,7 +4,7 @@ import re
 import pytest
 from playwright.sync_api import expect
 
-from conftest import marker, shot
+from conftest import WAIT, marker, shot
 
 
 def watch_polls(page):
@@ -23,14 +23,14 @@ def test_state_change_in_ha_shows_up_without_polling(stack, ha, open_page, size)
     expect(circle).to_have_attribute("fill", "var(--off)")
     polls = watch_polls(page)
     ha.set("light.kitchen", "on")  # e.g. the wall switch
-    expect(circle).to_have_attribute("fill", "var(--on)", timeout=3000)
+    expect(circle).to_have_attribute("fill", "var(--on)", timeout=WAIT * 1000)
     expect(page.locator('#list li[data-dev="light.kitchen"] .val')).to_have_text("on")
     ha.set("binary_sensor.contact_sensor_door", "on")
     expect(marker(page, "binary_sensor.contact_sensor_door").locator("circle").first).to_have_attribute("fill", "var(--open)")
     # The linked door on the plan turns red too.
     expect(page.locator('.opening[data-open="o1"] .swing')).to_have_attribute("style", re.compile(r"var\(--open\)"))
     ha.set("light.kitchen", "off")
-    expect(circle).to_have_attribute("fill", "var(--off)", timeout=3000)
+    expect(circle).to_have_attribute("fill", "var(--off)", timeout=WAIT * 1000)
     assert polls == [], f"page polled: {polls}"
     shot(page, f"live-{size}")
 

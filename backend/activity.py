@@ -444,6 +444,12 @@ class Activity:
                         "user_password_reset": "reset the password of", "password_changed": "changed the password of"}
                 add(t, "security", "login", f"{x.get('by') or 'Someone'} {what.get(x.get('action'), 'changed')} "
                     f"user {x.get('username') or '?'}")
+            elif k == "guest_link":  # backend/guest_links.py: a QR / link made, opened on a phone, revoked
+                label = x.get("label") or "?"
+                text = {"created": f"{x.get('by') or 'Someone'} made guest link “{label}”",
+                        "revoked": f"{x.get('by') or 'Someone'} revoked guest link “{label}”",
+                        "opened": f"Guest link “{label}” opened"}.get(x.get("action"), f"Guest link “{label}” changed")
+                add(t, "security", "login", text, detail=x.get("ip") and f"from {x['ip']}")
             elif k == "push":
                 sent = x.get("sent")
                 add(t, "alerts", "push", f"Notification: {x['title']}", detail=x.get("body") or None,
@@ -461,6 +467,13 @@ class Activity:
                     from .disco import REASONS
                     add(t, "lights", "light", "Disco off", detail=REASONS.get(x.get("reason")),
                         by=f"by {x['user']}" if x.get("user") else None)
+            elif k == "sleep_timer":  # backend/sleeptimer.py (its switch-offs are logged as calls "by Sleep timer")
+                name, ev = x.get("name") or "?", x.get("event")
+                text = {"set": f"Sleep timer: {name} off in {x.get('minutes')} min", "cancel": f"Sleep timer for {name} cancelled",
+                        "failed": f"Sleep timer for {name}: Home Assistant kept failing",
+                        "missed": f"Sleep timer for {name} missed — the app was down"}.get(ev)
+                if text:
+                    add(t, "lights", "schedule", text, by=f"by {x['user']}" if x.get("user") else None)
             elif k == "appliance":
                 ev, name, eid = x.get("event"), x.get("name") or "Appliance", x.get("plug")
                 dur = f" · {fmt_dur(x['secs'])}" if x.get("secs") else ""

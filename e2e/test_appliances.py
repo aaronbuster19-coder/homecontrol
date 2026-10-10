@@ -197,6 +197,8 @@ def test_glow_and_watts_follow_power(appliance_stack, aha, open_page, size):
     aha.set("switch.plug_3", "on")
     aha.set("sensor.plug_3_power", "35")
     expect(tag(page, "fan")).to_have_text("On · 35 W")
+    aha.set("sensor.plug_3_power", "0")  # plug on, fan itself switched off
+    expect(tag(page, "fan")).to_have_text("Idle · 0 W")
     expect(tag(page, "fridge")).to_have_text("Idle · 2.1 W")
     aha.set("sensor.fridge_power", "84")
     expect(tag(page, "fridge")).to_have_text("Cooling · 84 W")
