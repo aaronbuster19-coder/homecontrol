@@ -11,10 +11,9 @@ import time
 import pytest
 from playwright.sync_api import expect
 
-from conftest import login, shot
+from conftest import WAIT, login, shot
 
 DOOR, KITCHEN = "binary_sensor.contact_sensor_door", "light.kitchen"
-WAIT = 15  # s: slow, contended CI runners
 
 
 def api(page, stack, path, method="GET", body=None):

@@ -243,7 +243,7 @@ def forecast(kind: str) -> list[dict]:
         for i in range(36):
             t = now + timedelta(hours=i)
             h = t.astimezone(LONDON).hour
-            night = h >= 20 or h < 7
+            night = h >= 20 or h < 8  # the app's "tonight" runs to 08:00
             temp = (1.0 if cold else 7.0) + (0 if night else 6 + 4 * math.sin((h - 9) / 10 * math.pi))
             out.append({"datetime": t.isoformat(), "condition": "clear-night" if night else ["sunny", "partlycloudy", "rainy"][i % 3],
                         "temperature": round(temp, 1), "precipitation": 0.4 if i % 3 == 2 else 0.0,

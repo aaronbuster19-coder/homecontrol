@@ -85,7 +85,10 @@ def test_start_from_menu_then_stop_restores(stack, ha, open_page, size, theme):
     got = wait_until(lambda: len(steps(ha)) >= 3 and steps(ha), what="three disco steps")
     assert all(c["data"]["entity_id"] == ["light.lounge", "light.strip"] for c in got)
     ts = [c["t"] for c in got]
-    assert all(b - a >= 0.95 for a, b in zip(ts, ts[1:])), ts
+    # Times are when the fake HA received each step, so they carry the network's jitter on a busy runner (a step
+    # sent 1.0 s after the last can land 0.9 s after it). The exact one-change-per-second rule is unit-tested with an
+    # injected clock (backend/tests/test_disco.py); here: about a second apart on average, and never close together.
+    assert (ts[-1] - ts[0]) / (len(ts) - 1) >= 0.95 and all(b - a >= 0.6 for a, b in zip(ts, ts[1:])), ts
     shot(page, f"disco-running-{size}-{theme}")
     n = len(ha.calls())
     press(page, page.locator("#discoStop"))

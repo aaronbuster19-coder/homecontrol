@@ -32,7 +32,7 @@ USER, PASSWORD = "me", "pw-for-tests"
 
 # Waits end as soon as their condition holds, so a generous ceiling costs nothing on a fast machine and keeps a slow,
 # contended CI runner (or the --cpus=1 e2e-slow job) from failing a test that was only late.
-WAIT = float(os.environ.get("E2E_WAIT", "15"))  # seconds
+WAIT = float(os.environ.get("E2E_WAIT", "30"))  # seconds: a ceiling, not a delay; the v10 suite on a busy VM needed >15
 expect.set_options(timeout=WAIT * 1000)
 LIVE_PAGES = []  # every open page, so waits on the fake HA can also wait for the browsers' requests to land
 
